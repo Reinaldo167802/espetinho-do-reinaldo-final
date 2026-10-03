@@ -1,0 +1,10 @@
+{
+  "name":"espetinho-do-reinaldo-v4",
+  "version":"4.0.0",
+  "private":true,
+  "description":"Sistema de pedidos, produtos, comandas e caixa do Espetinho do Reinaldo",
+  "main":"server.js",
+  "scripts":{"start":"node server.js"},
+  "engines":{"node":">=20"},
+  "dependencies":{"better-sqlite3":"^11.10.0","express":"^5.1.0","pg":"^8.16.3"}
+}
