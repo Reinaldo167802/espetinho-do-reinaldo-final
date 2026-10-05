@@ -60,7 +60,52 @@ app.post('/api/orders',async(req,res)=>{try{const {customer_name,phone='',type='
  let orderId,commandNo=String(req.body.command_no||'');if(isPg){const r=await db.query('INSERT INTO orders(customer_name,phone,type,address,payment,notes,status,total,command_no) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id',[customer_name,phone,type,address,payment,notes,'novo',total,commandNo]);orderId=r.rows[0].id;for(const x of products)await db.query('INSERT INTO order_items(order_id,product_id,name,qty,unit_price,total) VALUES($1,$2,$3,$4,$5,$6)',[orderId,x.p.id,x.p.name,x.qty,x.p.price,x.line]);}else{const r=await run('INSERT INTO orders(customer_name,phone,type,address,payment,notes,status,total,command_no) VALUES(?,?,?,?,?,?,?,?,?)',[customer_name,phone,type,address,payment,notes,'novo',total,commandNo]);orderId=r.lastID;for(const x of products)await run('INSERT INTO order_items(order_id,product_id,name,qty,unit_price,total) VALUES(?,?,?,?,?,?)',[orderId,x.p.id,x.p.name,x.qty,x.p.price,x.line]);}
  res.json({ok:true,order_id:orderId,total,delivery_fee:deliveryFee,command_no:commandNo});}catch(e){res.status(500).json({error:e.message})}});
 app.get('/api/admin/orders',auth,async(req,res)=>{const orders=await q('SELECT * FROM orders ORDER BY id DESC');for(const o of orders)o.items=await q('SELECT * FROM order_items WHERE order_id='+(isPg?'$1':'?')+' ORDER BY id',[o.id]);res.json(orders);});
-app.put('/api/admin/orders/:id/status',auth,async(req,res)=>{const status=req.body.status;const allowed=['novo','confirmado','preparando','pronto','entregando','finalizado','cancelado'];if(!allowed.includes(status))return res.status(400).json({error:'Status inválido'});await run('UPDATE orders SET status='+(isPg?'$1':'?')+' WHERE id='+(isPg?'$2':'?'),[status,Number(req.params.id)]);if(status==='finalizado'){const o=await one('SELECT * FROM orders WHERE id='+(isPg?'$1':'?'),[Number(req.params.id)]);if(o){const exists=await one('SELECT id FROM cash WHERE description='+(isPg?'$1':'?'),['Pedido #'+o.id]);if(!exists)await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?'),['entrada','Pedido #'+o.id,Number(o.total),o.payment||'']);}}res.json({ok:true});});
+app.put('/api/admin/orders/:id/status',auth,async(req,res)=>{
+ try{
+  const status=String(req.body.status||'');
+  const allowed=['novo','confirmado','preparando','pronto','entregando','finalizado','cancelado'];
+  const id=Number(req.params.id);
+  if(!allowed.includes(status))return res.status(400).json({error:'Status inválido'});
+  if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Pedido inválido'});
+
+  if(isPg){
+   await db.query('UPDATE orders SET status=$1 WHERE id=$2',[status,id]);
+  }else{
+   await run('UPDATE orders SET status=? WHERE id=?',[status,id]);
+  }
+
+  if(status==='finalizado'){
+   const o=isPg
+    ? await one('SELECT * FROM orders WHERE id=$1',[id])
+    : await one('SELECT * FROM orders WHERE id=?',[id]);
+
+   if(o){
+    const exists=isPg
+     ? await one('SELECT id FROM cash WHERE order_id=$1',[id])
+     : await one('SELECT id FROM cash WHERE order_id=?',[id]);
+
+    if(!exists){
+     if(isPg){
+      await db.query(
+       'INSERT INTO cash(type,description,value,payment,order_id) VALUES($1,$2,$3,$4,$5)',
+       ['entrada','Pedido #'+o.id,Number(o.total),o.payment||'',o.id]
+      );
+     }else{
+      await run(
+       'INSERT INTO cash(type,description,value,payment,order_id) VALUES(?,?,?,?,?)',
+       ['entrada','Pedido #'+o.id,Number(o.total),o.payment||'',o.id]
+      );
+     }
+    }
+   }
+  }
+
+  res.json({ok:true});
+ }catch(e){
+  console.error('Erro ao atualizar status do pedido:',e);
+  res.status(500).json({error:e.message});
+ }
+});
 
 app.get('/api/admin/cash',auth,async(req,res)=>{const rows=await q('SELECT * FROM cash ORDER BY id DESC');const totals=await one('SELECT COALESCE(SUM(CASE WHEN type=\'entrada\' THEN value ELSE 0 END),0) entradas, COALESCE(SUM(CASE WHEN type=\'saida\' THEN value ELSE 0 END),0) saidas FROM cash');res.json({rows,totals:{entradas:Number(totals.entradas),saidas:Number(totals.saidas),saldo:Number(totals.entradas)-Number(totals.saidas)}})});
 app.post('/api/admin/cash',auth,async(req,res)=>{const {type='entrada',description,value,payment=''}=req.body;if(!description||!value)return res.status(400).json({error:'Descrição e valor obrigatórios'});await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?'),[type,description,Number(value),payment]);res.json({ok:true});});
