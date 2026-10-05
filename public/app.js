@@ -9,7 +9,7 @@ async function load(){
   products=Array.isArray(pr)?pr:(Array.isArray(pr.products)?pr.products:[]);
   deliveryFee=0;
   try{
-   const stRes=await fetch('/api/settings/public',{cache:'no-store'});
+   const stRes=await fetch('/api/config',{cache:'no-store'});
    if(stRes.ok){
     const st=await stRes.json();
     deliveryFee=Number(st.delivery_fee||0);
