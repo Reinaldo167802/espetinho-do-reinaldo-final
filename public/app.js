@@ -2,7 +2,26 @@ let products=[];let cart=[];let deliveryFee=0;
 const money=v=>Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const $=id=>document.getElementById(id);
 async function load(){
- try{const [pr,st]=await Promise.all([fetch('/api/products').then(r=>r.json()),fetch('/api/settings/public').then(r=>r.json())]);products=pr;deliveryFee=Number(st.delivery_fee||0);renderCats();renderProducts();update();}catch(e){$('products').innerHTML='<p>Não foi possível carregar os produtos.</p>';}
+ try{
+  const prRes=await fetch('/api/products',{cache:'no-store'});
+  if(!prRes.ok) throw new Error('Falha ao carregar produtos: '+prRes.status);
+  const pr=await prRes.json();
+  products=Array.isArray(pr)?pr:(Array.isArray(pr.products)?pr.products:[]);
+  deliveryFee=0;
+  try{
+   const stRes=await fetch('/api/settings/public',{cache:'no-store'});
+   if(stRes.ok){
+    const st=await stRes.json();
+    deliveryFee=Number(st.delivery_fee||0);
+   }
+  }catch(_){deliveryFee=0;}
+  renderCats();
+  renderProducts();
+  update();
+ }catch(e){
+  console.error(e);
+  $('products').innerHTML='<p>Não foi possível carregar os produtos.</p>';
+ }
 }
 function renderCats(){const cats=[...new Set(products.map(p=>p.category))];$('cats').innerHTML='<button class="cat active" onclick="filterCat(\'\')">Todos</button>'+cats.map(c=>`<button class="cat" onclick="filterCat('${esc(c)}')">${esc(c)}</button>`).join('');}
 function filterCat(c){document.querySelectorAll('.cat').forEach(b=>b.classList.remove('active'));event?.currentTarget?.classList.add('active');renderProducts(c)}
