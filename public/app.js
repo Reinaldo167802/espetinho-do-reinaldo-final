@@ -15,13 +15,8 @@ async function load(){
     deliveryFee=Number(st.delivery_fee||0);
    }
   }catch(_){deliveryFee=0;}
-  renderCats();
-  renderProducts();
-  update();
- }catch(e){
-  console.error(e);
-  $('products').innerHTML='<p>Não foi possível carregar os produtos.</p>';
- }
+  renderCats();renderProducts();update();
+ }catch(e){console.error(e);$('products').innerHTML='<p>Não foi possível carregar os produtos.</p>';}
 }
 function renderCats(){const cats=[...new Set(products.map(p=>p.category))];$('cats').innerHTML='<button class="cat active" onclick="filterCat(\'\')">Todos</button>'+cats.map(c=>`<button class="cat" onclick="filterCat('${esc(c)}')">${esc(c)}</button>`).join('');}
 function filterCat(c){document.querySelectorAll('.cat').forEach(b=>b.classList.remove('active'));event?.currentTarget?.classList.add('active');renderProducts(c)}
