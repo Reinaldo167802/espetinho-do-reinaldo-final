@@ -1,31 +1,16 @@
-let products=[];let cart=[];let deliveryFee=0;
-const money=v=>Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
-const $=id=>document.getElementById(id);
-async function load(){
- try{
-  const prRes=await fetch('/api/products',{cache:'no-store'});
-  if(!prRes.ok) throw new Error('Falha ao carregar produtos: '+prRes.status);
-  const pr=await prRes.json();
-  products=Array.isArray(pr)?pr:(Array.isArray(pr.products)?pr.products:[]);
-  deliveryFee=0;
-  try{
-   const stRes=await fetch('/api/config',{cache:'no-store'});
-   if(stRes.ok){
-    const st=await stRes.json();
-    deliveryFee=Number(st.delivery_fee||0);
-   }
-  }catch(_){deliveryFee=0;}
-  renderCats();renderProducts();update();
- }catch(e){console.error(e);$('products').innerHTML='<p>Não foi possível carregar os produtos.</p>';}
-}
+let products=[];let cart=[];let deliveryFee=0;let trackedOrderId=localStorage.getItem('esp_tracking_order');
+const money=v=>Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});const $=id=>document.getElementById(id);
+async function load(){try{const [pr,st]=await Promise.all([fetch('/api/products').then(r=>r.json()),fetch('/api/config').then(r=>r.json())]);products=pr;deliveryFee=Number(st.delivery_fee||0);renderCats();renderProducts();update();renderTracking();}catch(e){$('products').innerHTML='<p>Não foi possível carregar os produtos.</p>';}}
 function renderCats(){const cats=[...new Set(products.map(p=>p.category))];$('cats').innerHTML='<button class="cat active" onclick="filterCat(\'\')">Todos</button>'+cats.map(c=>`<button class="cat" onclick="filterCat('${esc(c)}')">${esc(c)}</button>`).join('');}
 function filterCat(c){document.querySelectorAll('.cat').forEach(b=>b.classList.remove('active'));event?.currentTarget?.classList.add('active');renderProducts(c)}
 function renderProducts(c=''){const list=c?products.filter(p=>p.category===c):products;$('products').innerHTML=list.map(p=>`<article class="card"><div class="photo">${p.image?`<img src="${escAttr(p.image)}" alt="${escAttr(p.name)}">`:'🍢'}</div><h3>${esc(p.name)}</h3><small>${esc(p.description||'')}</small><strong>${money(p.price)}</strong><button onclick="add(${p.id})">Adicionar</button></article>`).join('')||'<p>Nenhum produto disponível.</p>';}
 function add(id){const p=products.find(x=>x.id===id),i=cart.findIndex(x=>x.id===id);if(!p)return;if(i>=0)cart[i].qty++;else cart.push({id:p.id,name:p.name,price:Number(p.price),qty:1});update();toast('Adicionado ao pedido');}
 function update(){const subtotal=cart.reduce((s,x)=>s+x.price*x.qty,0);const type=$('type')?.value||'balcao';const fee=type==='entrega'?deliveryFee:0;const total=subtotal+fee;$('cartCount').textContent=cart.reduce((s,x)=>s+x.qty,0);$('cartItems').innerHTML=cart.length?cart.map(x=>`<div class="line"><div><b>${esc(x.name)}</b><small>${money(x.price)} cada</small></div><div><button onclick="chg(${x.id},-1)">−</button><span>${x.qty}</span><button onclick="chg(${x.id},1)">+</button></div></div>`).join(''):'<p>Seu carrinho está vazio.</p>';$('subtotal').textContent=money(subtotal);$('deliveryFee').textContent=money(fee);$('cartTotal').textContent=money(total);$('deliveryNote').textContent=type==='entrega'?(deliveryFee>0?`Taxa de entrega: ${money(deliveryFee)}`:'Taxa de entrega não configurada'):'Sem taxa de entrega';$('address').required=type==='entrega';$('address').style.display=type==='entrega'?'block':'none';}
-function chg(id,n){const x=cart.find(x=>x.id===id);if(x){x.qty+=n;if(x.qty<=0)cart=cart.filter(y=>y.id!==id);}update();}
-function openCart(){$('cart').classList.remove('hidden');update()}function closeCart(){$('cart').classList.add('hidden')}
-async function sendOrder(){if(!cart.length)return toast('Adicione algum produto');const name=$('name').value.trim();if(!name)return toast('Informe seu nome');if($('type').value==='entrega'&&!$('address').value.trim())return toast('Informe o endereço para entrega');const body={customer_name:name,phone:$('phone').value,type:$('type').value,address:$('address').value,payment:$('payment').value,notes:$('notes').value,items:cart.map(x=>({product_id:x.id,qty:x.qty}))};const r=await fetch('/api/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const d=await r.json();if(!r.ok)return toast(d.error||'Erro');cart=[];update();closeCart();alert('Pedido enviado! Número do pedido: #'+d.order_id+'\nSubtotal: '+money(d.subtotal)+'\nTaxa de entrega: '+money(d.delivery_fee)+'\nTOTAL: '+money(d.total));}
-function toast(t){const e=$('toast');e.textContent=t;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),1800)}
-function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}function escAttr(s){return esc(s)}
-$('cartBtn').onclick=openCart;$('type').onchange=update;load();
+function chg(id,n){const x=cart.find(x=>x.id===id);if(x){x.qty+=n;if(x.qty<=0)cart=cart.filter(y=>y.id!==id);}update();}function openCart(){$('cart').classList.remove('hidden');update()}function closeCart(){$('cart').classList.add('hidden')}
+async function sendOrder(){if(!cart.length)return toast('Adicione algum produto');const name=$('name').value.trim();if(!name)return toast('Informe seu nome');if($('type').value==='entrega'&&!$('address').value.trim())return toast('Informe o endereço para entrega');const body={customer_name:name,phone:$('phone').value,type:$('type').value,address:$('address').value,payment:$('payment').value,notes:$('notes').value,items:cart.map(x=>({product_id:x.id,qty:x.qty}))};const r=await fetch('/api/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const d=await r.json();if(!r.ok)return toast(d.error||'Erro');trackedOrderId=String(d.order_id);localStorage.setItem('esp_tracking_order',trackedOrderId);cart=[];update();closeCart();renderTracking();scrollToTracking();pollTracking();}
+const STATUS=[['novo','🟡','Pedido recebido','Recebemos seu pedido e estamos aguardando a confirmação.'],['confirmado','🔵','Pedido confirmado','Seu pedido foi confirmado.'],['preparando','🟠','Preparando seu pedido','A cozinha está preparando seu pedido.'],['pronto','🟢','Pedido pronto','Seu pedido está pronto.'],['entregando','🛵','Saiu para entrega','Seu pedido saiu para entrega.'],['finalizado','✅','Pedido finalizado','Pedido entregue/finalizado.']];
+function renderTracking(order){let box=$('orderTracking');if(!box){box=document.createElement('section');box.id='orderTracking';box.style.cssText='margin:16px 0;padding:18px;border-radius:16px;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.10);';document.body.prepend(box);}if(!trackedOrderId){box.innerHTML='<h2>Acompanhe seu pedido</h2><p>Depois de fazer um pedido, o acompanhamento aparecerá aqui.</p>';return;}if(!order){box.innerHTML=`<h2>Pedido #${esc(trackedOrderId)}</h2><p>Consultando o status...</p>`;return;}const idx=Math.max(0,STATUS.findIndex(s=>s[0]===order.status));const current=STATUS[idx]||STATUS[0];box.innerHTML=`<h2>Pedido #${order.id}</h2><div style="font-size:18px;font-weight:700;margin:8px 0">${current[1]} ${current[2]}</div><p>${current[3]}</p><div style="display:grid;gap:8px;margin-top:14px">${STATUS.map((s,i)=>`<div style="padding:9px 12px;border-radius:10px;background:${i<=idx?'#e8f5e9':'#f3f3f3'};font-weight:${i===idx?'700':'400'}">${s[1]} ${s[2]}</div>`).join('')}</div><p style="margin-top:12px"><b>Total:</b> ${money(order.total)}</p>`;}
+async function pollTracking(){if(!trackedOrderId)return;try{const r=await fetch('/api/orders/'+encodeURIComponent(trackedOrderId));if(r.ok){const o=await r.json();renderTracking(o);if(!['finalizado','cancelado'].includes(o.status))setTimeout(pollTracking,5000);}}catch(e){setTimeout(pollTracking,8000);}}
+function scrollToTracking(){setTimeout(()=>document.getElementById('orderTracking')?.scrollIntoView({behavior:'smooth'}),100)}
+function toast(t){const e=$('toast');e.textContent=t;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),1800)}function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}function escAttr(s){return esc(s)}
+$('cartBtn').onclick=openCart;$('type').onchange=update;load();if(trackedOrderId)pollTracking();
