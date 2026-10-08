@@ -7,7 +7,6 @@ app.use(express.urlencoded({extended:true}));
 
 const PORT=process.env.PORT||3000;
 const ADMIN_PASSWORD=String(process.env.SENHA_DE_ADMINISTRADOR||process.env.ADMIN_PASSWORD||'reinaldo123').trim();
-const DELIVERY_FEE=Number(process.env.TAXA_ENTREGA||process.env.DELIVERY_FEE||process.env.TAXA_DE_ENTREGA||0);
 let db;
 let isPg=!!process.env.DATABASE_URL;
 
@@ -47,7 +46,6 @@ async function run(sql,args=[]){if(isPg){const r=await db.query(sql,args);return
 function placeholders(n,start=1){return Array.from({length:n},(_,i)=>'$'+(i+start)).join(',');}
 
 app.get('/api/health',(req,res)=>res.json({ok:true,version:'4.0.0',database:isPg?'postgres':'sqlite',adminConfigured:Boolean(process.env.SENHA_DE_ADMINISTRADOR||process.env.ADMIN_PASSWORD)}));
-app.get('/api/config',(req,res)=>res.json({delivery_fee:DELIVERY_FEE}));
 app.get('/api/products',async(req,res)=>{try{const rows=await q('SELECT * FROM products WHERE active = '+(isPg?'true':'1')+' ORDER BY category,name');res.json(rows);}catch(e){res.status(500).json({error:e.message})}});
 app.get('/api/admin/products',auth,async(req,res)=>{res.json(await q('SELECT * FROM products ORDER BY category,name'));});
 app.post('/api/admin/products',auth,async(req,res)=>{const {name,category='Outros',description='',price=0,image='',active=true}=req.body;if(!name)return res.status(400).json({error:'Nome obrigatório'});const sql=isPg?'INSERT INTO products(name,category,description,price,image,active) VALUES($1,$2,$3,$4,$5,$6) RETURNING *':'INSERT INTO products(name,category,description,price,image,active) VALUES(?,?,?,?,?,?)';const r=await run(sql,[name,category,description,Number(price),image,!!active]);res.json(isPg?r.lastID:await one('SELECT * FROM products WHERE id=?',[r.lastID]));});
@@ -55,57 +53,11 @@ app.put('/api/admin/products/:id',auth,async(req,res)=>{const {name,category,des
 app.delete('/api/admin/products/:id',auth,async(req,res)=>{await run('UPDATE products SET active='+(isPg?'false':'0')+' WHERE id='+(isPg?'$1':'?'),[Number(req.params.id)]);res.json({ok:true});});
 
 app.post('/api/orders',async(req,res)=>{try{const {customer_name,phone='',type='balcao',address='',payment='',notes='',items=[]}=req.body;if(!customer_name||!items.length)return res.status(400).json({error:'Nome e itens são obrigatórios'});let total=0,products=[];for(const it of items){const p=await one('SELECT * FROM products WHERE id='+(isPg?'$1':'?'),[Number(it.product_id)]);if(!p||!(p.active===true||p.active===1))return res.status(400).json({error:'Produto indisponível'});const qty=Number(it.qty)||1;const line=Number(p.price)*qty;total+=line;products.push({p,qty,line});}
- const deliveryFee=type==='entrega'?DELIVERY_FEE:0;
- total+=deliveryFee;
  let orderId,commandNo=String(req.body.command_no||'');if(isPg){const r=await db.query('INSERT INTO orders(customer_name,phone,type,address,payment,notes,status,total,command_no) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id',[customer_name,phone,type,address,payment,notes,'novo',total,commandNo]);orderId=r.rows[0].id;for(const x of products)await db.query('INSERT INTO order_items(order_id,product_id,name,qty,unit_price,total) VALUES($1,$2,$3,$4,$5,$6)',[orderId,x.p.id,x.p.name,x.qty,x.p.price,x.line]);}else{const r=await run('INSERT INTO orders(customer_name,phone,type,address,payment,notes,status,total,command_no) VALUES(?,?,?,?,?,?,?,?,?)',[customer_name,phone,type,address,payment,notes,'novo',total,commandNo]);orderId=r.lastID;for(const x of products)await run('INSERT INTO order_items(order_id,product_id,name,qty,unit_price,total) VALUES(?,?,?,?,?,?)',[orderId,x.p.id,x.p.name,x.qty,x.p.price,x.line]);}
- res.json({ok:true,order_id:orderId,total,delivery_fee:deliveryFee,command_no:commandNo});}catch(e){res.status(500).json({error:e.message})}});
+ res.json({ok:true,order_id:orderId,total,command_no:commandNo});}catch(e){res.status(500).json({error:e.message})}});
 app.get('/api/admin/orders',auth,async(req,res)=>{const orders=await q('SELECT * FROM orders ORDER BY id DESC');for(const o of orders)o.items=await q('SELECT * FROM order_items WHERE order_id='+(isPg?'$1':'?')+' ORDER BY id',[o.id]);res.json(orders);});
-app.put('/api/admin/orders/:id/status',auth,async(req,res)=>{
- try{
-  const status=String(req.body.status||'');
-  const allowed=['novo','confirmado','preparando','pronto','entregando','finalizado','cancelado'];
-  const id=Number(req.params.id);
-  if(!allowed.includes(status))return res.status(400).json({error:'Status inválido'});
-  if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Pedido inválido'});
-
-  if(isPg){
-   await db.query('UPDATE orders SET status=$1 WHERE id=$2',[status,id]);
-  }else{
-   await run('UPDATE orders SET status=? WHERE id=?',[status,id]);
-  }
-
-  if(status==='finalizado'){
-   const o=isPg
-    ? await one('SELECT * FROM orders WHERE id=$1',[id])
-    : await one('SELECT * FROM orders WHERE id=?',[id]);
-
-   if(o){
-    const exists=isPg
-     ? await one('SELECT id FROM cash WHERE order_id=$1',[id])
-     : await one('SELECT id FROM cash WHERE order_id=?',[id]);
-
-    if(!exists){
-     if(isPg){
-      await db.query(
-       'INSERT INTO cash(type,description,value,payment,order_id) VALUES($1,$2,$3,$4,$5)',
-       ['entrada','Pedido #'+o.id,Number(o.total),o.payment||'',o.id]
-      );
-     }else{
-      await run(
-       'INSERT INTO cash(type,description,value,payment,order_id) VALUES(?,?,?,?,?)',
-       ['entrada','Pedido #'+o.id,Number(o.total),o.payment||'',o.id]
-      );
-     }
-    }
-   }
-  }
-
-  res.json({ok:true});
- }catch(e){
-  console.error('Erro ao atualizar status do pedido:',e);
-  res.status(500).json({error:e.message});
- }
-});
+app.get('/api/orders/:id',async(req,res)=>{try{const id=Number(req.params.id);if(!id)return res.status(400).json({error:'Pedido inválido'});const o=await one('SELECT id,customer_name,type,status,total,created_at FROM orders WHERE id='+(isPg?'$1':'?'),[id]);if(!o)return res.status(404).json({error:'Pedido não encontrado'});o.items=await q('SELECT name,qty,unit_price,total FROM order_items WHERE order_id='+(isPg?'$1':'?')+' ORDER BY id',[id]);res.json(o);}catch(e){res.status(500).json({error:e.message})}});
+app.put('/api/admin/orders/:id/status',auth,async(req,res)=>{const status=req.body.status;const allowed=['novo','confirmado','preparando','pronto','entregando','finalizado','cancelado'];if(!allowed.includes(status))return res.status(400).json({error:'Status inválido'});await run('UPDATE orders SET status='+(isPg?'$1':'?')+' WHERE id='+(isPg?'$2':'?'),[status,Number(req.params.id)]);if(status==='finalizado'){const o=await one('SELECT * FROM orders WHERE id='+(isPg?'$1':'?'),[Number(req.params.id)]);if(o)await run('INSERT INTO cash(type,description,value,payment,order_id) VALUES('+(isPg?'$1,$2,$3,$4,$5':'?,?,?,?,?'),['entrada','Pedido #'+o.id,Number(o.total),o.payment||'',o.id]);}res.json({ok:true});});
 
 app.get('/api/admin/cash',auth,async(req,res)=>{const rows=await q('SELECT * FROM cash ORDER BY id DESC');const totals=await one('SELECT COALESCE(SUM(CASE WHEN type=\'entrada\' THEN value ELSE 0 END),0) entradas, COALESCE(SUM(CASE WHEN type=\'saida\' THEN value ELSE 0 END),0) saidas FROM cash');res.json({rows,totals:{entradas:Number(totals.entradas),saidas:Number(totals.saidas),saldo:Number(totals.entradas)-Number(totals.saidas)}})});
 app.post('/api/admin/cash',auth,async(req,res)=>{const {type='entrada',description,value,payment=''}=req.body;if(!description||!value)return res.status(400).json({error:'Descrição e valor obrigatórios'});await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?'),[type,description,Number(value),payment]);res.json({ok:true});});
