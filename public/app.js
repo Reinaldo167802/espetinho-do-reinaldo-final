@@ -2,24 +2,7 @@ let products=[];let cart=[];let deliveryFee=0;
 const money=v=>Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const $=id=>document.getElementById(id);
 async function load(){
-  try{
-    const pr = await fetch('/api/products');
-    if(!pr.ok) throw new Error('Falha ao carregar produtos');
-    products = await pr.json();
-    deliveryFee = 0;
-    try{
-      const st = await fetch('/api/config');
-      if(st.ok){
-        const cfg = await st.json();
-        deliveryFee = Number(cfg.delivery_fee ?? cfg.taxa_entrega ?? 0);
-      }
-    }catch(e){}
-    renderCats();
-    renderProducts();
-    update();
-  }catch(e){
-    $('products').innerHTML='<p>Não foi possível carregar os produtos.</p>';
-  }
+ try{const [pr,st]=await Promise.all([fetch('/api/products').then(r=>r.json()),fetch('/api/config').then(r=>r.json())]);products=pr;deliveryFee=Number(st.delivery_fee||st.taxa_entrega||0);renderCats();renderProducts();update();}catch(e){$('products').innerHTML='<p>Não foi possível carregar os produtos.</p>';}
 }
 function renderCats(){const cats=[...new Set(products.map(p=>p.category))];$('cats').innerHTML='<button class="cat active" onclick="filterCat(\'\')">Todos</button>'+cats.map(c=>`<button class="cat" onclick="filterCat('${esc(c)}')">${esc(c)}</button>`).join('');}
 function filterCat(c){document.querySelectorAll('.cat').forEach(b=>b.classList.remove('active'));event?.currentTarget?.classList.add('active');renderProducts(c)}
@@ -47,3 +30,5 @@ async function pollOrderStatus(id){
   orderPollTimer=setTimeout(()=>pollOrderStatus(id),7000);
  }
 }
+
+load();
