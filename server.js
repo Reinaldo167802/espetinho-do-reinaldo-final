@@ -47,7 +47,7 @@ async function run(sql,args=[]){if(isPg){const r=await db.query(sql,args);return
 function placeholders(n,start=1){return Array.from({length:n},(_,i)=>'$'+(i+start)).join(',');}
 
 app.get('/api/health',(req,res)=>res.json({ok:true,version:'4.0.0',database:isPg?'postgres':'sqlite',adminConfigured:Boolean(process.env.SENHA_DE_ADMINISTRADOR||process.env.ADMIN_PASSWORD)}));
-app.get('/api/config',(req,res)=>res.json({delivery_fee:Number(process.env.TAXA_ENTREGA||process.env.DELIVERY_FEE||process.env.TAXA_DE_ENTREGA||0)}));
+app.get('/api/config',(req,res)=>res.json({delivery_fee:DELIVERY_FEE}));
 app.get('/api/products',async(req,res)=>{try{const rows=await q('SELECT * FROM products WHERE active = '+(isPg?'true':'1')+' ORDER BY category,name');res.json(rows);}catch(e){res.status(500).json({error:e.message})}});
 app.get('/api/admin/products',auth,async(req,res)=>{res.json(await q('SELECT * FROM products ORDER BY category,name'));});
 app.post('/api/admin/products',auth,async(req,res)=>{const {name,category='Outros',description='',price=0,image='',active=true}=req.body;if(!name)return res.status(400).json({error:'Nome obrigatório'});const sql=isPg?'INSERT INTO products(name,category,description,price,image,active) VALUES($1,$2,$3,$4,$5,$6) RETURNING *':'INSERT INTO products(name,category,description,price,image,active) VALUES(?,?,?,?,?,?)';const r=await run(sql,[name,category,description,Number(price),image,!!active]);res.json(isPg?r.lastID:await one('SELECT * FROM products WHERE id=?',[r.lastID]));});
@@ -55,19 +55,37 @@ app.put('/api/admin/products/:id',auth,async(req,res)=>{const {name,category,des
 app.delete('/api/admin/products/:id',auth,async(req,res)=>{await run('UPDATE products SET active='+(isPg?'false':'0')+' WHERE id='+(isPg?'$1':'?'),[Number(req.params.id)]);res.json({ok:true});});
 
 app.post('/api/orders',async(req,res)=>{try{const {customer_name,phone='',type='balcao',address='',payment='',notes='',items=[]}=req.body;if(!customer_name||!items.length)return res.status(400).json({error:'Nome e itens são obrigatórios'});let total=0,products=[];for(const it of items){const p=await one('SELECT * FROM products WHERE id='+(isPg?'$1':'?'),[Number(it.product_id)]);if(!p||!(p.active===true||p.active===1))return res.status(400).json({error:'Produto indisponível'});const qty=Number(it.qty)||1;const line=Number(p.price)*qty;total+=line;products.push({p,qty,line});}
- const subtotal=total;const deliveryFee=type==='entrega'?DELIVERY_FEE:0;total=subtotal+deliveryFee;
+ const deliveryFee=type==='entrega'?DELIVERY_FEE:0;
+ total+=deliveryFee;
  let orderId,commandNo=String(req.body.command_no||'');if(isPg){const r=await db.query('INSERT INTO orders(customer_name,phone,type,address,payment,notes,status,total,command_no) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id',[customer_name,phone,type,address,payment,notes,'novo',total,commandNo]);orderId=r.rows[0].id;for(const x of products)await db.query('INSERT INTO order_items(order_id,product_id,name,qty,unit_price,total) VALUES($1,$2,$3,$4,$5,$6)',[orderId,x.p.id,x.p.name,x.qty,x.p.price,x.line]);}else{const r=await run('INSERT INTO orders(customer_name,phone,type,address,payment,notes,status,total,command_no) VALUES(?,?,?,?,?,?,?,?,?)',[customer_name,phone,type,address,payment,notes,'novo',total,commandNo]);orderId=r.lastID;for(const x of products)await run('INSERT INTO order_items(order_id,product_id,name,qty,unit_price,total) VALUES(?,?,?,?,?,?)',[orderId,x.p.id,x.p.name,x.qty,x.p.price,x.line]);}
- res.json({ok:true,order_id:orderId,subtotal,delivery_fee:deliveryFee,total,command_no:commandNo});}catch(e){res.status(500).json({error:e.message})}});
+ res.json({ok:true,order_id:orderId,total,delivery_fee:deliveryFee,command_no:commandNo});}catch(e){res.status(500).json({error:e.message})}});
+app.get('/api/orders/:id/status',async(req,res)=>{
+  try{
+    const id=Number(req.params.id);
+    if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Pedido inválido'});
+    const o=await one('SELECT id,customer_name,phone,type,total,status,created_at FROM orders WHERE id='+(isPg?'$1':'?'),[id]);
+    if(!o)return res.status(404).json({error:'Pedido não encontrado'});
+    res.json({id:o.id,customer_name:o.customer_name,phone:o.phone||'',type:o.type,total:Number(o.total||0),status:o.status,created_at:o.created_at});
+  }catch(e){res.status(500).json({error:e.message})}
+});
+app.get('/api/orders/:id',async(req,res)=>{
+  try{
+    const id=Number(req.params.id);
+    if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Pedido inválido'});
+    const o=await one('SELECT id,customer_name,phone,type,total,status,created_at FROM orders WHERE id='+(isPg?'$1':'?'),[id]);
+    if(!o)return res.status(404).json({error:'Pedido não encontrado'});
+    res.json({id:o.id,customer_name:o.customer_name,phone:o.phone||'',type:o.type,total:Number(o.total||0),status:o.status,created_at:o.created_at});
+  }catch(e){res.status(500).json({error:e.message})}
+});
 app.get('/api/admin/orders',auth,async(req,res)=>{const orders=await q('SELECT * FROM orders ORDER BY id DESC');for(const o of orders)o.items=await q('SELECT * FROM order_items WHERE order_id='+(isPg?'$1':'?')+' ORDER BY id',[o.id]);res.json(orders);});
-app.get('/api/orders/:id',async(req,res)=>{try{const id=Number(req.params.id);if(!id)return res.status(400).json({error:'Pedido inválido'});const o=await one('SELECT id,customer_name,type,status,total,created_at FROM orders WHERE id='+(isPg?'$1':'?'),[id]);if(!o)return res.status(404).json({error:'Pedido não encontrado'});o.items=await q('SELECT name,qty,unit_price,total FROM order_items WHERE order_id='+(isPg?'$1':'?')+' ORDER BY id',[id]);res.json(o);}catch(e){res.status(500).json({error:e.message})}});
-app.put('/api/admin/orders/:id/status',auth,async(req,res)=>{const status=req.body.status;const allowed=['novo','confirmado','preparando','pronto','entregando','finalizado','cancelado'];if(!allowed.includes(status))return res.status(400).json({error:'Status inválido'});await run('UPDATE orders SET status='+(isPg?'$1':'?')+' WHERE id='+(isPg?'$2':'?'),[status,Number(req.params.id)]);if(status==='finalizado'){const o=await one('SELECT * FROM orders WHERE id='+(isPg?'$1':'?'),[Number(req.params.id)]);if(o)await run('INSERT INTO cash(type,description,value,payment,order_id) VALUES('+(isPg?'$1,$2,$3,$4,$5':'?,?,?,?,?'),['entrada','Pedido #'+o.id,Number(o.total),o.payment||'',o.id]);}res.json({ok:true});});
+app.put('/api/admin/orders/:id/status',auth,async(req,res)=>{const status=req.body.status;const allowed=['novo','confirmado','preparando','pronto','entregando','finalizado','cancelado'];if(!allowed.includes(status))return res.status(400).json({error:'Status inválido'});await run('UPDATE orders SET status='+(isPg?'$1':'?')+' WHERE id='+(isPg?'$2':'?'),[status,Number(req.params.id)]);if(status==='finalizado'){const o=await one('SELECT * FROM orders WHERE id='+(isPg?'$1':'?'),[Number(req.params.id)]);if(o){const exists=await one('SELECT id FROM cash WHERE description='+(isPg?'$1':'?'),['Pedido #'+o.id]);if(!exists)await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4)':'?,?,?,?)'),['entrada','Pedido #'+o.id,Number(o.total),o.payment||'']);}}res.json({ok:true});});
 
 app.get('/api/admin/cash',auth,async(req,res)=>{const rows=await q('SELECT * FROM cash ORDER BY id DESC');const totals=await one('SELECT COALESCE(SUM(CASE WHEN type=\'entrada\' THEN value ELSE 0 END),0) entradas, COALESCE(SUM(CASE WHEN type=\'saida\' THEN value ELSE 0 END),0) saidas FROM cash');res.json({rows,totals:{entradas:Number(totals.entradas),saidas:Number(totals.saidas),saldo:Number(totals.entradas)-Number(totals.saidas)}})});
-app.post('/api/admin/cash',auth,async(req,res)=>{const {type='entrada',description,value,payment=''}=req.body;if(!description||!value)return res.status(400).json({error:'Descrição e valor obrigatórios'});await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?'),[type,description,Number(value),payment]);res.json({ok:true});});
+app.post('/api/admin/cash',auth,async(req,res)=>{const {type='entrada',description,value,payment=''}=req.body;if(!description||!value)return res.status(400).json({error:'Descrição e valor obrigatórios'});await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4)':'?,?,?,?)'),[type,description,Number(value),payment]);res.json({ok:true});});
 
 app.get('/api/admin/commands',auth,async(req,res)=>{const rows=await q('SELECT * FROM commands ORDER BY id DESC');for(const c of rows)c.items=await q('SELECT * FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[c.id]);res.json(rows);});
 app.post('/api/admin/commands',auth,async(req,res)=>{let {number,customer=''}=req.body;if(!number)return res.status(400).json({error:'Número da comanda obrigatório'});try{await run('INSERT INTO commands(number,customer) VALUES('+(isPg?'$1,$2':'?,?'),[String(number),customer]);res.json({ok:true});}catch(e){res.status(400).json({error:'Comanda já existe'})}});
-app.put('/api/admin/commands/:id/close',auth,async(req,res)=>{const c=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[Number(req.params.id)]);if(!c)return res.status(404).json({error:'Comanda não encontrada'});await run('UPDATE commands SET status='+(isPg?'$1':'?')+',payment='+(isPg?'$2':'?')+',closed_at=CURRENT_TIMESTAMP WHERE id='+(isPg?'$3':'?'),['fechada',req.body.payment||'',Number(req.params.id)]);if(Number(c.total)>0)await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?'),['entrada','Comanda '+c.number,Number(c.total),req.body.payment||'']);res.json({ok:true});});
+app.put('/api/admin/commands/:id/close',auth,async(req,res)=>{const c=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[Number(req.params.id)]);if(!c)return res.status(404).json({error:'Comanda não encontrada'});await run('UPDATE commands SET status='+(isPg?'$1':'?')+',payment='+(isPg?'$2':'?')+',closed_at=CURRENT_TIMESTAMP WHERE id='+(isPg?'$3':'?'),['fechada',req.body.payment||'',Number(req.params.id)]);if(Number(c.total)>0)await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4)':'?,?,?,?)'),['entrada','Comanda '+c.number,Number(c.total),req.body.payment||'']);res.json({ok:true});});
 
 app.use(express.static(path.join(__dirname,'public')));
 app.get('/*splat',(req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
