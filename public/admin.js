@@ -19,32 +19,37 @@ async function saveProduct(){const body={name:$('pn').value.trim(),barcode:$('pb
 async function del(id){if(!confirm('Desativar este produto?'))return;await api('/api/admin/products/'+id,{method:'DELETE'});loadProducts()}
 function csvRows(text){const lines=text.replace(/^\uFEFF/,'').split(/\r?\n/).filter(x=>x.trim());if(!lines.length)return[];const parse=l=>{let a=[],cur='',q=false;for(let i=0;i<l.length;i++){const c=l[i];if(c==='"'){if(q&&l[i+1]==='"'){cur+='"';i++;}else q=!q;}else if(c===','&&!q){a.push(cur);cur='';}else cur+=c;}a.push(cur);return a.map(x=>x.trim())};const h=parse(lines[0]).map(x=>x.toLowerCase());return lines.slice(1).map(l=>{const v=parse(l);const o={};h.forEach((k,i)=>o[k]=v[i]||'');return o;});}
 async function importCsv(){const f=$('csvFile').files[0];if(!f)return alert('Escolha um arquivo CSV.');const rows=csvRows(await f.text());if(!rows.length)return alert('CSV vazio.');let ok=0,fail=[];for(const r of rows){try{await api('/api/admin/products',{method:'POST',body:JSON.stringify({barcode:r.codigo_barras||r.barcode||'',name:r.nome||r.name||'',brand:r.marca||r.brand||'',category:r.categoria||r.category||'Outros',unit:r.unidade||r.unit||'un',cost_price:r.custo||r.cost_price||0,price:r.venda||r.price||0,stock:r.estoque||r.stock||0,min_stock:r.estoque_minimo||r.min_stock||0,description:r.descricao||r.description||'',image:r.url_foto||r.image||'',active:true})});ok++;}catch(e){fail.push((r.codigo_barras||r.nome||'linha')+': '+e.message)}}loadProducts();alert(`Importação concluída. ${ok} produto(s) importado(s).${fail.length?'\nFalhas: '+fail.length+'\n'+fail.slice(0,5).join('\n'):''}`)}
-async function loadCash(){
- const d=await api('/api/admin/cash');
- const rows=Array.isArray(d.rows)?d.rows:[];
- const p=d.dailyPayments||d.paymentTotals||{};
- const today=d.today||{};
- const methods=[
-  ['Dinheiro',p.dinheiro],
-  ['Pix',p.pix],
-  ['Débito',p.debito],
-  ['Crédito',p.credito],
-  ['Fiado',p.fiado],
-  ['Outros / cartão não identificado',p.outros]
- ];
- const totals=methods.map(([label,value])=>`<b>${label}: ${money(value||0)}</b>`).join('');
- const entradasHoje=['dinheiro','pix','debito','credito','outros'].reduce((sum,key)=>sum+Number(p[key]||0),0);
- const saidasHoje=Number(today.saidas??0);
- const saldoHoje=entradasHoje-saidasHoje;
- $('cashSummary').innerHTML=
-  `<div class="totalsBox"><b>Recebido no dia ${money(entradasHoje)}</b><b>Saídas do dia ${money(saidasHoje)}</b><b>Saldo do dia ${money(saldoHoje)}</b></div>`+
-  `<div class="totalsBox">${totals}</div>`+
-  `<small>O total recebido exclui Fiado. Os valores por forma de pagamento são calculados pela API do sistema para o dia atual. “Outros / cartão não identificado” reúne pagamentos antigos cujo registro não informa se o cartão era débito ou crédito.</small>`;
- $('cashList').innerHTML=rows.map(x=>`<div>${x.type==='entrada'?'🟢':'🔴'} ${esc(x.description)}: <b>${money(x.value)}</b> ${esc(x.payment||'')}</div>`).join('');
-}
+async function loadCash(){const d=await api('/api/admin/cash');const rows=Array.isArray(d.rows)?d.rows:[];const today=new Date();const dayKey=v=>{if(!v)return '';const dt=new Date(v);return Number.isNaN(dt.getTime())?'':`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`};const todayKey=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;const dated=rows.filter(x=>x.created_at||x.createdAt||x.date||x.created_at);const dayRows=dated.length?rows.filter(x=>dayKey(x.created_at||x.createdAt||x.date)===todayKey):rows;const methods=[['Dinheiro',['dinheiro','cash']],['Pix',['pix']],['Débito',['debito','débito','cartao debito','cartão de débito','debit']],['Crédito',['credito','crédito','cartao credito','cartão de crédito','credit']],['Fiado',['fiado']]];const totals=methods.map(([label,aliases])=>{const total=dayRows.filter(x=>x.type==='entrada'&&aliases.includes(String(x.payment||'').trim().toLowerCase())).reduce((sum,x)=>sum+Number(x.value||0),0);return `<b>${label}: ${money(total)}</b>`}).join('');$('cashSummary').innerHTML=`<div class="totalsBox"><b>Entradas ${money(d.totals.entradas)}</b><b>Saídas ${money(d.totals.saidas)}</b><b>Saldo ${money(d.totals.saldo)}</b></div><div class="totalsBox">${totals}</div>${dated.length?'':'<small>Os registros retornados pela API não possuem data identificável; a separação considera todos os registros retornados.</small>'}`;$('cashList').innerHTML=rows.map(x=>`<div>${x.type==='entrada'?'🟢':'🔴'} ${esc(x.description)}: <b>${money(x.value)}</b> ${esc(x.payment||'')}</div>`).join('')}
 async function addCash(){await api('/api/admin/cash',{method:'POST',body:JSON.stringify({type:$('ct').value,description:$('cd').value,value:$('cv').value,payment:$('cp').value})});$('cd').value='';$('cv').value='';loadCash()}
-async function loadCommands(){const a=await api('/api/admin/commands');$('commandsList').innerHTML=a.map(c=>`<div class="panel"><b>Comanda ${esc(c.number)}</b> — ${esc(c.customer||'')}<br>Status: ${esc(c.status)} | Total: ${money(c.total)}</div>`).join('')}
-async function addCommand(){await api('/api/admin/commands',{method:'POST',body:JSON.stringify({number:$('cn').value,customer:$('cc').value})});$('cn').value='';$('cc').value='';loadCommands()}
+async function loadCommands(){
+ try{
+  const [a,products]=await Promise.all([api('/api/admin/commands'),api('/api/admin/products')]);
+  const active=products.filter(p=>p.active===true||p.active===1);
+  $('commandsList').innerHTML=a.map(c=>{
+   const items=(c.items||[]);
+   const itemHtml=items.length?`<div class="table"><table><tr><th>Produto</th><th>Qtd.</th><th>Unitário</th><th>Total</th></tr>${items.map(i=>`<tr><td>${esc(i.name)}</td><td>${esc(i.qty)}</td><td>${money(i.unit_price)}</td><td>${money(i.total)}</td></tr>`).join('')}</table></div>`:'<p class="muted">Nenhum produto lançado nesta comanda.</p>';
+   const controls=c.status==='aberta'?`<div class="editBox"><div class="row"><select id="cmdProduct${c.id}">${active.map(p=>`<option value="${p.id}">${esc(p.name)} — ${money(p.price)}</option>`).join('')}</select><input id="cmdQty${c.id}" type="number" min="0.01" step="0.01" value="1" placeholder="Quantidade"></div><button class="primary" style="margin-top:8px" onclick="addCommandItem(${c.id})">LANÇAR PRODUTO</button><div class="row" style="margin-top:8px"><select id="cmdPayment${c.id}"><option value="pix">Pix</option><option value="dinheiro">Dinheiro</option><option value="debito">Cartão de Débito</option><option value="credito">Cartão de Crédito</option><option value="fiado">Fiado / Promissória</option></select><button class="danger" onclick="closeCommand(${c.id})">FECHAR COMANDA</button></div></div>`:'<p><b>Pagamento:</b> '+esc(c.payment||'-')+'</p>';
+   return `<div class="panel"><h3>Comanda ${esc(c.number)} — ${esc(c.customer||'')}</h3><p>Status: <b>${esc(c.status)}</b> | Total: <b>${money(c.total)}</b></p>${itemHtml}${controls}</div>`;
+  }).join('')||'<p>Nenhuma comanda cadastrada.</p>';
+ }catch(e){$('commandsList').innerHTML='<p>Erro ao carregar comandas: '+esc(e.message)+'</p>'}
+}
+async function addCommand(){
+ try{
+  await api('/api/admin/commands',{method:'POST',body:JSON.stringify({number:$('cn').value,customer:$('cc').value})});
+  $('cn').value='';$('cc').value='';await loadCommands();
+ }catch(e){alert(e.message)}
+}
+async function addCommandItem(id){
+ const product_id=Number($('cmdProduct'+id).value),qty=Number($('cmdQty'+id).value);
+ try{await api('/api/admin/commands/'+id+'/items',{method:'POST',body:JSON.stringify({product_id,qty})});await loadCommands();}
+ catch(e){alert(e.message)}
+}
+async function closeCommand(id){
+ const payment=$('cmdPayment'+id).value;
+ if(!confirm('Confirma fechar esta comanda e registrar o pagamento?'))return;
+ try{await api('/api/admin/commands/'+id+'/close',{method:'PUT',body:JSON.stringify({payment})});await loadCommands();if($('cash').style.display!=='none')loadCash();alert('Comanda fechada com sucesso.');}
+ catch(e){alert(e.message)}
+}
 async function loadSettings(){const s=await api('/api/admin/settings');$('deliverySetting').value=Number(s.delivery_fee||0).toFixed(2);}
 async function saveSettings(){const d=await api('/api/admin/settings',{method:'PUT',body:JSON.stringify({delivery_fee:$('deliverySetting').value})});$('settingsMsg').textContent='Taxa de entrega salva: '+money(d.delivery_fee);}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
