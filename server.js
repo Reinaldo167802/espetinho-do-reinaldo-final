@@ -120,7 +120,7 @@ app.get('/api/admin/cash',auth,async(req,res)=>{
 app.post('/api/admin/cash',auth,async(req,res)=>{const {type='entrada',description,value,payment=''}=req.body;if(!description||!value)return res.status(400).json({error:'Descrição e valor obrigatórios'});await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4)':'?,?,?,?)'),[type,description,Number(value),payment]);res.json({ok:true});});
 
 app.get('/api/admin/commands',auth,async(req,res)=>{const rows=await q('SELECT * FROM commands ORDER BY id DESC');for(const c of rows)c.items=await q('SELECT * FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[c.id]);res.json(rows);});
-app.post('/api/admin/commands',auth,async(req,res)=>{let {number,customer=''}=req.body;if(!number)return res.status(400).json({error:'Número da comanda obrigatório'});try{await run('INSERT INTO commands(number,customer) VALUES('+(isPg?'$1,$2':'?,?'),[String(number),customer]);res.json({ok:true});}catch(e){res.status(400).json({error:'Comanda já existe'})}});
+app.post('/api/admin/commands',auth,async(req,res)=>{let {number,customer=''}=req.body;if(!number)return res.status(400).json({error:'Número da comanda obrigatório'});try{await run('INSERT INTO commands(number,customer) VALUES('+(isPg?'$1,$2':'?,?')+')',[String(number),customer]);res.json({ok:true});}catch(e){console.error('Erro ao cadastrar comanda:',e);res.status(400).json({error:'Não foi possível cadastrar a comanda. Verifique se o número já existe.'})}});
 
 app.post('/api/admin/commands/:id/items',auth,async(req,res)=>{
  try{
