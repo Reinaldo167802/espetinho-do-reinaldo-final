@@ -121,7 +121,51 @@ app.post('/api/admin/cash',auth,async(req,res)=>{const {type='entrada',descripti
 
 app.get('/api/admin/commands',auth,async(req,res)=>{const rows=await q('SELECT * FROM commands ORDER BY id DESC');for(const c of rows)c.items=await q('SELECT * FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[c.id]);res.json(rows);});
 app.post('/api/admin/commands',auth,async(req,res)=>{let {number,customer=''}=req.body;if(!number)return res.status(400).json({error:'Número da comanda obrigatório'});try{await run('INSERT INTO commands(number,customer) VALUES('+(isPg?'$1,$2':'?,?'),[String(number),customer]);res.json({ok:true});}catch(e){res.status(400).json({error:'Comanda já existe'})}});
-app.put('/api/admin/commands/:id/close',auth,async(req,res)=>{const c=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[Number(req.params.id)]);if(!c)return res.status(404).json({error:'Comanda não encontrada'});await run('UPDATE commands SET status='+(isPg?'$1':'?')+',payment='+(isPg?'$2':'?')+',closed_at=CURRENT_TIMESTAMP WHERE id='+(isPg?'$3':'?'),['fechada',req.body.payment||'',Number(req.params.id)]);if(Number(c.total)>0)await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4)':'?,?,?,?)'),['entrada','Comanda '+c.number,Number(c.total),req.body.payment||'']);res.json({ok:true});});
+
+app.post('/api/admin/commands/:id/items',auth,async(req,res)=>{
+ try{
+  const commandId=Number(req.params.id);
+  const command=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[commandId]);
+  if(!command)return res.status(404).json({error:'Comanda não encontrada'});
+  if(command.status!=='aberta')return res.status(400).json({error:'Esta comanda não está aberta'});
+  const productId=Number(req.body.product_id);
+  const qty=Number(req.body.qty);
+  if(!Number.isInteger(productId)||productId<=0||!Number.isFinite(qty)||qty<=0)return res.status(400).json({error:'Produto e quantidade válidos são obrigatórios'});
+  const product=await one('SELECT * FROM products WHERE id='+(isPg?'$1':'?'),[productId]);
+  if(!product||!(product.active===true||product.active===1))return res.status(400).json({error:'Produto indisponível'});
+  const line=Number(product.price)*qty;
+  if(isPg){
+   await db.query('INSERT INTO command_items(command_id,product_id,name,qty,unit_price,total) VALUES($1,$2,$3,$4,$5,$6)',[commandId,product.id,product.name,qty,Number(product.price),line]);
+   await db.query('UPDATE commands SET total=COALESCE(total,0)+$1 WHERE id=$2',[line,commandId]);
+  }else{
+   await run('INSERT INTO command_items(command_id,product_id,name,qty,unit_price,total) VALUES(?,?,?,?,?,?)',[commandId,product.id,product.name,qty,Number(product.price),line]);
+   await run('UPDATE commands SET total=COALESCE(total,0)+? WHERE id=?',[line,commandId]);
+  }
+  const updated=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[commandId]);
+  const items=await q('SELECT * FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[commandId]);
+  res.json({ok:true,command:updated,items});
+ }catch(e){res.status(500).json({error:e.message||'Erro ao lançar produto na comanda'})}
+});
+
+app.put('/api/admin/commands/:id/close',auth,async(req,res)=>{
+ try{
+  const id=Number(req.params.id);
+  const c=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[id]);
+  if(!c)return res.status(404).json({error:'Comanda não encontrada'});
+  if(c.status==='fechada')return res.status(400).json({error:'Esta comanda já foi fechada'});
+  if(!Number(c.total)||Number(c.total)<=0)return res.status(400).json({error:'Lance pelo menos um produto antes de fechar a comanda'});
+  const payment=String(req.body.payment||'').trim();
+  if(!['pix','dinheiro','debito','credito','fiado'].includes(payment))return res.status(400).json({error:'Escolha uma forma de pagamento válida'});
+  await run('UPDATE commands SET status='+(isPg?'$1':'?')+',payment='+(isPg?'$2':'?')+',closed_at=CURRENT_TIMESTAMP WHERE id='+(isPg?'$3':'?'),['fechada',payment,id]);
+  if(payment!=='fiado'){
+   const description='Comanda '+c.number;
+   const exists=await one('SELECT id FROM cash WHERE description='+(isPg?'$1':'?'),[description]);
+   if(!exists)await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?)'),['entrada',description,Number(c.total),payment]);
+  }
+  const updated=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[id]);
+  res.json({ok:true,command:updated});
+ }catch(e){res.status(500).json({error:e.message||'Erro ao fechar comanda'})}
+});
 
 app.use(express.static(path.join(__dirname,'public')));
 app.get('/*splat',(req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
