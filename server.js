@@ -80,7 +80,43 @@ app.get('/api/orders/:id',async(req,res)=>{
 app.get('/api/admin/orders',auth,async(req,res)=>{const orders=await q('SELECT * FROM orders ORDER BY id DESC');for(const o of orders)o.items=await q('SELECT * FROM order_items WHERE order_id='+(isPg?'$1':'?')+' ORDER BY id',[o.id]);res.json(orders);});
 app.put('/api/admin/orders/:id/status',auth,async(req,res)=>{const status=req.body.status;const allowed=['novo','confirmado','preparando','pronto','entregando','finalizado','cancelado'];if(!allowed.includes(status))return res.status(400).json({error:'Status inválido'});await run('UPDATE orders SET status='+(isPg?'$1':'?')+' WHERE id='+(isPg?'$2':'?'),[status,Number(req.params.id)]);if(status==='finalizado'){const o=await one('SELECT * FROM orders WHERE id='+(isPg?'$1':'?'),[Number(req.params.id)]);if(o){const exists=await one('SELECT id FROM cash WHERE description='+(isPg?'$1':'?'),['Pedido #'+o.id]);if(!exists)await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4)':'?,?,?,?)'),['entrada','Pedido #'+o.id,Number(o.total),o.payment||'']);}}res.json({ok:true});});
 
-app.get('/api/admin/cash',auth,async(req,res)=>{const rows=await q('SELECT * FROM cash ORDER BY id DESC');const totals=await one('SELECT COALESCE(SUM(CASE WHEN type=\'entrada\' THEN value ELSE 0 END),0) entradas, COALESCE(SUM(CASE WHEN type=\'saida\' THEN value ELSE 0 END),0) saidas FROM cash');res.json({rows,totals:{entradas:Number(totals.entradas),saidas:Number(totals.saidas),saldo:Number(totals.entradas)-Number(totals.saidas)}})});
+app.get('/api/admin/cash',auth,async(req,res)=>{
+ try{
+  // Mantém os lançamentos e os totais históricos existentes para não quebrar a tela atual.
+  const rows=await q('SELECT * FROM cash ORDER BY id DESC');
+  const totals=await one('SELECT COALESCE(SUM(CASE WHEN type=\'entrada\' THEN value ELSE 0 END),0) entradas, COALESCE(SUM(CASE WHEN type=\'saida\' THEN value ELSE 0 END),0) saidas FROM cash');
+
+  // O dia é calculado no fuso de Brasília, tanto no PostgreSQL quanto no SQLite.
+  const todayRows=isPg
+   ? await q("SELECT type,value,payment FROM cash WHERE (created_at AT TIME ZONE 'America/Sao_Paulo')::date = (NOW() AT TIME ZONE 'America/Sao_Paulo')::date")
+   : await q("SELECT type,value,payment FROM cash WHERE date(created_at, '-3 hours') = date('now', '-3 hours')");
+
+  const dailyPayments={dinheiro:0,pix:0,debito:0,credito:0,fiado:0,outros:0};
+  let todayEntradas=0,todaySaidas=0;
+  const normalizePayment=value=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim().replace(/[^a-z0-9]/g,'');
+  for(const row of todayRows){
+   const value=Number(row.value)||0;
+   if(row.type==='entrada'){
+    todayEntradas+=value;
+    const payment=normalizePayment(row.payment);
+    if(payment==='dinheiro'||payment==='cash')dailyPayments.dinheiro+=value;
+    else if(payment==='pix')dailyPayments.pix+=value;
+    else if(payment==='debito'||payment==='cartaodebito'||payment==='debitoautomatico')dailyPayments.debito+=value;
+    else if(payment==='credito'||payment==='cartaocredito')dailyPayments.credito+=value;
+    else if(payment==='fiado'||payment==='aprazo')dailyPayments.fiado+=value;
+    else dailyPayments.outros+=value;
+   }else if(row.type==='saida')todaySaidas+=value;
+  }
+  const today={entradas:todayEntradas,saidas:todaySaidas,saldo:todayEntradas-todaySaidas};
+  res.json({
+   rows,
+   totals:{entradas:Number(totals.entradas),saidas:Number(totals.saidas),saldo:Number(totals.entradas)-Number(totals.saidas)},
+   today,
+   dailyPayments,
+   paymentTotals:dailyPayments
+  });
+ }catch(e){res.status(500).json({error:e.message||'Erro ao carregar o caixa'})}
+});
 app.post('/api/admin/cash',auth,async(req,res)=>{const {type='entrada',description,value,payment=''}=req.body;if(!description||!value)return res.status(400).json({error:'Descrição e valor obrigatórios'});await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4)':'?,?,?,?)'),[type,description,Number(value),payment]);res.json({ok:true});});
 
 app.get('/api/admin/commands',auth,async(req,res)=>{const rows=await q('SELECT * FROM commands ORDER BY id DESC');for(const c of rows)c.items=await q('SELECT * FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[c.id]);res.json(rows);});
