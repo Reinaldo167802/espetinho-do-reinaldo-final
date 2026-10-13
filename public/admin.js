@@ -35,8 +35,10 @@ async function loadCommands(){
 }
 async function addCommand(){
  try{
-  await api('/api/admin/commands',{method:'POST',body:JSON.stringify({number:$('cn').value,customer:$('cc').value})});
-  $('cn').value='';$('cc').value='';await loadCommands();
+  const result=await api('/api/admin/commands',{method:'POST',body:JSON.stringify({customer:$('cc').value})});
+  $('cc').value='';
+  await loadCommands();
+  alert('Comanda '+result.number+' aberta com sucesso.');
  }catch(e){alert(e.message)}
 }
 async function addCommandItem(id){
