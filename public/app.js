@@ -1,6 +1,6 @@
-/* Espetinho do Reinaldo - app.js corrigido
-   Carrega produtos de /api/products e taxa de /api/config.
-   Mantém carrinho, envio do pedido e acompanhamento de status.
+/* Espetinho do Reinaldo - app.js atualizado
+   Mantém catálogo, carrinho, envio e acompanhamento de pedidos.
+   Salva o último número do pedido neste navegador e permite retomá-lo.
 */
 'use strict';
 
@@ -8,12 +8,14 @@ let products = [];
 let cart = [];
 let deliveryFee = 0;
 let orderPollTimer = null;
+const LAST_ORDER_KEY = 'espetinhoReinaldoUltimoPedido';
 
 const money = value => Number(value || 0).toLocaleString('pt-BR', {style:'currency', currency:'BRL'});
 const $ = id => document.getElementById(id);
 
 async function load() {
   const productsBox = $('products');
+  setupOrderTracking();
   try {
     const productsResponse = await fetch('/api/products', {cache:'no-store'});
     if (!productsResponse.ok) throw new Error('A API de produtos respondeu HTTP ' + productsResponse.status);
@@ -35,10 +37,54 @@ async function load() {
     renderCats();
     renderProducts();
     update();
+    resumeOrderTracking();
   } catch (error) {
     console.error('Erro ao carregar o cardápio:', error);
     if (productsBox) productsBox.innerHTML = '<p>Não foi possível carregar os produtos. Atualize a página e tente novamente.</p>';
+    resumeOrderTracking();
   }
+}
+
+function setupOrderTracking() {
+  if ($('orderTrackingEntry')) return;
+  const box = document.createElement('section');
+  box.id = 'orderTrackingEntry';
+  box.style.cssText = 'margin:18px auto;padding:16px;max-width:900px;background:#fff;border-radius:12px;box-shadow:0 2px 10px #0001;';
+  box.innerHTML = `
+    <h2 style="margin-top:0">Acompanhar meu pedido</h2>
+    <p>Digite o número do pedido que você recebeu após a compra.</p>
+    <form id="trackOrderForm" style="display:flex;gap:8px;flex-wrap:wrap">
+      <input id="trackOrderNumber" type="number" min="1" step="1" inputmode="numeric" placeholder="Número do pedido (ex.: 5)" aria-label="Número do pedido" required style="flex:1;min-width:180px;padding:12px;border:1px solid #ccc;border-radius:8px">
+      <button type="submit" style="padding:12px 16px;border:0;border-radius:8px;cursor:pointer">Acompanhar pedido</button>
+    </form>
+    <p id="trackOrderHelp" style="margin-bottom:0;font-size:13px;color:#555">O último pedido feito neste mesmo navegador poderá ser retomado automaticamente.</p>
+  `;
+  const productsBox = $('products');
+  if (productsBox?.parentNode) productsBox.parentNode.insertBefore(box, productsBox);
+  else document.body.appendChild(box);
+  $('trackOrderForm').addEventListener('submit', event => {
+    event.preventDefault();
+    const id = String($('trackOrderNumber').value || '').trim();
+    if (!/^\d+$/.test(id) || Number(id) < 1) return toast('Informe um número de pedido válido');
+    showOrderStatus(id);
+  });
+}
+
+function getSavedOrderId() {
+  try { return localStorage.getItem(LAST_ORDER_KEY) || ''; }
+  catch (_) { return ''; }
+}
+function saveOrderId(id) {
+  try { localStorage.setItem(LAST_ORDER_KEY, String(id)); }
+  catch (error) { console.warn('Não foi possível salvar o pedido neste navegador:', error); }
+}
+function resumeOrderTracking() {
+  const queryId = new URLSearchParams(window.location.search).get('pedido');
+  const savedId = getSavedOrderId();
+  const id = queryId || savedId;
+  if (!id || !/^\d+$/.test(String(id)) || Number(id) < 1) return;
+  if ($('trackOrderNumber')) $('trackOrderNumber').value = String(id);
+  showOrderStatus(id, false);
 }
 
 function renderCats() {
@@ -148,6 +194,7 @@ async function sendOrder() {
     update();
     closeCart();
     const orderId = result.order_id || result.id;
+    if (orderId) saveOrderId(orderId);
     alert('Pedido enviado! Número do pedido: #' + orderId + '\nTotal: ' + money(result.total));
     if (orderId) showOrderStatus(orderId);
   } catch (error) {
@@ -156,18 +203,33 @@ async function sendOrder() {
   }
 }
 
-function showOrderStatus(id) {
+function showOrderStatus(id, updateAddress = true) {
+  const safeId = String(id || '').trim();
+  if (!/^\d+$/.test(safeId) || Number(safeId) < 1) return toast('Número do pedido inválido');
+  saveOrderId(safeId);
+  if ($('trackOrderNumber')) $('trackOrderNumber').value = safeId;
+  if (updateAddress) {
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('pedido', safeId);
+      window.history.replaceState({}, '', url);
+    } catch (_) {}
+  }
   let box = $('orderStatusBox');
   if (!box) {
     box = document.createElement('section');
     box.id = 'orderStatusBox';
     box.style.cssText = 'margin:18px auto;padding:16px;max-width:900px;background:#fff;border-radius:12px;box-shadow:0 2px 10px #0001;';
-    const productsBox = $('products');
-    if (productsBox?.parentNode) productsBox.parentNode.insertBefore(box, productsBox);
-    else document.body.appendChild(box);
+    const trackingEntry = $('orderTrackingEntry');
+    if (trackingEntry?.parentNode) trackingEntry.parentNode.insertBefore(box, trackingEntry.nextSibling);
+    else {
+      const productsBox = $('products');
+      if (productsBox?.parentNode) productsBox.parentNode.insertBefore(box, productsBox);
+      else document.body.appendChild(box);
+    }
   }
-  box.innerHTML = `<h2>Acompanhe seu pedido #${Number(id)}</h2><div id="orderStatusContent">Consultando status do pedido...</div>`;
-  pollOrderStatus(id);
+  box.innerHTML = `<h2>Acompanhe seu pedido #${Number(safeId)}</h2><div id="orderStatusContent">Consultando status do pedido...</div>`;
+  pollOrderStatus(safeId);
 }
 
 async function pollOrderStatus(id) {
