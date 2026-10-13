@@ -84,7 +84,16 @@ app.get('/api/admin/cash',auth,async(req,res)=>{
  try{
   // Mantém os lançamentos e os totais históricos existentes para não quebrar a tela atual.
   const rows=await q('SELECT * FROM cash ORDER BY id DESC');
-  const totals=await one('SELECT COALESCE(SUM(CASE WHEN type=\'entrada\' THEN value ELSE 0 END),0) entradas, COALESCE(SUM(CASE WHEN type=\'saida\' THEN value ELSE 0 END),0) saidas FROM cash');
+  // Fiado/promissória é pendência, não dinheiro recebido; fica fora das entradas e do saldo.
+  const normalizePayment=value=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim().replace(/[^a-z0-9]/g,'');
+  let totalEntradas=0,totalSaidas=0;
+  for(const row of rows){
+   const value=Number(row.value)||0;
+   if(row.type==='entrada'){
+    const payment=normalizePayment(row.payment);
+    if(!(payment==='fiado'||payment==='aprazo'||payment.includes('promissoria')))totalEntradas+=value;
+   }else if(row.type==='saida')totalSaidas+=value;
+  }
 
   // O dia é calculado no fuso de Brasília, tanto no PostgreSQL quanto no SQLite.
   const todayRows=isPg
@@ -93,24 +102,24 @@ app.get('/api/admin/cash',auth,async(req,res)=>{
 
   const dailyPayments={dinheiro:0,pix:0,debito:0,credito:0,fiado:0,outros:0};
   let todayEntradas=0,todaySaidas=0;
-  const normalizePayment=value=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim().replace(/[^a-z0-9]/g,'');
   for(const row of todayRows){
    const value=Number(row.value)||0;
    if(row.type==='entrada'){
-    todayEntradas+=value;
     const payment=normalizePayment(row.payment);
+    const isFiado=payment==='fiado'||payment==='aprazo'||payment.includes('promissoria');
+    if(!isFiado)todayEntradas+=value;
     if(payment==='dinheiro'||payment==='cash')dailyPayments.dinheiro+=value;
     else if(payment==='pix')dailyPayments.pix+=value;
     else if(payment==='debito'||payment==='cartaodebito'||payment==='debitoautomatico')dailyPayments.debito+=value;
     else if(payment==='credito'||payment==='cartaocredito')dailyPayments.credito+=value;
-    else if(payment==='fiado'||payment==='aprazo')dailyPayments.fiado+=value;
+    else if(isFiado)dailyPayments.fiado+=value;
     else dailyPayments.outros+=value;
    }else if(row.type==='saida')todaySaidas+=value;
   }
   const today={entradas:todayEntradas,saidas:todaySaidas,saldo:todayEntradas-todaySaidas};
   res.json({
    rows,
-   totals:{entradas:Number(totals.entradas),saidas:Number(totals.saidas),saldo:Number(totals.entradas)-Number(totals.saidas)},
+   totals:{entradas:totalEntradas,saidas:totalSaidas,saldo:totalEntradas-totalSaidas},
    today,
    dailyPayments,
    paymentTotals:dailyPayments
