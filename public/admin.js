@@ -31,7 +31,7 @@ async function loadCommands(){
   const active=products.filter(p=>p.active===true||p.active===1);
   $('commandsList').innerHTML=a.map(c=>{
    const items=(c.items||[]);
-   const itemHtml=items.length?`<div class="table"><table><tr><th>Produto</th><th>Qtd.</th><th>Unitário</th><th>Total</th></tr>${items.map(i=>`<tr><td>${esc(i.name)}</td><td>${esc(i.qty)}</td><td>${money(i.unit_price)}</td><td>${money(i.total)}</td></tr>`).join('')}</table></div>`:'<p class="muted">Nenhum produto lançado nesta comanda.</p>';
+   const itemHtml=items.length?`<div class="table"><table><tr><th>Produto</th><th>Qtd.</th><th>Unitário</th><th>Total</th>${c.status==='aberta'?'<th>Ação</th>':''}</tr>${items.map(i=>`<tr><td>${esc(i.name)}</td><td>${esc(i.qty)}</td><td>${money(i.unit_price)}</td><td>${money(i.total)}</td>${c.status==='aberta'?`<td><button class="danger" onclick="deleteCommandItem(${c.id},${i.id})">EXCLUIR ITEM</button></td>`:''}</tr>`).join('')}</table></div>`:'<p class="muted">Nenhum produto lançado nesta comanda.</p>';
    const controls=c.status==='aberta'?`<div class="editBox"><div class="row"><select id="cmdProduct${c.id}">${active.map(p=>`<option value="${p.id}">${esc(p.name)} — ${money(p.price)}</option>`).join('')}</select><input id="cmdQty${c.id}" type="number" min="0.01" step="0.01" value="1" placeholder="Quantidade"></div><button class="primary" style="margin-top:8px" onclick="addCommandItem(${c.id})">LANÇAR PRODUTO</button><div class="row" style="margin-top:8px"><select id="cmdPayment${c.id}"><option value="pix">Pix</option><option value="dinheiro">Dinheiro</option><option value="debito">Cartão de Débito</option><option value="credito">Cartão de Crédito</option><option value="fiado">Fiado / Promissória</option></select><button class="danger" onclick="closeCommand(${c.id})">FECHAR COMANDA</button></div></div>`:'<p><b>Pagamento:</b> '+esc(c.payment||'-')+'</p>';
    return `<div class="panel"><h3>Comanda ${esc(c.number)} — ${esc(c.customer||'')}</h3><p>Status: <b>${esc(c.status)}</b> | Total: <b>${money(c.total)}</b></p>${itemHtml}${controls}</div>`;
   }).join('')||'<p>Nenhuma comanda cadastrada.</p>';
@@ -49,6 +49,14 @@ async function addCommandItem(id){
  const product_id=Number($('cmdProduct'+id).value),qty=Number($('cmdQty'+id).value);
  try{await api('/api/admin/commands/'+id+'/items',{method:'POST',body:JSON.stringify({product_id,qty})});await loadCommands();}
  catch(e){alert(e.message)}
+}
+async function deleteCommandItem(commandId,itemId){
+ if(!confirm('Confirma excluir este produto da comanda aberta? O total será recalculado.'))return;
+ try{
+  await api('/api/admin/commands/'+commandId+'/items/'+itemId,{method:'DELETE'});
+  await loadCommands();
+  alert('Produto excluído. O total da comanda foi atualizado.');
+ }catch(e){alert(e.message)}
 }
 async function closeCommand(id){
  const payment=$('cmdPayment'+id).value;
