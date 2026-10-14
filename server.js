@@ -61,18 +61,20 @@ app.delete('/api/admin/products/:id',auth,async(req,res)=>{await run('UPDATE pro
 app.get('/api/admin/customers',auth,async(req,res)=>{
  try{
   const rows=await q('SELECT * FROM customers ORDER BY name');
-  for(const c of rows){
-   const debts=await q("SELECT id,total FROM commands WHERE status='fechada' AND LOWER(payment)='fiado' AND LOWER(TRIM(customer))=LOWER(TRIM("+(isPg?'$1':'?')+"))",[c.name]);
+  const debts=await q("SELECT * FROM commands WHERE status='fechada' AND LOWER(payment)='fiado'");
+  for(const customer of rows){
    let used=0;
-   for(const d of debts){
-    const paid=await one('SELECT COALESCE(SUM(amount),0) AS total FROM fiado_payments WHERE command_id='+(isPg?'$1':'?'),[d.id]);
-    used+=Math.max(0,Number(d.total||0)-Number(paid.total||0));
+   for(const debt of debts){
+    if(String(debt.customer||'').trim().toLocaleLowerCase('pt-BR')===String(customer.name||'').trim().toLocaleLowerCase('pt-BR')){
+     const payments=await q('SELECT amount FROM fiado_payments WHERE command_id='+(isPg?'$1':'?'),[debt.id]);
+     used+=Math.max(0,Number(debt.total||0)-payments.reduce((s,p)=>s+Number(p.amount||0),0));
+    }
    }
-   c.credit_used=Number(used.toFixed(2));
-   c.credit_available=Number(Math.max(0,Number(c.credit_limit||0)-used).toFixed(2));
+   customer.credit_used=Math.round(used*100)/100;
+   customer.credit_available=Math.max(0,Math.round((Number(customer.credit_limit||0)-used)*100)/100);
   }
   res.json(rows)
- }catch(e){console.error(e);res.status(500).json({error:'Não foi possível carregar os clientes.'})}
+ }catch(e){console.error('Erro ao carregar clientes:',e);res.status(500).json({error:'Não foi possível carregar os clientes.'})}
 });
 app.post('/api/admin/customers',auth,async(req,res)=>{
  try{
@@ -229,6 +231,65 @@ app.post('/api/admin/commands/:id/items',auth,async(req,res)=>{
  }catch(e){res.status(500).json({error:e.message||'Erro ao lançar produto na comanda'})}
 });
 
+
+async function fiadoCommandRows(){
+ const commands=await q("SELECT * FROM commands WHERE status='fechada' AND LOWER(payment)='fiado' ORDER BY id DESC");
+ const out=[];
+ for(const c of commands){
+  const paidRows=await q('SELECT amount FROM fiado_payments WHERE command_id='+(isPg?'$1':'?'),[c.id]);
+  const paid=paidRows.reduce((s,x)=>s+Number(x.amount||0),0);
+  const remaining=Math.max(0,Math.round((Number(c.total||0)-paid)*100)/100);
+  if(remaining>0.001)out.push({...c,paid,remaining});
+ }
+ return out;
+}
+app.get('/api/admin/fiado',auth,async(req,res)=>{
+ try{
+  const rows=await fiadoCommandRows();
+  res.json(rows);
+ }catch(e){console.error('Erro ao carregar fiado:',e);res.status(500).json({error:'Não foi possível carregar os fiados.'})}
+});
+app.get('/api/admin/fiado/history',auth,async(req,res)=>{
+ try{
+  const rows=await q('SELECT * FROM fiado_payments ORDER BY id DESC');
+  for(const row of rows){const c=await one('SELECT number FROM commands WHERE id='+(isPg?'$1':'?'),[row.command_id]);row.command_number=c?.number||String(row.command_id);}
+  res.json(rows);
+ }catch(e){res.status(500).json({error:'Não foi possível carregar o histórico de recebimentos.'})}
+});
+app.post('/api/admin/fiado/payments',auth,async(req,res)=>{
+ try{
+  const payment=String(req.body.payment||'').trim().toLowerCase();
+  const allocations=Array.isArray(req.body.allocations)?req.body.allocations:[];
+  if(!['pix','dinheiro','debito','credito'].includes(payment))return res.status(400).json({error:'Escolha uma forma de recebimento válida.'});
+  if(!allocations.length)return res.status(400).json({error:'Marque pelo menos uma comanda e informe o valor recebido.'});
+  const prepared=[];
+  let customerKey='';
+  for(const a of allocations){
+   const commandId=Number(a.command_id), amount=Math.round(Number(a.amount)*100)/100;
+   if(!Number.isInteger(commandId)||commandId<=0||!Number.isFinite(amount)||amount<=0)return res.status(400).json({error:'Informe um valor maior que zero para cada comanda marcada.'});
+   const c=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[commandId]);
+   if(!c||c.status!=='fechada'||String(c.payment||'').toLowerCase()!=='fiado')return res.status(400).json({error:'Uma das comandas selecionadas não está pendente no fiado.'});
+   const key=String(c.customer||'').trim().toLocaleLowerCase('pt-BR');
+   if(!key)return res.status(400).json({error:'A comanda '+c.number+' não tem cliente cadastrado vinculado.'});
+   if(customerKey&&customerKey!==key)return res.status(400).json({error:'Para registrar um recebimento conjunto, selecione comandas do mesmo cliente.'});
+   customerKey=key;
+   const prev=await q('SELECT amount FROM fiado_payments WHERE command_id='+(isPg?'$1':'?'),[commandId]);
+   const paid=prev.reduce((s,x)=>s+Number(x.amount||0),0);
+   const remaining=Math.round((Number(c.total||0)-paid)*100)/100;
+   if(amount>remaining+0.001)return res.status(400).json({error:'O valor destinado à comanda '+c.number+' é maior que o saldo pendente ('+remaining.toFixed(2)+').'});
+   prepared.push({c,amount,remaining});
+  }
+  const total=prepared.reduce((s,x)=>s+x.amount,0);
+  for(const x of prepared){
+   await run('INSERT INTO fiado_payments(command_id,customer,amount,payment) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?')+')',[x.c.id,String(x.c.customer||'').trim(),x.amount,payment]);
+   const left=Math.max(0,Math.round((x.remaining-x.amount)*100)/100);
+   const description='Recebimento fiado - Cliente: '+String(x.c.customer||'').trim()+' - Comanda '+x.c.number+(left<=0.001?' - Quitada':' - Parcial');
+   await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?')+')',['entrada',description,x.amount,payment]);
+  }
+  res.json({ok:true,total,commands:prepared.map(x=>({number:x.c.number,amount:x.amount}))});
+ }catch(e){console.error('Erro ao registrar recebimento de fiado:',e);res.status(500).json({error:'Não foi possível registrar o recebimento.'})}
+});
+
 app.put('/api/admin/commands/:id/close',auth,async(req,res)=>{
  try{
   const id=Number(req.params.id);
@@ -239,22 +300,24 @@ app.put('/api/admin/commands/:id/close',auth,async(req,res)=>{
   const payment=String(req.body.payment||'').trim();
   if(!['pix','dinheiro','debito','credito','fiado'].includes(payment))return res.status(400).json({error:'Escolha uma forma de pagamento válida'});
   if(payment==='fiado'){
-   const clientName=String(c.customer||'').trim();
-   if(!clientName)return res.status(400).json({error:'Para fechar no fiado, abra a comanda vinculada a um cliente cadastrado e autorizado.'});
-   const client=await one('SELECT * FROM customers WHERE LOWER(TRIM(name))=LOWER(TRIM('+(isPg?'$1':'?')+'))',[clientName]);
-   if(!client)return res.status(400).json({error:'Cliente não cadastrado. Cadastre e autorize o cliente antes de vender fiado.'});
-   const authorized=(client.fiado_authorized===true||client.fiado_authorized===1||client.fiado_authorized==='1');
-   const active=(client.active===true||client.active===1||client.active==='1');
-   if(!active)return res.status(400).json({error:'Este cliente está inativo e não pode comprar fiado.'});
-   if(!authorized)return res.status(400).json({error:'Este cliente não está autorizado a comprar fiado.'});
-   const debts=await q("SELECT id,total FROM commands WHERE status='fechada' AND LOWER(payment)='fiado' AND LOWER(TRIM(customer))=LOWER(TRIM("+(isPg?'$1':'?')+"))",[clientName]);
+   const customerName=String(c.customer||'').trim();
+   if(!customerName)return res.status(400).json({error:'Selecione um cliente cadastrado para vender no fiado.'});
+   const customerRows=await q('SELECT * FROM customers ORDER BY id');
+   const customer=customerRows.find(x=>String(x.name||'').trim().toLocaleLowerCase('pt-BR')===customerName.toLocaleLowerCase('pt-BR'));
+   if(!customer)return res.status(400).json({error:'Este cliente não está cadastrado. Cadastre ou selecione um cliente antes de vender no fiado.'});
+   const yes=v=>v===true||v===1||String(v).toLowerCase()==='true';
+   if(!yes(customer.active))return res.status(400).json({error:'Este cliente está inativo e não pode comprar no fiado.'});
+   if(!yes(customer.fiado_authorized))return res.status(400).json({error:'Este cliente não está autorizado a comprar no fiado.'});
+   const debts=await q("SELECT * FROM commands WHERE status='fechada' AND LOWER(payment)='fiado'");
    let used=0;
-   for(const d of debts){
-    const paid=await one('SELECT COALESCE(SUM(amount),0) AS total FROM fiado_payments WHERE command_id='+(isPg?'$1':'?'),[d.id]);
-    used+=Math.max(0,Number(d.total||0)-Number(paid.total||0));
+   for(const debt of debts){
+    if(String(debt.customer||'').trim().toLocaleLowerCase('pt-BR')===customerName.toLocaleLowerCase('pt-BR')){
+     const pays=await q('SELECT amount FROM fiado_payments WHERE command_id='+(isPg?'$1':'?'),[debt.id]);
+     used+=Math.max(0,Number(debt.total||0)-pays.reduce((s,p)=>s+Number(p.amount||0),0));
+    }
    }
-   const available=Number(client.credit_limit||0)-used;
-   if(Number(c.total)>available+0.001)return res.status(400).json({error:'Limite de fiado insuficiente. Limite cadastrado: '+Number(client.credit_limit||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})+'. Já utilizado: '+used.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})+'. Disponível: '+Math.max(0,available).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})+'.'});
+   const available=Math.round((Number(customer.credit_limit||0)-used)*100)/100;
+   if(Number(c.total)>available+0.001)return res.status(400).json({error:'Limite de fiado insuficiente. Limite: '+Number(customer.credit_limit||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})+'; utilizado: '+used.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})+'; disponível: '+Math.max(0,available).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})+'.'});
   }
   await run('UPDATE commands SET status='+(isPg?'$1':'?')+',payment='+(isPg?'$2':'?')+',closed_at=CURRENT_TIMESTAMP WHERE id='+(isPg?'$3':'?'),['fechada',payment,id]);
   const description=payment==='fiado'?'Comanda '+c.number+' - Fiado':'Comanda '+c.number;
@@ -266,50 +329,6 @@ app.put('/api/admin/commands/:id/close',auth,async(req,res)=>{
   const updated=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[id]);
   res.json({ok:true,command:updated});
  }catch(e){res.status(500).json({error:e.message||'Erro ao fechar comanda'})}
-});
-
-
-app.get('/api/admin/fiado',auth,async(req,res)=>{
- try{
-  const commands=await q("SELECT * FROM commands WHERE status='fechada' AND LOWER(payment)='fiado' ORDER BY id DESC");
-  const debts=[];
-  for(const c of commands){
-   const paid=await one('SELECT COALESCE(SUM(amount),0) AS total FROM fiado_payments WHERE command_id='+(isPg?'$1':'?'),[c.id]);
-   const paidTotal=Number(paid.total||0),balance=Math.max(0,Number(c.total||0)-paidTotal);
-   if(balance>0.001)debts.push({...c,paid_total:paidTotal,balance});
-  }
-  const history=await q('SELECT * FROM fiado_payments ORDER BY id DESC');
-  res.json({debts,history});
- }catch(e){console.error(e);res.status(500).json({error:'Não foi possível carregar o controle de fiado.'})}
-});
-app.post('/api/admin/fiado/payments',auth,async(req,res)=>{
- try{
-  const allocations=Array.isArray(req.body.allocations)?req.body.allocations:[];
-  const payment=String(req.body.payment||'').toLowerCase();
-  if(!['pix','dinheiro','debito','credito'].includes(payment))return res.status(400).json({error:'Escolha uma forma válida para o recebimento.'});
-  if(!allocations.length)return res.status(400).json({error:'Informe quanto será recebido em pelo menos uma comanda.'});
-  const checked=[];let clientName='';
-  for(const a of allocations){
-   const id=Number(a.command_id),amount=Number(a.amount);
-   if(!Number.isInteger(id)||id<=0||!Number.isFinite(amount)||amount<=0)return res.status(400).json({error:'Confira os valores informados.'});
-   const c=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[id]);
-   if(!c||c.status!=='fechada'||String(c.payment).toLowerCase()!=='fiado')return res.status(400).json({error:'Uma das comandas selecionadas não é uma dívida válida.'});
-   if(clientName&&clientName.toLowerCase()!==String(c.customer||'').trim().toLowerCase())return res.status(400).json({error:'Selecione comandas de um mesmo cliente por vez.'});
-   clientName=String(c.customer||'').trim();
-   const paid=await one('SELECT COALESCE(SUM(amount),0) AS total FROM fiado_payments WHERE command_id='+(isPg?'$1':'?'),[id]);
-   const balance=Math.max(0,Number(c.total||0)-Number(paid.total||0));
-   if(amount>balance+0.001)return res.status(400).json({error:'O valor destinado à comanda '+c.number+' ultrapassa o saldo devedor de '+balance.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})+'.'});
-   checked.push({c,amount,balance});
-  }
-  for(const item of checked){
-   const c=item.c;
-   await run('INSERT INTO fiado_payments(command_id,customer,amount,payment) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?')+')',[c.id,clientName,item.amount,payment]);
-   const remaining=Number((item.balance-item.amount).toFixed(2));
-   const description='Recebimento fiado — '+clientName+' — Comanda '+c.number+(remaining<=0.001?' (QUITADA)':' (parcial)');
-   await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?')+')',['entrada',description,item.amount,payment]);
-  }
-  res.json({ok:true,count:checked.length});
- }catch(e){console.error(e);res.status(500).json({error:'Não foi possível registrar o recebimento.'})}
 });
 
 app.use(express.static(path.join(__dirname,'public')));
