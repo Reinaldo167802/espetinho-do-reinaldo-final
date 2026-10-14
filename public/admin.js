@@ -3,7 +3,7 @@ const money=v=>Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'B
 const $=id=>document.getElementById(id);
 const api=async(url,opt={})=>{opt.headers={...(opt.headers||{}),'x-admin-password':pass,'Content-Type':'application/json'};const r=await fetch(url,opt);const d=await r.json();if(!r.ok)throw Error(d.error||d.message||'Erro');return d};
 function login(){const pw=$('pw');pass=pw.value.trim();if(!pass){alert('Digite a senha administrativa.');return}api('/api/admin/orders').then(()=>{$('login').style.display='none';$('app').style.display='block';loadAll()}).catch(err=>alert('Erro ao entrar: '+err.message));}
-function tab(id){['orders','products','cash','commands','settings'].forEach(x=>$(x).style.display=x===id?'block':'none');if(id==='orders')loadOrders();if(id==='products')loadProducts();if(id==='cash')loadCash();if(id==='commands')loadCommands();if(id==='settings')loadSettings();}
+function tab(id){['orders','products','cash','commands','customers','settings'].forEach(x=>$(x).style.display=x===id?'block':'none');if(id==='orders')loadOrders();if(id==='products')loadProducts();if(id==='cash')loadCash();if(id==='commands')loadCommands();if(id==='customers')loadCustomers();if(id==='settings')loadSettings();}
 async function loadAll(){loadOrders()}
 async function loadOrders(){const a=await api('/api/admin/orders');$('ordersList').innerHTML=a.map(o=>`<div class="panel"><b>Pedido #${o.id} — ${esc(o.customer_name)}</b><br>${o.items.map(i=>`${i.qty}x ${esc(i.name)}`).join(', ')}<br><span>Subtotal: ${money(o.subtotal||o.total)}</span>${Number(o.delivery_fee)>0?`<br><span>Taxa de entrega: ${money(o.delivery_fee)}</span>`:''}<br><strong>TOTAL: ${money(o.total)}</strong>${o.type==='entrega'?`<br>🛵 Entrega: ${esc(o.address||'Endereço não informado')}`:''}<br>Status: <select onchange="status(${o.id},this.value)">${['novo','confirmado','preparando','pronto','entregando','finalizado','cancelado'].map(s=>`<option ${s===o.status?'selected':''}>${s}</option>`).join('')}</select> ${esc(o.payment||'')}</div>`).join('')||'<p>Nenhum pedido.</p>';}
 async function status(id,s){await api('/api/admin/orders/'+id+'/status',{method:'PUT',body:JSON.stringify({status:s})});loadOrders()}
@@ -51,6 +51,22 @@ async function closeCommand(id){
  if(!confirm('Confirma fechar esta comanda e registrar o pagamento?'))return;
  try{await api('/api/admin/commands/'+id+'/close',{method:'PUT',body:JSON.stringify({payment})});await loadCommands();if($('cash').style.display!=='none')loadCash();alert('Comanda fechada com sucesso.');}
  catch(e){alert(e.message)}
+}
+let customerEditingId=null;
+async function loadCustomers(){
+ try{
+  const rows=await api('/api/admin/customers');
+  $('customersList').innerHTML=rows.length?'<div class="table"><table><tr><th>Cliente</th><th>Contato</th><th>Limite de fiado</th><th>Autorização</th><th>Situação</th><th>Ações</th></tr>'+rows.map(c=>`<tr><td><b>${esc(c.name)}</b><br><span class="small">${esc(c.address||'')}</span></td><td>${esc(c.phone||'-')}</td><td>${money(c.credit_limit)}</td><td>${(c.fiado_authorized===true||c.fiado_authorized===1)?'Autorizado':'Não autorizado'}</td><td>${(c.active===true||c.active===1)?'Ativo':'Inativo'}</td><td><button onclick="editCustomer(${c.id})">Editar</button></td></tr>`).join('')+'</table></div>':'<p>Nenhum cliente cadastrado ainda.</p>';
+ }catch(e){$('customersList').innerHTML='<p>Erro ao carregar clientes: '+esc(e.message)+'</p>'}
+}
+function clearCustomerForm(){customerEditingId=null;['customerId','customerName','customerPhone','customerAddress','customerNotes'].forEach(id=>$(id).value='');$('customerLimit').value='0';$('customerFiado').checked=false;$('customerActive').checked=true;$('customerSaveBtn').textContent='CADASTRAR CLIENTE';}
+async function editCustomer(id){
+ try{const rows=await api('/api/admin/customers');const c=rows.find(x=>Number(x.id)===Number(id));if(!c)return;customerEditingId=Number(c.id);$('customerId').value=c.id;$('customerName').value=c.name||'';$('customerPhone').value=c.phone||'';$('customerAddress').value=c.address||'';$('customerLimit').value=Number(c.credit_limit||0);$('customerFiado').checked=c.fiado_authorized===true||c.fiado_authorized===1;$('customerActive').checked=c.active===true||c.active===1;$('customerNotes').value=c.notes||'';$('customerSaveBtn').textContent='SALVAR ALTERAÇÕES';window.scrollTo({top:0,behavior:'smooth'});}catch(e){alert(e.message)}
+}
+async function saveCustomer(){
+ const body={name:$('customerName').value.trim(),phone:$('customerPhone').value.trim(),address:$('customerAddress').value.trim(),credit_limit:$('customerLimit').value||0,fiado_authorized:$('customerFiado').checked,active:$('customerActive').checked,notes:$('customerNotes').value.trim()};
+ if(!body.name)return alert('Informe o nome completo do cliente.');
+ try{if(customerEditingId)await api('/api/admin/customers/'+customerEditingId,{method:'PUT',body:JSON.stringify(body)});else await api('/api/admin/customers',{method:'POST',body:JSON.stringify(body)});clearCustomerForm();await loadCustomers();alert('Cadastro de cliente salvo com sucesso.');}catch(e){alert(e.message)}
 }
 async function loadSettings(){const s=await api('/api/admin/settings');$('deliverySetting').value=Number(s.delivery_fee||0).toFixed(2);}
 async function saveSettings(){const d=await api('/api/admin/settings',{method:'PUT',body:JSON.stringify({delivery_fee:$('deliverySetting').value})});$('settingsMsg').textContent='Taxa de entrega salva: '+money(d.delivery_fee);}
