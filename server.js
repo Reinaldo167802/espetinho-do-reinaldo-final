@@ -72,7 +72,7 @@ app.post('/api/admin/customers',auth,async(req,res)=>{
   const sql=isPg
    ? 'INSERT INTO customers(name,phone,address,credit_limit,fiado_authorized,active,notes) VALUES($1,$2,$3,$4,$5,TRUE,$6) RETURNING *'
    : 'INSERT INTO customers(name,phone,address,credit_limit,fiado_authorized,active,notes) VALUES(?,?,?,?,?,1,?)';
-  const result=await run(sql,[name,phone,address,creditLimit,authorized,notes]);
+  const result=await run(sql,[name,phone,address,creditLimit,authorized?1:0,notes]);
   const row=isPg?await one('SELECT * FROM customers WHERE id=$1',[result.lastID]):await one('SELECT * FROM customers WHERE id=?',[result.lastID]);
   res.json(row);
  }catch(e){console.error('Erro ao cadastrar cliente:',e);res.status(500).json({error:'Não foi possível cadastrar o cliente.'})}
