@@ -128,6 +128,30 @@ app.get('/api/admin/cash',auth,async(req,res)=>{
 });
 app.post('/api/admin/cash',auth,async(req,res)=>{const {type='entrada',description,value,payment=''}=req.body;if(!description||!value)return res.status(400).json({error:'Descrição e valor obrigatórios'});await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4)':'?,?,?,?)'),[type,description,Number(value),payment]);res.json({ok:true});});
 
+// Limpeza controlada dos registros de teste; preserva integralmente o cadastro de produtos.
+app.delete('/api/admin/test-data',auth,async(req,res)=>{
+ try{
+  if(isPg){
+   await db.query('BEGIN');
+   try{
+    await db.query('TRUNCATE TABLE order_items, orders, cash, command_items, commands RESTART IDENTITY');
+    await db.query('COMMIT');
+   }catch(e){await db.query('ROLLBACK');throw e;}
+  }else{
+   const clear=db.transaction(()=>{
+    db.prepare('DELETE FROM order_items').run();
+    db.prepare('DELETE FROM orders').run();
+    db.prepare('DELETE FROM cash').run();
+    db.prepare('DELETE FROM command_items').run();
+    db.prepare('DELETE FROM commands').run();
+    db.prepare("DELETE FROM sqlite_sequence WHERE name IN ('orders','order_items','cash','commands','command_items')").run();
+   });
+   clear();
+  }
+  res.json({ok:true,message:'Pedidos, comandas e lançamentos de caixa foram limpos. Produtos e configurações foram preservados.'});
+ }catch(e){console.error('Erro ao limpar dados de teste:',e);res.status(500).json({error:'Não foi possível limpar os dados de teste.'});}
+});
+
 app.get('/api/admin/commands',auth,async(req,res)=>{const rows=await q('SELECT * FROM commands ORDER BY id DESC');for(const c of rows)c.items=await q('SELECT * FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[c.id]);res.json(rows);});
 app.post('/api/admin/commands',auth,async(req,res)=>{
  try{
