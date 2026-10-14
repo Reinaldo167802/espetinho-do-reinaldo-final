@@ -3,7 +3,7 @@ const money=v=>Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'B
 const $=id=>document.getElementById(id);
 const api=async(url,opt={})=>{opt.headers={...(opt.headers||{}),'x-admin-password':pass,'Content-Type':'application/json'};const r=await fetch(url,opt);const d=await r.json();if(!r.ok)throw Error(d.error||d.message||'Erro');return d};
 function login(){const pw=$('pw');pass=pw.value.trim();if(!pass){alert('Digite a senha administrativa.');return}api('/api/admin/orders').then(()=>{$('login').style.display='none';$('app').style.display='block';loadAll()}).catch(err=>alert('Erro ao entrar: '+err.message));}
-function tab(id){['orders','products','cash','commands','customers','settings'].forEach(x=>$(x).style.display=x===id?'block':'none');if(id==='orders')loadOrders();if(id==='products')loadProducts();if(id==='cash')loadCash();if(id==='commands'){loadCustomersForCommands();loadCommands();}if(id==='customers')loadCustomers();if(id==='settings')loadSettings();}
+function tab(id){['orders','products','cash','commands','customers','fiado','settings'].forEach(x=>$(x).style.display=x===id?'block':'none');if(id==='orders')loadOrders();if(id==='products')loadProducts();if(id==='cash')loadCash();if(id==='commands'){loadCustomersForCommands();loadCommands();}if(id==='customers')loadCustomers();if(id==='fiado')loadFiado();if(id==='settings')loadSettings();}
 async function loadAll(){loadOrders()}
 async function loadOrders(){const a=await api('/api/admin/orders');$('ordersList').innerHTML=a.map(o=>`<div class="panel"><b>Pedido #${o.id} — ${esc(o.customer_name)}</b><br>${o.items.map(i=>`${i.qty}x ${esc(i.name)}`).join(', ')}<br><span>Subtotal: ${money(o.subtotal||o.total)}</span>${Number(o.delivery_fee)>0?`<br><span>Taxa de entrega: ${money(o.delivery_fee)}</span>`:''}<br><strong>TOTAL: ${money(o.total)}</strong>${o.type==='entrega'?`<br>🛵 Entrega: ${esc(o.address||'Endereço não informado')}`:''}<br>Status: <select onchange="status(${o.id},this.value)">${['novo','confirmado','preparando','pronto','entregando','finalizado','cancelado'].map(s=>`<option ${s===o.status?'selected':''}>${s}</option>`).join('')}</select> ${esc(o.payment||'')}</div>`).join('')||'<p>Nenhum pedido.</p>';}
 async function status(id,s){await api('/api/admin/orders/'+id+'/status',{method:'PUT',body:JSON.stringify({status:s})});loadOrders()}
@@ -82,6 +82,26 @@ async function saveCustomer(){
  if(!body.name)return alert('Informe o nome completo do cliente.');
  try{if(customerEditingId)await api('/api/admin/customers/'+customerEditingId,{method:'PUT',body:JSON.stringify(body)});else await api('/api/admin/customers',{method:'POST',body:JSON.stringify(body)});clearCustomerForm();await loadCustomers();alert('Cadastro de cliente salvo com sucesso.');}catch(e){alert(e.message)}
 }
+
+async function loadFiado(){
+ try{
+  const [debts,history]=await Promise.all([api('/api/admin/fiado'),api('/api/admin/fiado/history')]);
+  const pending=debts.filter(c=>Number(c.remaining)>0.009);
+  $('fiadoList').innerHTML=pending.length?'<div class="table"><table><tr><th>Marcar</th><th>Cliente</th><th>Comanda</th><th>Total original</th><th>Já pago</th><th>Saldo devedor</th><th>Quanto receber nesta comanda (R$)</th></tr>'+pending.map(c=>`<tr><td><input type="checkbox" class="fiadoCheck" data-id="${c.id}" style="width:auto"></td><td>${esc(c.customer||'Cliente não informado')}</td><td>${esc(c.number)}</td><td>${money(c.total)}</td><td>${money(c.paid)}</td><td><b>${money(c.remaining)}</b></td><td><input type="number" min="0.01" max="${Number(c.remaining)}" step="0.01" class="fiadoAmount" data-id="${c.id}" placeholder="0,00" style="width:130px;padding:8px"></td></tr>`).join('')+'</table></div>':'<p>Não há comandas de fiado pendentes.</p>';
+  $('fiadoHistory').innerHTML=history.length?'<div class="table"><table><tr><th>Data</th><th>Cliente</th><th>Comanda</th><th>Valor recebido</th><th>Forma</th></tr>'+history.map(p=>`<tr><td>${esc(p.created_at||'')}</td><td>${esc(p.customer||'')}</td><td>${esc(p.command_number||'')}</td><td>${money(p.amount)}</td><td>${esc(p.payment||'')}</td></tr>`).join('')+'</table></div>':'<p>Nenhum recebimento de fiado registrado ainda.</p>';
+ }catch(e){$('fiadoList').innerHTML='<p>Erro ao carregar o controle de fiado: '+esc(e.message)+'</p>';}
+}
+async function recordFiadoPayments(){
+ const selected=[...document.querySelectorAll('.fiadoCheck:checked')];
+ if(!selected.length)return alert('Marque pelo menos uma comanda.');
+ const allocations=[];
+ for(const check of selected){const id=Number(check.dataset.id);const field=[...document.querySelectorAll('.fiadoAmount')].find(x=>Number(x.dataset.id)===id);const amount=Number(field?.value||0);if(!Number.isFinite(amount)||amount<=0)return alert('Informe um valor maior que zero para cada comanda marcada.');allocations.push({command_id:id,amount});}
+ const total=allocations.reduce((s,a)=>s+a.amount,0);
+ if(!confirm('Confirmar recebimento de '+money(total)+' dividido entre '+allocations.length+' comanda(s)? Cada comanda será registrada separadamente no caixa.'))return;
+ try{const result=await api('/api/admin/fiado/payments',{method:'POST',body:JSON.stringify({payment:$('fiadoPayment').value,allocations})});alert(result.message+' Total: '+money(result.total));await loadFiado();await loadCash();}
+ catch(e){alert(e.message)}
+}
+
 async function loadSettings(){const s=await api('/api/admin/settings');$('deliverySetting').value=Number(s.delivery_fee||0).toFixed(2);}
 async function saveSettings(){const d=await api('/api/admin/settings',{method:'PUT',body:JSON.stringify({delivery_fee:$('deliverySetting').value})});$('settingsMsg').textContent='Taxa de entrega salva: '+money(d.delivery_fee);}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
