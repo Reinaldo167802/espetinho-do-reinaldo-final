@@ -232,6 +232,32 @@ app.post('/api/admin/commands/:id/items',auth,async(req,res)=>{
 });
 
 
+// Remove um produto somente de uma comanda que ainda está aberta.
+app.delete('/api/admin/commands/:id/items/:itemId',auth,async(req,res)=>{
+ try{
+  const commandId=Number(req.params.id);
+  const itemId=Number(req.params.itemId);
+  if(!Number.isInteger(commandId)||commandId<=0||!Number.isInteger(itemId)||itemId<=0)
+   return res.status(400).json({error:'Comanda ou item inválido.'});
+  const command=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[commandId]);
+  if(!command)return res.status(404).json({error:'Comanda não encontrada.'});
+  if(command.status!=='aberta')return res.status(400).json({error:'Só é possível excluir produtos de comandas abertas.'});
+  const item=await one('SELECT * FROM command_items WHERE id='+(isPg?'$1':'?')+' AND command_id='+(isPg?'$2':'?'),[itemId,commandId]);
+  if(!item)return res.status(404).json({error:'Este produto não pertence a esta comanda ou já foi excluído.'});
+  await run('DELETE FROM command_items WHERE id='+(isPg?'$1':'?')+' AND command_id='+(isPg?'$2':'?'),[itemId,commandId]);
+  const sumRows=await q('SELECT COALESCE(SUM(total),0) AS total FROM command_items WHERE command_id='+(isPg?'$1':'?'),[commandId]);
+  const total=Math.round(Number(sumRows[0]?.total||0)*100)/100;
+  await run('UPDATE commands SET total='+(isPg?'$1':'?')+' WHERE id='+(isPg?'$2':'?'),[total,commandId]);
+  const updated=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[commandId]);
+  const items=await q('SELECT * FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[commandId]);
+  res.json({ok:true,message:'Produto excluído e total recalculado.',command:updated,items});
+ }catch(e){
+  console.error('Erro ao excluir item da comanda:',e);
+  res.status(500).json({error:'Não foi possível excluir o produto da comanda.'});
+ }
+});
+
+
 async function fiadoCommandRows(){
  const commands=await q("SELECT * FROM commands WHERE status='fechada' AND LOWER(payment)='fiado' ORDER BY id DESC");
  const out=[];
