@@ -3,7 +3,7 @@ const money=v=>Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'B
 const $=id=>document.getElementById(id);
 const api=async(url,opt={})=>{opt.headers={...(opt.headers||{}),'x-admin-password':pass,'Content-Type':'application/json'};const r=await fetch(url,opt);const d=await r.json();if(!r.ok)throw Error(d.error||d.message||'Erro');return d};
 function login(){const pw=$('pw');pass=pw.value.trim();if(!pass){alert('Digite a senha administrativa.');return}api('/api/admin/orders').then(()=>{$('login').style.display='none';$('app').style.display='block';loadAll()}).catch(err=>alert('Erro ao entrar: '+err.message));}
-function tab(id){['orders','products','cash','commands','customers','settings'].forEach(x=>$(x).style.display=x===id?'block':'none');if(id==='orders')loadOrders();if(id==='products')loadProducts();if(id==='cash')loadCash();if(id==='commands')loadCommands();if(id==='customers')loadCustomers();if(id==='settings')loadSettings();}
+function tab(id){['orders','products','cash','commands','customers','settings'].forEach(x=>$(x).style.display=x===id?'block':'none');if(id==='orders')loadOrders();if(id==='products')loadProducts();if(id==='cash')loadCash();if(id==='commands'){loadCustomersForCommands();loadCommands();}if(id==='customers')loadCustomers();if(id==='settings')loadSettings();}
 async function loadAll(){loadOrders()}
 async function loadOrders(){const a=await api('/api/admin/orders');$('ordersList').innerHTML=a.map(o=>`<div class="panel"><b>Pedido #${o.id} — ${esc(o.customer_name)}</b><br>${o.items.map(i=>`${i.qty}x ${esc(i.name)}`).join(', ')}<br><span>Subtotal: ${money(o.subtotal||o.total)}</span>${Number(o.delivery_fee)>0?`<br><span>Taxa de entrega: ${money(o.delivery_fee)}</span>`:''}<br><strong>TOTAL: ${money(o.total)}</strong>${o.type==='entrega'?`<br>🛵 Entrega: ${esc(o.address||'Endereço não informado')}`:''}<br>Status: <select onchange="status(${o.id},this.value)">${['novo','confirmado','preparando','pronto','entregando','finalizado','cancelado'].map(s=>`<option ${s===o.status?'selected':''}>${s}</option>`).join('')}</select> ${esc(o.payment||'')}</div>`).join('')||'<p>Nenhum pedido.</p>';}
 async function status(id,s){await api('/api/admin/orders/'+id+'/status',{method:'PUT',body:JSON.stringify({status:s})});loadOrders()}
@@ -21,6 +21,19 @@ function csvRows(text){const lines=text.replace(/^\uFEFF/,'').split(/\r?\n/).fil
 async function importCsv(){const f=$('csvFile').files[0];if(!f)return alert('Escolha um arquivo CSV.');const rows=csvRows(await f.text());if(!rows.length)return alert('CSV vazio.');let ok=0,fail=[];for(const r of rows){try{await api('/api/admin/products',{method:'POST',body:JSON.stringify({barcode:r.codigo_barras||r.barcode||'',name:r.nome||r.name||'',brand:r.marca||r.brand||'',category:r.categoria||r.category||'Outros',unit:r.unidade||r.unit||'un',cost_price:r.custo||r.cost_price||0,price:r.venda||r.price||0,stock:r.estoque||r.stock||0,min_stock:r.estoque_minimo||r.min_stock||0,description:r.descricao||r.description||'',image:r.url_foto||r.image||'',active:true})});ok++;}catch(e){fail.push((r.codigo_barras||r.nome||'linha')+': '+e.message)}}loadProducts();alert(`Importação concluída. ${ok} produto(s) importado(s).${fail.length?'\nFalhas: '+fail.length+'\n'+fail.slice(0,5).join('\n'):''}`)}
 async function loadCash(){const d=await api('/api/admin/cash');const rows=Array.isArray(d.rows)?d.rows:[];const today=new Date();const dayKey=v=>{if(!v)return '';const dt=new Date(v);return Number.isNaN(dt.getTime())?'':`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`};const todayKey=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;const dated=rows.filter(x=>x.created_at||x.createdAt||x.date||x.created_at);const dayRows=dated.length?rows.filter(x=>dayKey(x.created_at||x.createdAt||x.date)===todayKey):rows;const methods=[['Dinheiro',['dinheiro','cash']],['Pix',['pix']],['Débito',['debito','débito','cartao debito','cartão de débito','debit']],['Crédito',['credito','crédito','cartao credito','cartão de crédito','credit']],['Fiado',['fiado']]];const totals=methods.map(([label,aliases])=>{const total=dayRows.filter(x=>label==='Fiado'?x.type==='fiado'||(x.type==='entrada'&&aliases.includes(String(x.payment||'').trim().toLowerCase())):x.type==='entrada'&&aliases.includes(String(x.payment||'').trim().toLowerCase())).reduce((sum,x)=>sum+Number(x.value||0),0);return `<b>${label}: ${money(total)}</b>`}).join('');$('cashSummary').innerHTML=`<div class="totalsBox"><b>Entradas ${money(d.totals.entradas)}</b><b>Saídas ${money(d.totals.saidas)}</b><b>Saldo ${money(d.totals.saldo)}</b></div><div class="totalsBox">${totals}</div>${dated.length?'':'<small>Os registros retornados pela API não possuem data identificável; a separação considera todos os registros retornados.</small>'}`;$('cashList').innerHTML=rows.map(x=>`<div>${x.type==='entrada'?'🟢':x.type==='fiado'?'🟡':'🔴'} ${esc(x.description)}: <b>${money(x.value)}</b> ${esc(x.payment||'')}${x.type==='fiado'?' — não recebido':''}</div>`).join('')}
 async function addCash(){await api('/api/admin/cash',{method:'POST',body:JSON.stringify({type:$('ct').value,description:$('cd').value,value:$('cv').value,payment:$('cp').value})});$('cd').value='';$('cv').value='';loadCash()}
+async function loadCustomersForCommands(){
+ try{
+  const rows=await api('/api/admin/customers');
+  const select=$('cc');
+  const selected=select.value;
+  select.innerHTML='<option value="">Cliente (opcional — escolha na lista)</option>'+
+   rows.filter(c=>(c.active===true||c.active===1)).map(c=>`<option value="${esc(c.name)}">${esc(c.name)}${(c.fiado_authorized===true||c.fiado_authorized===1)?' — fiado autorizado':''}</option>`).join('');
+  if([...select.options].some(o=>o.value===selected))select.value=selected;
+ }catch(e){
+  $('cc').innerHTML='<option value="">Não foi possível carregar clientes</option>';
+  console.error('Erro ao carregar clientes para comanda:',e);
+ }
+}
 async function loadCommands(){
  try{
   const [a,products]=await Promise.all([api('/api/admin/commands'),api('/api/admin/products')]);
@@ -37,6 +50,7 @@ async function addCommand(){
  try{
   const result=await api('/api/admin/commands',{method:'POST',body:JSON.stringify({customer:$('cc').value})});
   $('cc').value='';
+  await loadCustomersForCommands();
   await loadCommands();
   alert('Comanda '+result.number+' aberta com sucesso.');
  }catch(e){alert(e.message)}
