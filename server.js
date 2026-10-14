@@ -21,7 +21,8 @@ function initSqlite(){
  CREATE TABLE IF NOT EXISTS order_items(id INTEGER PRIMARY KEY AUTOINCREMENT,order_id INTEGER NOT NULL,product_id INTEGER,name TEXT NOT NULL,qty REAL NOT NULL,unit_price REAL NOT NULL,total REAL NOT NULL);
  CREATE TABLE IF NOT EXISTS cash(id INTEGER PRIMARY KEY AUTOINCREMENT,type TEXT NOT NULL,description TEXT NOT NULL,value REAL NOT NULL,payment TEXT DEFAULT '',order_id INTEGER,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
  CREATE TABLE IF NOT EXISTS commands(id INTEGER PRIMARY KEY AUTOINCREMENT,number TEXT UNIQUE NOT NULL,customer TEXT DEFAULT '',status TEXT DEFAULT 'aberta',payment TEXT DEFAULT '',total REAL DEFAULT 0,created_at TEXT DEFAULT CURRENT_TIMESTAMP,closed_at TEXT);
- CREATE TABLE IF NOT EXISTS command_items(id INTEGER PRIMARY KEY AUTOINCREMENT,command_id INTEGER NOT NULL,product_id INTEGER,name TEXT NOT NULL,qty REAL NOT NULL,unit_price REAL NOT NULL,total REAL NOT NULL);`);
+ CREATE TABLE IF NOT EXISTS command_items(id INTEGER PRIMARY KEY AUTOINCREMENT,command_id INTEGER NOT NULL,product_id INTEGER,name TEXT NOT NULL,qty REAL NOT NULL,unit_price REAL NOT NULL,total REAL NOT NULL);
+ CREATE TABLE IF NOT EXISTS customers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,phone TEXT DEFAULT '',address TEXT DEFAULT '',credit_limit REAL NOT NULL DEFAULT 0,fiado_authorized INTEGER NOT NULL DEFAULT 0,active INTEGER NOT NULL DEFAULT 1,notes TEXT DEFAULT '',created_at TEXT DEFAULT CURRENT_TIMESTAMP);`);
  if(q('SELECT COUNT(*) c FROM products').get().c===0){
   const ins=q('INSERT INTO products(name,category,description,price,active) VALUES(?,?,?,?,1)');
   [['Espetinho de Carne','Espetinhos','Espetinho tradicional da casa',10],['Espetinho de Frango','Espetinhos','Temperado da casa',9],['X-Tudo','Hambúrgueres','Hambúrguer completo',25],['Super Espetinho Burguer','Hambúrgueres','Especial da casa',30],['Porção de Tilápia','Porções','Tilápia na panela de pedra',35],['Copa Lombo','Porções','Porção de copa lombo',30],['Pastel frito na hora','Salgados','Consulte sabores',7],['Açaí 300 ml','Açaí','Complementos à parte',10],['Açaí 500 ml','Açaí','Complementos à parte',14],['Suco de laranja 300 ml','Bebidas','Natural',8],['Cerveja Brahma Latão','Bebidas','473 ml',8]].forEach(x=>ins.run(...x));
@@ -35,7 +36,8 @@ async function initPg(){
  CREATE TABLE IF NOT EXISTS order_items(id SERIAL PRIMARY KEY,order_id INTEGER NOT NULL,product_id INTEGER,name TEXT NOT NULL,qty NUMERIC(12,2) NOT NULL,unit_price NUMERIC(12,2) NOT NULL,total NUMERIC(12,2) NOT NULL);
  CREATE TABLE IF NOT EXISTS cash(id SERIAL PRIMARY KEY,type TEXT NOT NULL,description TEXT NOT NULL,value NUMERIC(12,2) NOT NULL,payment TEXT DEFAULT '',order_id INTEGER,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
  CREATE TABLE IF NOT EXISTS commands(id SERIAL PRIMARY KEY,number TEXT UNIQUE NOT NULL,customer TEXT DEFAULT '',status TEXT DEFAULT 'aberta',payment TEXT DEFAULT '',total NUMERIC(12,2) DEFAULT 0,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,closed_at TIMESTAMP);
- CREATE TABLE IF NOT EXISTS command_items(id SERIAL PRIMARY KEY,command_id INTEGER NOT NULL,product_id INTEGER,name TEXT NOT NULL,qty NUMERIC(12,2) NOT NULL,unit_price NUMERIC(12,2) NOT NULL,total NUMERIC(12,2) NOT NULL);`);
+ CREATE TABLE IF NOT EXISTS command_items(id SERIAL PRIMARY KEY,command_id INTEGER NOT NULL,product_id INTEGER,name TEXT NOT NULL,qty NUMERIC(12,2) NOT NULL,unit_price NUMERIC(12,2) NOT NULL,total NUMERIC(12,2) NOT NULL);
+ CREATE TABLE IF NOT EXISTS customers(id SERIAL PRIMARY KEY,name TEXT NOT NULL,phone TEXT DEFAULT '',address TEXT DEFAULT '',credit_limit NUMERIC(12,2) NOT NULL DEFAULT 0,fiado_authorized BOOLEAN NOT NULL DEFAULT FALSE,active BOOLEAN NOT NULL DEFAULT TRUE,notes TEXT DEFAULT '',created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`);
  const c=await db.query('SELECT COUNT(*) c FROM products');
  if(Number(c.rows[0].c)===0){for(const x of [['Espetinho de Carne','Espetinhos','Espetinho tradicional da casa',10],['Espetinho de Frango','Espetinhos','Temperado da casa',9],['X-Tudo','Hambúrgueres','Hambúrguer completo',25],['Super Espetinho Burguer','Hambúrgueres','Especial da casa',30],['Porção de Tilápia','Porções','Tilápia na panela de pedra',35],['Copa Lombo','Porções','Porção de copa lombo',30],['Pastel frito na hora','Salgados','Consulte sabores',7],['Açaí 300 ml','Açaí','Complementos à parte',10],['Açaí 500 ml','Açaí','Complementos à parte',14],['Suco de laranja 300 ml','Bebidas','Natural',8],['Cerveja Brahma Latão','Bebidas','473 ml',8]]) await db.query('INSERT INTO products(name,category,description,price,active) VALUES($1,$2,$3,$4,true)',x);}
 }
@@ -53,6 +55,41 @@ app.get('/api/admin/products',auth,async(req,res)=>{res.json(await q('SELECT * F
 app.post('/api/admin/products',auth,async(req,res)=>{const {name,category='Outros',description='',price=0,image='',active=true}=req.body;if(!name)return res.status(400).json({error:'Nome obrigatório'});const sql=isPg?'INSERT INTO products(name,category,description,price,image,active) VALUES($1,$2,$3,$4,$5,$6) RETURNING *':'INSERT INTO products(name,category,description,price,image,active) VALUES(?,?,?,?,?,?)';const r=await run(sql,[name,category,description,Number(price),image,!!active]);res.json(isPg?r.lastID:await one('SELECT * FROM products WHERE id=?',[r.lastID]));});
 app.put('/api/admin/products/:id',auth,async(req,res)=>{const {name,category,description,price,image,active}=req.body;const id=Number(req.params.id);if(isPg){const r=await db.query('UPDATE products SET name=$1,category=$2,description=$3,price=$4,image=$5,active=$6 WHERE id=$7 RETURNING *',[name,category,description,Number(price),image,!!active,id]);return res.json(r.rows[0]);}await run('UPDATE products SET name=?,category=?,description=?,price=?,image=?,active=? WHERE id=?',[name,category,description,Number(price),image,active?1:0,id]);res.json(await one('SELECT * FROM products WHERE id=?',[id]));});
 app.delete('/api/admin/products/:id',auth,async(req,res)=>{await run('UPDATE products SET active='+(isPg?'false':'0')+' WHERE id='+(isPg?'$1':'?'),[Number(req.params.id)]);res.json({ok:true});});
+
+app.get('/api/admin/customers',auth,async(req,res)=>{
+ try{const rows=await q('SELECT * FROM customers ORDER BY name');res.json(rows)}catch(e){res.status(500).json({error:'Não foi possível carregar os clientes.'})}
+});
+app.post('/api/admin/customers',auth,async(req,res)=>{
+ try{
+  const name=String(req.body.name||'').trim();
+  const phone=String(req.body.phone||'').trim();
+  const address=String(req.body.address||'').trim();
+  const notes=String(req.body.notes||'').trim();
+  const creditLimit=Number(req.body.credit_limit||0);
+  const authorized=!!req.body.fiado_authorized;
+  if(!name)return res.status(400).json({error:'Informe o nome do cliente.'});
+  if(!Number.isFinite(creditLimit)||creditLimit<0)return res.status(400).json({error:'O limite de fiado deve ser zero ou maior.'});
+  const sql=isPg
+   ? 'INSERT INTO customers(name,phone,address,credit_limit,fiado_authorized,active,notes) VALUES($1,$2,$3,$4,$5,TRUE,$6) RETURNING *'
+   : 'INSERT INTO customers(name,phone,address,credit_limit,fiado_authorized,active,notes) VALUES(?,?,?,?,?,1,?)';
+  const result=await run(sql,[name,phone,address,creditLimit,authorized,notes]);
+  const row=isPg?await one('SELECT * FROM customers WHERE id=$1',[result.lastID]):await one('SELECT * FROM customers WHERE id=?',[result.lastID]);
+  res.json(row);
+ }catch(e){console.error('Erro ao cadastrar cliente:',e);res.status(500).json({error:'Não foi possível cadastrar o cliente.'})}
+});
+app.put('/api/admin/customers/:id',auth,async(req,res)=>{
+ try{
+  const id=Number(req.params.id);const name=String(req.body.name||'').trim();
+  const phone=String(req.body.phone||'').trim();const address=String(req.body.address||'').trim();const notes=String(req.body.notes||'').trim();
+  const creditLimit=Number(req.body.credit_limit||0);const authorized=!!req.body.fiado_authorized;const active=req.body.active!==false;
+  if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Cliente inválido.'});
+  if(!name)return res.status(400).json({error:'Informe o nome do cliente.'});
+  if(!Number.isFinite(creditLimit)||creditLimit<0)return res.status(400).json({error:'O limite de fiado deve ser zero ou maior.'});
+  if(isPg){const r=await db.query('UPDATE customers SET name=$1,phone=$2,address=$3,credit_limit=$4,fiado_authorized=$5,active=$6,notes=$7 WHERE id=$8 RETURNING *',[name,phone,address,creditLimit,authorized,active,notes,id]);if(!r.rows.length)return res.status(404).json({error:'Cliente não encontrado.'});return res.json(r.rows[0]);}
+  const r=await run('UPDATE customers SET name=?,phone=?,address=?,credit_limit=?,fiado_authorized=?,active=?,notes=? WHERE id=?',[name,phone,address,creditLimit,authorized?1:0,active?1:0,notes,id]);
+  if(!r.changes)return res.status(404).json({error:'Cliente não encontrado.'});res.json(await one('SELECT * FROM customers WHERE id=?',[id]));
+ }catch(e){console.error('Erro ao atualizar cliente:',e);res.status(500).json({error:'Não foi possível atualizar o cliente.'})}
+});
 
 app.post('/api/orders',async(req,res)=>{try{const {customer_name,phone='',type='balcao',address='',payment='',notes='',items=[]}=req.body;if(!customer_name||!items.length)return res.status(400).json({error:'Nome e itens são obrigatórios'});let total=0,products=[];for(const it of items){const p=await one('SELECT * FROM products WHERE id='+(isPg?'$1':'?'),[Number(it.product_id)]);if(!p||!(p.active===true||p.active===1))return res.status(400).json({error:'Produto indisponível'});const qty=Number(it.qty)||1;const line=Number(p.price)*qty;total+=line;products.push({p,qty,line});}
  const deliveryFee=type==='entrega'?DELIVERY_FEE:0;
