@@ -328,8 +328,8 @@ app.put('/api/admin/commands/:id/close',auth,async(req,res)=>{
   if(!c)return res.status(404).json({error:'Comanda não encontrada'});
   if(c.status==='fechada')return res.status(400).json({error:'Esta comanda já foi fechada'});
   if(!Number(c.total)||Number(c.total)<=0)return res.status(400).json({error:'Lance pelo menos um produto antes de fechar a comanda'});
-  const payment=String(req.body.payment||'').trim();
-  if(!['pix','dinheiro','debito','credito','fiado'].includes(payment))return res.status(400).json({error:'Escolha uma forma de pagamento válida'});
+  const payment=String(req.body.payment||'pendente').trim().toLowerCase();
+  if(!['pendente','pix','dinheiro','debito','credito','fiado'].includes(payment))return res.status(400).json({error:'Escolha uma forma de pagamento válida'});
   if(payment==='fiado'){
    const customerName=String(c.customer||'').trim();
    if(!customerName)return res.status(400).json({error:'Selecione um cliente cadastrado para vender no fiado.'});
@@ -339,27 +339,47 @@ app.put('/api/admin/commands/:id/close',auth,async(req,res)=>{
    const yes=v=>v===true||v===1||String(v).toLowerCase()==='true';
    if(!yes(customer.active))return res.status(400).json({error:'Este cliente está inativo e não pode comprar no fiado.'});
    if(!yes(customer.fiado_authorized))return res.status(400).json({error:'Este cliente não está autorizado a comprar no fiado.'});
-   const debts=await q("SELECT * FROM commands WHERE status='fechada' AND LOWER(payment)='fiado'");
-   let used=0;
-   for(const debt of debts){
-    if(String(debt.customer||'').trim().toLocaleLowerCase('pt-BR')===customerName.toLocaleLowerCase('pt-BR')){
-     const pays=await q('SELECT amount FROM fiado_payments WHERE command_id='+(isPg?'$1':'?'),[debt.id]);
-     used+=Math.max(0,Number(debt.total||0)-pays.reduce((s,p)=>s+Number(p.amount||0),0));
-    }
-   }
+   const debts=await q("SELECT * FROM commands WHERE status='fechada' AND LOWER(payment)='fiado'");let used=0;
+   for(const debt of debts){if(String(debt.customer||'').trim().toLocaleLowerCase('pt-BR')===customerName.toLocaleLowerCase('pt-BR')){const pays=await q('SELECT amount FROM fiado_payments WHERE command_id='+(isPg?'$1':'?'),[debt.id]);used+=Math.max(0,Number(debt.total||0)-pays.reduce((sum,p)=>sum+Number(p.amount||0),0));}}
    const available=Math.round((Number(customer.credit_limit||0)-used)*100)/100;
    if(Number(c.total)>available+0.001)return res.status(400).json({error:'Limite de fiado insuficiente. Limite: '+Number(customer.credit_limit||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})+'; utilizado: '+used.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})+'; disponível: '+Math.max(0,available).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})+'.'});
   }
   await run('UPDATE commands SET status='+(isPg?'$1':'?')+',payment='+(isPg?'$2':'?')+',closed_at=CURRENT_TIMESTAMP WHERE id='+(isPg?'$3':'?'),['fechada',payment,id]);
   const description=payment==='fiado'?'Comanda '+c.number+' - Fiado':'Comanda '+c.number;
-  const exists=await one('SELECT id FROM cash WHERE description='+(isPg?'$1':'?'),[description]);
-  if(!exists){
-   if(payment==='fiado')await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?)'),['fiado',description,Number(c.total),'fiado']);
-   else await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?)'),['entrada',description,Number(c.total),payment]);
+  // Conta pendente não é entrada de caixa. Fiado segue registrado como valor a receber.
+  if(payment==='fiado'){
+   const exists=await one('SELECT id FROM cash WHERE description='+(isPg?'$1':'?'),[description]);
+   if(!exists)await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?)'),['fiado',description,Number(c.total),'fiado']);
+  } else if(payment!=='pendente') {
+   const exists=await one('SELECT id FROM cash WHERE description='+(isPg?'$1':'?'),[description]);
+   if(!exists)await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?)'),['entrada',description,Number(c.total),payment]);
   }
-  const updated=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[id]);
-  res.json({ok:true,command:updated});
+  const updated=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[id]);res.json({ok:true,command:updated});
  }catch(e){res.status(500).json({error:e.message||'Erro ao fechar comanda'})}
+});
+
+// Confirma o pagamento de uma conta fechada que ainda estava pendente. Rejeita duplicação.
+app.put('/api/admin/commands/:id/pay',auth,async(req,res)=>{
+ try{
+  const id=Number(req.params.id);const payment=String(req.body.payment||'').trim().toLowerCase();
+  if(!['pix','dinheiro','debito','credito'].includes(payment))return res.status(400).json({error:'Escolha uma forma de pagamento válida.'});
+  const c=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[id]);
+  if(!c)return res.status(404).json({error:'Comanda não encontrada.'});
+  if(c.status!=='fechada')return res.status(400).json({error:'Feche a conta antes de registrar o pagamento.'});
+  if(String(c.payment||'').toLowerCase()!=='pendente')return res.status(400).json({error:'Esta conta não está pendente de pagamento.'});
+  // Atualização condicional: apenas uma requisição pode mudar a conta de pendente para paga.
+  // Isso evita duplicidade se o botão for acionado duas vezes ou duas requisições chegarem juntas.
+  const changed=await run(
+   'UPDATE commands SET payment='+(isPg?'$1':'?')+' WHERE id='+(isPg?'$2':'?')+" AND status='fechada' AND LOWER(payment)='pendente'",
+   [payment,id]
+  );
+  if(!changed.changes)return res.status(409).json({error:'Esta conta já foi paga ou deixou de estar pendente. Atualize a tela antes de tentar novamente.'});
+  const description='Comanda '+c.number;
+  // Só a requisição que alterou o estado pode lançar a entrada no caixa.
+  const exists=await one('SELECT id FROM cash WHERE description='+(isPg?'$1':'?'),[description]);
+  if(!exists)await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?)'),['entrada',description,Number(c.total),payment]);
+  const updated=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[id]);res.json({ok:true,command:updated});
+ }catch(e){console.error('Erro ao registrar pagamento da comanda:',e);res.status(500).json({error:'Não foi possível registrar o pagamento.'})}
 });
 
 app.use(express.static(path.join(__dirname,'public')));
