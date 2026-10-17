@@ -26,44 +26,25 @@ async function loadCustomerOptions(selected=''){
 }
 async function loadCommands(){
  try{
-  await loadCustomerOptions();
-  const [a,products]=await Promise.all([api('/api/admin/commands'),api('/api/admin/products')]);
+  await loadCustomerOptions();const [a,products]=await Promise.all([api('/api/admin/commands'),api('/api/admin/products')]);
   const active=products.filter(p=>p.active===true||p.active===1);
   $('commandsList').innerHTML=a.map(c=>{
-   const items=(c.items||[]);
-   const itemHtml=items.length?`<div class="table"><table><tr><th>Produto</th><th>Qtd.</th><th>Unitário</th><th>Total</th>${c.status==='aberta'?'<th>Ação</th>':''}</tr>${items.map(i=>`<tr><td>${esc(i.name)}</td><td>${esc(i.qty)}</td><td>${money(i.unit_price)}</td><td>${money(i.total)}</td>${c.status==='aberta'?`<td><button class="danger" onclick="deleteCommandItem(${c.id},${i.id})">EXCLUIR ITEM</button></td>`:''}</tr>`).join('')}</table></div>`:'<p class="muted">Nenhum produto lançado nesta comanda.</p>';
-   const controls=c.status==='aberta'?`<div class="editBox"><div class="row"><select id="cmdProduct${c.id}">${active.map(p=>`<option value="${p.id}">${esc(p.name)} — ${money(p.price)}</option>`).join('')}</select><input id="cmdQty${c.id}" type="number" min="0.01" step="0.01" value="1" placeholder="Quantidade"></div><button class="primary" style="margin-top:8px" onclick="addCommandItem(${c.id})">LANÇAR PRODUTO</button><div class="row" style="margin-top:8px"><select id="cmdPayment${c.id}"><option value="pix">Pix</option><option value="dinheiro">Dinheiro</option><option value="debito">Cartão de Débito</option><option value="credito">Cartão de Crédito</option><option value="fiado">Fiado / Promissória</option></select><button class="danger" onclick="closeCommand(${c.id})">FECHAR COMANDA</button></div></div>`:'<p><b>Pagamento:</b> '+esc(c.payment||'-')+'</p>';
+   const items=c.items||[];const itemHtml=items.length?`<div class="table"><table><tr><th>Produto</th><th>Qtd.</th><th>Unitário</th><th>Total</th>${c.status==='aberta'?'<th>Ação</th>':''}</tr>${items.map(i=>`<tr><td>${esc(i.name)}</td><td>${esc(i.qty)}</td><td>${money(i.unit_price)}</td><td>${money(i.total)}</td>${c.status==='aberta'?`<td><button class="danger" onclick="deleteCommandItem(${c.id},${i.id})">EXCLUIR ITEM</button></td>`:''}</tr>`).join('')}</table></div>`:'<p class="muted">Nenhum produto lançado nesta comanda.</p>';
+   let controls='';
+   if(c.status==='aberta') controls=`<div class="editBox"><div class="row"><select id="cmdProduct${c.id}">${active.map(p=>`<option value="${p.id}">${esc(p.name)} — ${money(p.price)}</option>`).join('')}</select><input id="cmdQty${c.id}" type="number" min="0.01" step="0.01" value="1" placeholder="Quantidade"></div><button class="primary" style="margin-top:8px" onclick="addCommandItem(${c.id})">LANÇAR PRODUTO</button><div class="row" style="margin-top:8px"><select id="cmdPayment${c.id}"><option value="pendente">Fechar conta — pagar depois</option><option value="pix">Pix (pagamento agora)</option><option value="dinheiro">Dinheiro (pagamento agora)</option><option value="debito">Cartão de Débito (pagamento agora)</option><option value="credito">Cartão de Crédito (pagamento agora)</option><option value="fiado">Fiado / Promissória</option></select><button class="danger" onclick="closeCommand(${c.id})">FECHAR CONTA</button></div></div>`;
+   else if(String(c.payment||'').toLowerCase()==='pendente') controls=`<div class="editBox"><p><b>Conta fechada — aguardando pagamento.</b></p><button onclick="printCommand(${c.id},'fechada')">IMPRIMIR CONTA</button><div class="row" style="margin-top:8px"><select id="payMethod${c.id}"><option value="pix">Pix</option><option value="dinheiro">Dinheiro</option><option value="debito">Cartão de Débito</option><option value="credito">Cartão de Crédito</option></select><button class="ok" onclick="payCommand(${c.id})">CONFIRMAR PAGAMENTO E IMPRIMIR</button></div></div>`;
+   else controls=`<p><b>Pagamento:</b> ${esc(c.payment||'-')} ${String(c.payment||'').toLowerCase()==='fiado'?'— conta a receber':'— pago'}</p><button onclick="printCommand(${c.id},'paga')">IMPRIMIR COMPROVANTE ${String(c.payment||'').toLowerCase()==='fiado'?'DO FIADO':'PAGO'}</button>`;
    return `<div class="panel"><h3>Comanda ${esc(c.number)} — ${esc(c.customer||'')}</h3><p>Status: <b>${esc(c.status)}</b> | Total: <b>${money(c.total)}</b></p>${itemHtml}${controls}</div>`;
   }).join('')||'<p>Nenhuma comanda cadastrada.</p>';
  }catch(e){$('commandsList').innerHTML='<p>Erro ao carregar comandas: '+esc(e.message)+'</p>'}
 }
-async function addCommand(){
- try{
-  const result=await api('/api/admin/commands',{method:'POST',body:JSON.stringify({customer:$('cc').value})});
-  $('cc').value='';
-  await loadCommands();
-  alert('Comanda '+result.number+' aberta com sucesso.');
- }catch(e){alert(e.message)}
-}
-async function addCommandItem(id){
- const product_id=Number($('cmdProduct'+id).value),qty=Number($('cmdQty'+id).value);
- try{await api('/api/admin/commands/'+id+'/items',{method:'POST',body:JSON.stringify({product_id,qty})});await loadCommands();}
- catch(e){alert(e.message)}
-}
-async function deleteCommandItem(commandId,itemId){
- if(!confirm('Confirma excluir este produto da comanda aberta? O total será recalculado.'))return;
- try{
-  await api('/api/admin/commands/'+commandId+'/items/'+itemId,{method:'DELETE'});
-  await loadCommands();
-  alert('Produto excluído. O total da comanda foi atualizado.');
- }catch(e){alert(e.message)}
-}
-async function closeCommand(id){
- const payment=$('cmdPayment'+id).value;
- if(!confirm('Confirma fechar esta comanda e registrar o pagamento?'))return;
- try{await api('/api/admin/commands/'+id+'/close',{method:'PUT',body:JSON.stringify({payment})});await loadCommands();if($('cash').style.display!=='none')loadCash();alert('Comanda fechada com sucesso.');}
- catch(e){alert(e.message)}
-}
+async function addCommand(){try{const result=await api('/api/admin/commands',{method:'POST',body:JSON.stringify({customer:$('cc').value})});$('cc').value='';await loadCommands();alert('Comanda '+result.number+' aberta com sucesso.');}catch(e){alert(e.message)}}
+async function addCommandItem(id){const product_id=Number($('cmdProduct'+id).value),qty=Number($('cmdQty'+id).value);try{await api('/api/admin/commands/'+id+'/items',{method:'POST',body:JSON.stringify({product_id,qty})});await loadCommands();}catch(e){alert(e.message)}}
+async function deleteCommandItem(commandId,itemId){if(!confirm('Confirma excluir este produto da comanda aberta? O total será recalculado.'))return;try{await api('/api/admin/commands/'+commandId+'/items/'+itemId,{method:'DELETE'});await loadCommands();alert('Produto excluído. O total da comanda foi atualizado.');}catch(e){alert(e.message)}}
+async function closeCommand(id){const payment=$('cmdPayment'+id).value;if(!confirm('Confirma fechar esta conta? Se escolher pagar depois, ela ficará pendente e não entrará como recebimento no caixa.'))return;try{await api('/api/admin/commands/'+id+'/close',{method:'PUT',body:JSON.stringify({payment})});await loadCommands();if($('cash').style.display!=='none')loadCash();alert('Conta fechada.');}catch(e){alert(e.message)}}
+async function payCommand(id){const payment=$('payMethod'+id).value;const buttons=[...document.querySelectorAll('button[onclick=\"payCommand('+id+')\"]')];if(!confirm('Confirma que recebeu o pagamento desta conta? O recebimento será lançado no caixa uma única vez.'))return;buttons.forEach(b=>b.disabled=true);try{await api('/api/admin/commands/'+id+'/pay',{method:'PUT',body:JSON.stringify({payment})});await loadCommands();if($('cash').style.display!=='none')loadCash();printCommand(id,'paga');alert('Pagamento registrado e comprovante preparado para impressão.');}catch(e){alert(e.message);buttons.forEach(b=>b.disabled=false)}}
+async function printCommand(id,stage){try{const rows=await api('/api/admin/commands');const c=rows.find(x=>Number(x.id)===Number(id));if(!c)throw Error('Comanda não encontrada.');const paid=stage==='paga';const lines=(c.items||[]).map(i=>`<tr><td>${esc(i.name)}<br><small>${Number(i.qty)} x ${money(i.unit_price)}</small></td><td style="text-align:right">${money(i.total)}</td></tr>`).join('');const status=paid?(String(c.payment).toLowerCase()==='fiado'?'FIADO / A RECEBER':'PAGO'):'CONTA FECHADA — AGUARDANDO PAGAMENTO';const pay=paid?`<p><b>Forma de pagamento:</b> ${esc(c.payment)}</p>`:'';const w=window.open('','_blank','width=420,height=700');if(!w)throw Error('Permita janelas pop-up para imprimir o comprovante.');w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Comanda ${esc(c.number)}</title><style>@page{size:80mm auto;margin:3mm}body{font:12px Arial,sans-serif;width:72mm;margin:0 auto;color:#000}header{text-align:center;border-bottom:1px dashed #000;padding-bottom:8px}h2{font-size:17px;margin:4px 0}p{margin:5px 0}table{width:100%;border-collapse:collapse;margin:10px 0}td{padding:4px 0;vertical-align:top;border-bottom:1px dotted #bbb}td:first-child{width:68%}.total{font-size:16px;font-weight:bold;border-top:1px dashed #000;padding-top:8px}.status{text-align:center;font-weight:bold;border:1px solid #000;padding:7px;margin:10px 0}footer{text-align:center;margin-top:14px;font-size:10px}@media screen{body{padding:10px}}</style></head><body><header><h2>ESPETINHO DO REINALDO</h2><p>Rua Gomes Freire, 38 — Furquim</p><p>Mariana — MG | (31) 99577-0730</p></header><p><b>Comanda:</b> ${esc(c.number)}</p><p><b>Cliente:</b> ${esc(c.customer||'Consumidor não identificado')}</p><p><b>Data:</b> ${new Date(c.closed_at||c.created_at||Date.now()).toLocaleString('pt-BR')}</p><div class="status">${status}</div><table>${lines}</table><p class="total">TOTAL: ${money(c.total)}</p>${pay}<footer>Obrigado pela preferência!</footer><script>window.onload=()=>setTimeout(()=>window.print(),250)<\/script></body></html>`);w.document.close();}catch(e){alert(e.message)}}
+
 let customerEditingId=null;
 async function loadCustomers(){
  try{
