@@ -8,6 +8,7 @@ app.use(express.urlencoded({extended:true}));
 const PORT=process.env.PORT||3000;
 const ADMIN_PASSWORD=String(process.env.SENHA_DE_ADMINISTRADOR||process.env.ADMIN_PASSWORD||'reinaldo123').trim();
 const DELIVERY_FEE=Number(process.env.TAXA_ENTREGA||process.env.DELIVERY_FEE||process.env.TAXA_DE_ENTREGA||0);
+const PRINTER_BRIDGE_TOKEN=String(process.env.PRINTER_BRIDGE_TOKEN||'').trim();
 let db;
 let isPg=!!process.env.DATABASE_URL;
 
@@ -16,21 +17,21 @@ function initSqlite(){
  db=new Database(process.env.SQLITE_PATH||path.join(__dirname,'data.sqlite'));
  db.pragma('journal_mode = WAL');
  const q=(sql)=>db.prepare(sql);
- db.exec(`CREATE TABLE IF NOT EXISTS products(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,category TEXT NOT NULL DEFAULT 'Outros',description TEXT DEFAULT '',price REAL NOT NULL DEFAULT 0,image TEXT DEFAULT '',active INTEGER NOT NULL DEFAULT 1,barcode TEXT DEFAULT '',brand TEXT DEFAULT '',unit TEXT DEFAULT 'un',cost_price REAL NOT NULL DEFAULT 0,stock REAL NOT NULL DEFAULT 0,min_stock REAL NOT NULL DEFAULT 0,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+ db.exec(`CREATE TABLE IF NOT EXISTS products(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,category TEXT NOT NULL DEFAULT 'Outros',description TEXT DEFAULT '',price REAL NOT NULL DEFAULT 0,image TEXT DEFAULT '',active INTEGER NOT NULL DEFAULT 1,created_at TEXT DEFAULT CURRENT_TIMESTAMP,barcode TEXT DEFAULT '',brand TEXT DEFAULT '',unit TEXT DEFAULT 'un',cost_price REAL DEFAULT 0,stock REAL DEFAULT 0,min_stock REAL DEFAULT 0,prepare_kitchen INTEGER NOT NULL DEFAULT 0);
  CREATE TABLE IF NOT EXISTS orders(id INTEGER PRIMARY KEY AUTOINCREMENT,customer_name TEXT NOT NULL,phone TEXT DEFAULT '',type TEXT NOT NULL DEFAULT 'balcao',address TEXT DEFAULT '',payment TEXT DEFAULT '',notes TEXT DEFAULT '',status TEXT NOT NULL DEFAULT 'novo',total REAL NOT NULL DEFAULT 0,command_no TEXT DEFAULT '',created_at TEXT DEFAULT CURRENT_TIMESTAMP);
  CREATE TABLE IF NOT EXISTS order_items(id INTEGER PRIMARY KEY AUTOINCREMENT,order_id INTEGER NOT NULL,product_id INTEGER,name TEXT NOT NULL,qty REAL NOT NULL,unit_price REAL NOT NULL,total REAL NOT NULL);
  CREATE TABLE IF NOT EXISTS cash(id INTEGER PRIMARY KEY AUTOINCREMENT,type TEXT NOT NULL,description TEXT NOT NULL,value REAL NOT NULL,payment TEXT DEFAULT '',order_id INTEGER,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
  CREATE TABLE IF NOT EXISTS commands(id INTEGER PRIMARY KEY AUTOINCREMENT,number TEXT UNIQUE NOT NULL,customer TEXT DEFAULT '',status TEXT DEFAULT 'aberta',payment TEXT DEFAULT '',total REAL DEFAULT 0,created_at TEXT DEFAULT CURRENT_TIMESTAMP,closed_at TEXT);
  CREATE TABLE IF NOT EXISTS command_items(id INTEGER PRIMARY KEY AUTOINCREMENT,command_id INTEGER NOT NULL,product_id INTEGER,name TEXT NOT NULL,qty REAL NOT NULL,unit_price REAL NOT NULL,total REAL NOT NULL);
  CREATE TABLE IF NOT EXISTS customers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,phone TEXT DEFAULT '',address TEXT DEFAULT '',credit_limit REAL NOT NULL DEFAULT 0,fiado_authorized INTEGER NOT NULL DEFAULT 0,active INTEGER NOT NULL DEFAULT 1,notes TEXT DEFAULT '',created_at TEXT DEFAULT CURRENT_TIMESTAMP);
- CREATE TABLE IF NOT EXISTS fiado_payments(id INTEGER PRIMARY KEY AUTOINCREMENT,command_id INTEGER NOT NULL,customer TEXT NOT NULL,amount REAL NOT NULL,payment TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP);`);
+ CREATE TABLE IF NOT EXISTS fiado_payments(id INTEGER PRIMARY KEY AUTOINCREMENT,command_id INTEGER NOT NULL,customer TEXT NOT NULL,amount REAL NOT NULL,payment TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+ CREATE TABLE IF NOT EXISTS print_jobs(id INTEGER PRIMARY KEY AUTOINCREMENT,job_key TEXT UNIQUE NOT NULL,kind TEXT NOT NULL,payload TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',attempts INTEGER NOT NULL DEFAULT 0,created_at TEXT DEFAULT CURRENT_TIMESTAMP,claimed_at TEXT,printed_at TEXT,last_error TEXT);`);
+ // Migração segura dos campos usados pelo painel de produtos.
+ const productCols=db.prepare('PRAGMA table_info(products)').all().map(c=>c.name);
+ for(const [col,def] of [['barcode',"TEXT DEFAULT ''"],['brand',"TEXT DEFAULT ''"],['unit',"TEXT DEFAULT 'un'"],['cost_price','REAL DEFAULT 0'],['stock','REAL DEFAULT 0'],['min_stock','REAL DEFAULT 0'],['prepare_kitchen','INTEGER NOT NULL DEFAULT 0']]) if(!productCols.includes(col)) db.exec(`ALTER TABLE products ADD COLUMN ${col} ${def}`);
  // Migração segura: bancos antigos podem ter fiado_payments sem a coluna customer.
  const fiadoCols=db.prepare('PRAGMA table_info(fiado_payments)').all().map(c=>c.name);
  if(!fiadoCols.includes('customer')) db.exec("ALTER TABLE fiado_payments ADD COLUMN customer TEXT NOT NULL DEFAULT ''");
- // Migração compatível com produtos cadastrados antes dos campos de estoque/código de barras.
- const productCols=db.prepare('PRAGMA table_info(products)').all().map(c=>c.name);
- const productMigrations={barcode:"TEXT DEFAULT ''",brand:"TEXT DEFAULT ''",unit:"TEXT DEFAULT 'un'",cost_price:'REAL NOT NULL DEFAULT 0',stock:'REAL NOT NULL DEFAULT 0',min_stock:'REAL NOT NULL DEFAULT 0'};
- for(const [col,def] of Object.entries(productMigrations)){if(!productCols.includes(col))db.exec(`ALTER TABLE products ADD COLUMN ${col} ${def}`)}
  if(q('SELECT COUNT(*) c FROM products').get().c===0){
   const ins=q('INSERT INTO products(name,category,description,price,active) VALUES(?,?,?,?,1)');
   [['Espetinho de Carne','Espetinhos','Espetinho tradicional da casa',10],['Espetinho de Frango','Espetinhos','Temperado da casa',9],['X-Tudo','Hambúrgueres','Hambúrguer completo',25],['Super Espetinho Burguer','Hambúrgueres','Especial da casa',30],['Porção de Tilápia','Porções','Tilápia na panela de pedra',35],['Copa Lombo','Porções','Porção de copa lombo',30],['Pastel frito na hora','Salgados','Consulte sabores',7],['Açaí 300 ml','Açaí','Complementos à parte',10],['Açaí 500 ml','Açaí','Complementos à parte',14],['Suco de laranja 300 ml','Bebidas','Natural',8],['Cerveja Brahma Latão','Bebidas','473 ml',8]].forEach(x=>ins.run(...x));
@@ -39,7 +40,7 @@ function initSqlite(){
 }
 async function initPg(){
  const {Pool}=require('pg'); db=new Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_URL.includes('railway')?{rejectUnauthorized:false}:undefined});
- await db.query(`CREATE TABLE IF NOT EXISTS products(id SERIAL PRIMARY KEY,name TEXT NOT NULL,category TEXT NOT NULL DEFAULT 'Outros',description TEXT DEFAULT '',price NUMERIC(12,2) NOT NULL DEFAULT 0,image TEXT DEFAULT '',active BOOLEAN NOT NULL DEFAULT TRUE,barcode TEXT DEFAULT '',brand TEXT DEFAULT '',unit TEXT DEFAULT 'un',cost_price NUMERIC(12,2) NOT NULL DEFAULT 0,stock NUMERIC(12,3) NOT NULL DEFAULT 0,min_stock NUMERIC(12,3) NOT NULL DEFAULT 0,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+ await db.query(`CREATE TABLE IF NOT EXISTS products(id SERIAL PRIMARY KEY,name TEXT NOT NULL,category TEXT NOT NULL DEFAULT 'Outros',description TEXT DEFAULT '',price NUMERIC(12,2) NOT NULL DEFAULT 0,image TEXT DEFAULT '',active BOOLEAN NOT NULL DEFAULT TRUE,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,barcode TEXT DEFAULT '',brand TEXT DEFAULT '',unit TEXT DEFAULT 'un',cost_price NUMERIC(12,2) DEFAULT 0,stock NUMERIC(12,3) DEFAULT 0,min_stock NUMERIC(12,3) DEFAULT 0,prepare_kitchen BOOLEAN NOT NULL DEFAULT FALSE);
  CREATE TABLE IF NOT EXISTS orders(id SERIAL PRIMARY KEY,customer_name TEXT NOT NULL,phone TEXT DEFAULT '',type TEXT NOT NULL DEFAULT 'balcao',address TEXT DEFAULT '',payment TEXT DEFAULT '',notes TEXT DEFAULT '',status TEXT NOT NULL DEFAULT 'novo',total NUMERIC(12,2) NOT NULL DEFAULT 0,command_no TEXT DEFAULT '',created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
  CREATE TABLE IF NOT EXISTS order_items(id SERIAL PRIMARY KEY,order_id INTEGER NOT NULL,product_id INTEGER,name TEXT NOT NULL,qty NUMERIC(12,2) NOT NULL,unit_price NUMERIC(12,2) NOT NULL,total NUMERIC(12,2) NOT NULL);
  CREATE TABLE IF NOT EXISTS cash(id SERIAL PRIMARY KEY,type TEXT NOT NULL,description TEXT NOT NULL,value NUMERIC(12,2) NOT NULL,payment TEXT DEFAULT '',order_id INTEGER,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
@@ -47,15 +48,17 @@ async function initPg(){
  CREATE TABLE IF NOT EXISTS command_items(id SERIAL PRIMARY KEY,command_id INTEGER NOT NULL,product_id INTEGER,name TEXT NOT NULL,qty NUMERIC(12,2) NOT NULL,unit_price NUMERIC(12,2) NOT NULL,total NUMERIC(12,2) NOT NULL);
  CREATE TABLE IF NOT EXISTS customers(id SERIAL PRIMARY KEY,name TEXT NOT NULL,phone TEXT DEFAULT '',address TEXT DEFAULT '',credit_limit NUMERIC(12,2) NOT NULL DEFAULT 0,fiado_authorized BOOLEAN NOT NULL DEFAULT FALSE,active BOOLEAN NOT NULL DEFAULT TRUE,notes TEXT DEFAULT '',created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
  CREATE TABLE IF NOT EXISTS fiado_payments(id SERIAL PRIMARY KEY,command_id INTEGER NOT NULL,customer TEXT NOT NULL,amount NUMERIC(12,2) NOT NULL,payment TEXT NOT NULL,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`);
- // Migração segura para instalações PostgreSQL já existentes.
- await db.query("ALTER TABLE fiado_payments ADD COLUMN IF NOT EXISTS customer TEXT NOT NULL DEFAULT ''");
- // Migração segura dos campos adicionais de cadastro de produtos.
+ await db.query("CREATE TABLE IF NOT EXISTS print_jobs(id SERIAL PRIMARY KEY,job_key TEXT UNIQUE NOT NULL,kind TEXT NOT NULL,payload TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',attempts INTEGER NOT NULL DEFAULT 0,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,claimed_at TIMESTAMP,printed_at TIMESTAMP,last_error TEXT)");
+ // Migração segura dos campos usados pelo painel de produtos.
  await db.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS barcode TEXT DEFAULT ''");
  await db.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS brand TEXT DEFAULT ''");
  await db.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS unit TEXT DEFAULT 'un'");
- await db.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS cost_price NUMERIC(12,2) NOT NULL DEFAULT 0");
- await db.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS stock NUMERIC(12,3) NOT NULL DEFAULT 0");
- await db.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS min_stock NUMERIC(12,3) NOT NULL DEFAULT 0");
+ await db.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS cost_price NUMERIC(12,2) DEFAULT 0');
+ await db.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS stock NUMERIC(12,3) DEFAULT 0');
+ await db.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS min_stock NUMERIC(12,3) DEFAULT 0');
+ await db.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS prepare_kitchen BOOLEAN NOT NULL DEFAULT FALSE');
+ // Migração segura para instalações PostgreSQL já existentes.
+ await db.query("ALTER TABLE fiado_payments ADD COLUMN IF NOT EXISTS customer TEXT NOT NULL DEFAULT ''");
  const c=await db.query('SELECT COUNT(*) c FROM products');
  if(Number(c.rows[0].c)===0){for(const x of [['Espetinho de Carne','Espetinhos','Espetinho tradicional da casa',10],['Espetinho de Frango','Espetinhos','Temperado da casa',9],['X-Tudo','Hambúrgueres','Hambúrguer completo',25],['Super Espetinho Burguer','Hambúrgueres','Especial da casa',30],['Porção de Tilápia','Porções','Tilápia na panela de pedra',35],['Copa Lombo','Porções','Porção de copa lombo',30],['Pastel frito na hora','Salgados','Consulte sabores',7],['Açaí 300 ml','Açaí','Complementos à parte',10],['Açaí 500 ml','Açaí','Complementos à parte',14],['Suco de laranja 300 ml','Bebidas','Natural',8],['Cerveja Brahma Latão','Bebidas','473 ml',8]]) await db.query('INSERT INTO products(name,category,description,price,active) VALUES($1,$2,$3,$4,true)',x);}
 }
@@ -63,52 +66,47 @@ function auth(req,res,next){const supplied=String(req.headers['x-admin-password'
 function normRows(r){return r.rows||r;}
 async function q(sql,args=[]){if(isPg)return normRows(await db.query(sql,args)); return db.prepare(sql).all(...args);}
 async function one(sql,args=[]){if(isPg){const r=await db.query(sql,args);return r.rows[0];}return db.prepare(sql).get(...args);}
-async function run(sql,args=[]){if(isPg){const r=await db.query(sql,args);return {lastID:r.rows[0]?.id,changes:r.rowCount};}const r=db.prepare(sql).run(...args);return {lastID:r.lastInsertRowid,changes:r.changes};}
+async function run(sql,args=[]){if(isPg){const r=await db.query(sql,args.map(v=>v===undefined?null:v));return {lastID:r.rows[0]?.id,changes:r.rowCount};}const safeArgs=args.map(v=>v===undefined?null:(typeof v==='boolean'?(v?1:0):(typeof v==='number'&&!Number.isFinite(v)?null:v)));const r=db.prepare(sql).run(...safeArgs);return {lastID:r.lastInsertRowid,changes:r.changes};}
 function placeholders(n,start=1){return Array.from({length:n},(_,i)=>'$'+(i+start)).join(',');}
+function productNumber(v){if(v===undefined||v===null||String(v).trim()==='')return 0;const s=String(v).trim().replace(/\s/g,'').replace(/\.(?=\d{3}(?:\D|$))/g,'').replace(',','.');return Number(s);}
 
 app.get('/api/health',(req,res)=>res.json({ok:true,version:'4.0.0',database:isPg?'postgres':'sqlite',adminConfigured:Boolean(process.env.SENHA_DE_ADMINISTRADOR||process.env.ADMIN_PASSWORD)}));
+async function enqueuePrint(jobKey,kind,payload){try{const key=String(jobKey),data=JSON.stringify(payload);if(isPg)await db.query('INSERT INTO print_jobs(job_key,kind,payload) VALUES($1,$2,$3) ON CONFLICT(job_key) DO NOTHING',[key,kind,data]);else await run('INSERT OR IGNORE INTO print_jobs(job_key,kind,payload) VALUES(?,?,?)',[key,kind,data]);}catch(e){console.error('Falha ao criar trabalho de impressão:',e)}}
+function bridgeAuth(req,res,next){if(!PRINTER_BRIDGE_TOKEN)return res.status(503).json({error:'PRINTER_BRIDGE_TOKEN não configurado no servidor'});if(String(req.headers['x-printer-token']||'')!==PRINTER_BRIDGE_TOKEN)return res.status(401).json({error:'Token da impressora inválido'});next()}
+app.get('/api/printer/next',bridgeAuth,async(req,res)=>{try{let job;if(isPg){const r=await db.query("UPDATE print_jobs SET status='printing',attempts=attempts+1,claimed_at=CURRENT_TIMESTAMP WHERE id=(SELECT id FROM print_jobs WHERE status='pending' ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING *");job=r.rows[0]}else{const candidate=await one("SELECT * FROM print_jobs WHERE status='pending' ORDER BY id LIMIT 1");if(candidate){await run("UPDATE print_jobs SET status='printing',attempts=attempts+1,claimed_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'",[candidate.id]);job=await one("SELECT * FROM print_jobs WHERE id=? AND status='printing'",[candidate.id])}}if(!job)return res.status(204).end();res.json({...job,payload:JSON.parse(job.payload)})}catch(e){console.error('Fila de impressão:',e);res.status(500).json({error:'Falha ao consultar fila'})}});
+app.post('/api/printer/:id/ack',bridgeAuth,async(req,res)=>{try{const id=Number(req.params.id),ok=req.body.ok===true,status=ok?'printed':'pending',error=String(req.body.error||'').slice(0,500);if(isPg)await db.query('UPDATE print_jobs SET status=$1,printed_at=CASE WHEN $2 THEN CURRENT_TIMESTAMP ELSE printed_at END,last_error=$3 WHERE id=$4',[status,ok,error,id]);else await run('UPDATE print_jobs SET status=?,printed_at=CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE printed_at END,last_error=? WHERE id=?',[status,ok?1:0,error,id]);res.json({ok:true})}catch(e){res.status(500).json({error:'Falha ao confirmar impressão'})}});
+app.post('/api/admin/print/command/:id',auth,async(req,res)=>{try{const id=Number(req.params.id),c=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[id]);if(!c)return res.status(404).json({error:'Comanda não encontrada'});const items=await q('SELECT * FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[id]);const stage=String(req.body.stage||'conferencia');const key='command-'+(stage==='paga'?'receipt':'bill')+'-'+id+'-'+Date.now();await enqueuePrint(key,stage==='paga'?'receipt':'bill',{title:stage==='paga'?'COMPROVANTE DE VENDA':'CONFERÊNCIA DE CONTA',stage,command:c.number,customer:c.customer||'',items,total:Number(c.total||0),payment:c.payment||'Pendente',created_at:c.closed_at||c.created_at});res.json({ok:true})}catch(e){console.error(e);res.status(500).json({error:'Não foi possível enfileirar a impressão'})}});
+app.post('/api/admin/print/order-receipt/:id',auth,async(req,res)=>{try{const id=Number(req.params.id),o=await one('SELECT * FROM orders WHERE id='+(isPg?'$1':'?'),[id]);if(!o)return res.status(404).json({error:'Pedido não encontrado'});const items=await q('SELECT * FROM order_items WHERE order_id='+(isPg?'$1':'?')+' ORDER BY id',[id]);await enqueuePrint('receipt-order-'+id+'-'+Date.now(),'receipt',{title:'COMPROVANTE DE VENDA',order:id,customer:o.customer_name,type:o.type,address:o.address,notes:o.notes,items,total:Number(o.total||0),payment:o.payment||'',created_at:o.created_at});res.json({ok:true})}catch(e){console.error(e);res.status(500).json({error:'Não foi possível enfileirar o comprovante'})}});
 app.get('/api/config',(req,res)=>res.json({delivery_fee:DELIVERY_FEE}));
 app.get('/api/products',async(req,res)=>{try{const rows=await q('SELECT * FROM products WHERE active = '+(isPg?'true':'1')+' ORDER BY category,name');res.json(rows);}catch(e){res.status(500).json({error:e.message})}});
-app.get('/api/admin/products',auth,async(req,res)=>{try{res.json(await q('SELECT * FROM products ORDER BY category,name'));}catch(e){console.error('Erro ao listar produtos:',e);res.status(500).json({error:'Não foi possível listar os produtos.'});}});
-// Consulta pública Open Food Facts pelo código de barras. A consulta não impede o cadastro manual.
+app.get('/api/admin/products',auth,async(req,res)=>{try{res.json(await q('SELECT * FROM products ORDER BY category,name'));}catch(e){res.status(500).json({error:'Não foi possível carregar os produtos.'});}});
 app.get('/api/admin/products/barcode/:barcode/lookup',auth,async(req,res)=>{
  try{
   const barcode=String(req.params.barcode||'').replace(/\D/g,'');
-  if(!barcode)return res.status(400).json({found:false,message:'Digite um código de barras válido.'});
-  const response=await fetch('https://world.openfoodfacts.org/api/v2/product/'+encodeURIComponent(barcode)+'.json',{headers:{'User-Agent':'EspetinhoDoReinaldo/1.0 (product lookup)'}});
-  if(!response.ok)return res.json({found:false,message:'A base externa está indisponível. Você pode preencher o cadastro manualmente.'});
-  const data=await response.json(); const p=data&&data.status===1?data.product:null;
-  if(!p)return res.json({found:false,message:'Código não encontrado na base externa. Preencha os dados manualmente.'});
-  const rawCategory=String(p.categories||'').split(',')[0].trim();
-  const quantity=String(p.quantity||'').trim();
-  res.json({found:true,name:String(p.product_name||p.product_name_pt||p.generic_name||'').trim(),brand:String(p.brands||'').split(',')[0].trim(),category:rawCategory||'Outros',unit:quantity||'un',description:String(p.generic_name||p.generic_name_pt||quantity||'').trim(),image:String(p.image_front_url||p.image_url||'').trim()});
- }catch(e){console.error('Erro na consulta de código de barras:',e);res.json({found:false,message:'Não foi possível consultar a base externa agora. Preencha os dados manualmente.'});}
+  if(!barcode) return res.status(400).json({found:false,message:'Digite um código de barras válido.'});
+  // Primeiro procura no cadastro local para reaproveitar os dados já salvos.
+  const local=await one('SELECT * FROM products WHERE barcode='+(isPg?'$1':'?')+' LIMIT 1',[barcode]);
+  if(local) return res.json({found:true,source:'local',name:local.name,brand:local.brand,category:local.category,unit:local.unit,description:local.description,image:local.image});
+  // Consulta externa Open Food Facts. A base é colaborativa e pode não conter todos os produtos.
+  const controller=new AbortController();
+  const timeout=setTimeout(()=>controller.abort(),7000);
+  try{
+   const response=await fetch('https://world.openfoodfacts.org/api/v2/product/'+encodeURIComponent(barcode)+'.json',{headers:{'User-Agent':'EspetinhoDoReinaldo/1.0 (product catalog)'},signal:controller.signal});
+   clearTimeout(timeout);
+   if(!response.ok) return res.json({found:false,message:'A base externa não respondeu agora. Você pode preencher o cadastro manualmente.'});
+   const result=await response.json();
+   const x=result && result.status===1 ? result.product : null;
+   if(!x) return res.json({found:false,message:'Produto não encontrado na base externa. Preencha os dados manualmente.'});
+   const category=String(x.categories||'').split(',')[0].trim()||'Outros';
+   const quantity=String(x.quantity||'').trim();
+   const unitMatch=quantity.match(/(kg|g|mg|l|ml|un|unidade|unidades)\b/i);
+   const unit=unitMatch?unitMatch[1].toLowerCase():'un';
+   return res.json({found:true,source:'openfoodfacts',name:String(x.product_name_pt||x.product_name||x.product_name_en||'').trim(),brand:String(x.brands||'').split(',')[0].trim(),category,unit,description:String(x.generic_name_pt||x.generic_name||quantity||'').trim(),image:String(x.image_front_url||x.image_url||'').trim(),quantity});
+  }catch(ex){clearTimeout(timeout);return res.json({found:false,message:'Não foi possível consultar a base externa agora. O cadastro manual continua disponível.'});}
+ }catch(e){console.error('Erro na consulta do código de barras:',e);res.status(500).json({found:false,error:'Falha ao consultar o código de barras.'});}
 });
-function productData(body={}){
- const text=v=>v===undefined||v===null?'':(typeof v==='string'?v:String(v));
- const num=v=>{if(v===undefined||v===null||v==='')return 0;const n=typeof v==='number'?v:Number(String(v).trim().replace(/\s/g,'').replace(/,(?=\d{1,2}$)/,'.'));return Number.isFinite(n)?n:NaN};
- return {name:text(body.name).trim(),barcode:text(body.barcode).trim(),brand:text(body.brand).trim(),category:text(body.category||'Outros').trim()||'Outros',unit:text(body.unit||'un').trim()||'un',description:text(body.description),price:num(body.price),cost_price:num(body.cost_price),stock:num(body.stock),min_stock:num(body.min_stock),image:text(body.image),active:body.active===undefined?true:(body.active===true||body.active===1||body.active==='1'||body.active==='true')};
-}
-app.post('/api/admin/products',auth,async(req,res)=>{
- try{
-  const p=productData(req.body);if(!p.name)return res.status(400).json({error:'Nome obrigatório'});
-  for(const k of ['price','cost_price','stock','min_stock'])if(!Number.isFinite(p[k]))return res.status(400).json({error:'Confira os campos numéricos: custo, venda e estoque.'});
-  const vals=[p.name,p.category,p.description,p.price,p.image,p.active,p.barcode,p.brand,p.unit,p.cost_price,p.stock,p.min_stock];
-  const sql=isPg?'INSERT INTO products(name,category,description,price,image,active,barcode,brand,unit,cost_price,stock,min_stock) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *':'INSERT INTO products(name,category,description,price,image,active,barcode,brand,unit,cost_price,stock,min_stock) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)';
-  const r=await run(sql,[...vals.slice(0,5),isPg?p.active:(p.active?1:0),...vals.slice(6)]);
-  const row=isPg?await one('SELECT * FROM products WHERE id=$1',[r.lastID]):await one('SELECT * FROM products WHERE id=?',[r.lastID]);res.json(row);
- }catch(e){console.error('Erro ao cadastrar produto:',e);res.status(500).json({error:'Não foi possível cadastrar o produto: '+e.message});}
-});
-app.put('/api/admin/products/:id',auth,async(req,res)=>{
- try{
-  const p=productData(req.body);const id=Number(req.params.id);if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Produto inválido.'});if(!p.name)return res.status(400).json({error:'Nome obrigatório'});
-  for(const k of ['price','cost_price','stock','min_stock'])if(!Number.isFinite(p[k]))return res.status(400).json({error:'Confira os campos numéricos: custo, venda e estoque.'});
-  const args=[p.name,p.category,p.description,p.price,p.image,isPg?p.active:(p.active?1:0),p.barcode,p.brand,p.unit,p.cost_price,p.stock,p.min_stock,id];
-  if(isPg){const r=await db.query('UPDATE products SET name=$1,category=$2,description=$3,price=$4,image=$5,active=$6,barcode=$7,brand=$8,unit=$9,cost_price=$10,stock=$11,min_stock=$12 WHERE id=$13 RETURNING *',args);if(!r.rows.length)return res.status(404).json({error:'Produto não encontrado.'});return res.json(r.rows[0]);}
-  await run('UPDATE products SET name=?,category=?,description=?,price=?,image=?,active=?,barcode=?,brand=?,unit=?,cost_price=?,stock=?,min_stock=? WHERE id=?',args);const row=await one('SELECT * FROM products WHERE id=?',[id]);if(!row)return res.status(404).json({error:'Produto não encontrado.'});res.json(row);
- }catch(e){console.error('Erro ao atualizar produto:',e);res.status(500).json({error:'Não foi possível atualizar o produto: '+e.message});}
-});
-app.delete('/api/admin/products/:id',auth,async(req,res)=>{await run('UPDATE products SET active='+(isPg?'false':'0')+' WHERE id='+(isPg?'$1':'?'),[Number(req.params.id)]);res.json({ok:true});});
+app.post('/api/admin/products',auth,async(req,res)=>{try{const b=req.body||{};const name=String(b.name||'').trim();if(!name)return res.status(400).json({error:'Nome obrigatório'});const data={name,category:String(b.category||'Outros'),description:String(b.description||''),price:productNumber(b.price),image:String(b.image||''),active:isPg?(b.active!==false):(b.active!==false?1:0),barcode:String(b.barcode||'').trim(),brand:String(b.brand||''),unit:String(b.unit||'un'),cost_price:productNumber(b.cost_price),stock:productNumber(b.stock),min_stock:productNumber(b.min_stock),prepare_kitchen:isPg?!!b.prepare_kitchen:(b.prepare_kitchen?1:0)};if(![data.price,data.cost_price,data.stock,data.min_stock].every(Number.isFinite))return res.status(400).json({error:'Preço e estoque devem ser números válidos.'});const cols=Object.keys(data);const vals=Object.values(data);const sql=isPg?`INSERT INTO products(${cols.join(',')}) VALUES(${cols.map((_,i)=>'$'+(i+1)).join(',')}) RETURNING *`:`INSERT INTO products(${cols.join(',')}) VALUES(${cols.map(()=>'?').join(',')})`;const r=await run(sql,vals);const row=isPg?await one('SELECT * FROM products WHERE id=$1',[r.lastID]):await one('SELECT * FROM products WHERE id=?',[r.lastID]);res.json(row);}catch(e){console.error('Erro ao cadastrar produto:',e);res.status(500).json({error:'Não foi possível cadastrar o produto.'});}});
+app.put('/api/admin/products/:id',auth,async(req,res)=>{try{const id=Number(req.params.id);const b=req.body||{};const name=String(b.name||'').trim();if(!name)return res.status(400).json({error:'Nome obrigatório'});const data={name,category:String(b.category||'Outros'),description:String(b.description||''),price:productNumber(b.price),image:String(b.image||''),active:isPg?(b.active!==false):(b.active!==false?1:0),barcode:String(b.barcode||'').trim(),brand:String(b.brand||''),unit:String(b.unit||'un'),cost_price:productNumber(b.cost_price),stock:productNumber(b.stock),min_stock:productNumber(b.min_stock),prepare_kitchen:isPg?!!b.prepare_kitchen:(b.prepare_kitchen?1:0)};const cols=Object.keys(data);const vals=Object.values(data);if(isPg){const sets=cols.map((c,i)=>c+'=$'+(i+1)).join(',');const r=await db.query(`UPDATE products SET ${sets} WHERE id=$${cols.length+1} RETURNING *`,[...vals,id]);if(!r.rows.length)return res.status(404).json({error:'Produto não encontrado.'});return res.json(r.rows[0]);}await run(`UPDATE products SET ${cols.map(c=>c+'=?').join(',')} WHERE id=?`,[...vals,id]);const row=await one('SELECT * FROM products WHERE id=?',[id]);if(!row)return res.status(404).json({error:'Produto não encontrado.'});res.json(row);}catch(e){console.error('Erro ao atualizar produto:',e);res.status(500).json({error:'Não foi possível atualizar o produto.'});}});
 
 app.get('/api/admin/customers',auth,async(req,res)=>{
  try{
@@ -164,6 +162,7 @@ app.post('/api/orders',async(req,res)=>{try{const {customer_name,phone='',type='
  const deliveryFee=type==='entrega'?DELIVERY_FEE:0;
  total+=deliveryFee;
  let orderId,commandNo=String(req.body.command_no||'');if(isPg){const r=await db.query('INSERT INTO orders(customer_name,phone,type,address,payment,notes,status,total,command_no) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id',[customer_name,phone,type,address,payment,notes,'novo',total,commandNo]);orderId=r.rows[0].id;for(const x of products)await db.query('INSERT INTO order_items(order_id,product_id,name,qty,unit_price,total) VALUES($1,$2,$3,$4,$5,$6)',[orderId,x.p.id,x.p.name,x.qty,x.p.price,x.line]);}else{const r=await run('INSERT INTO orders(customer_name,phone,type,address,payment,notes,status,total,command_no) VALUES(?,?,?,?,?,?,?,?,?)',[customer_name,phone,type,address,payment,notes,'novo',total,commandNo]);orderId=r.lastID;for(const x of products)await run('INSERT INTO order_items(order_id,product_id,name,qty,unit_price,total) VALUES(?,?,?,?,?,?)',[orderId,x.p.id,x.p.name,x.qty,x.p.price,x.line]);}
+ const kitchenItems=products.filter(x=>x.p.prepare_kitchen===true||x.p.prepare_kitchen===1).map(x=>({name:x.p.name,qty:x.qty,unit_price:Number(x.p.price),total:x.line}));if(kitchenItems.length)await enqueuePrint('kitchen-order-'+orderId,'kitchen',{title:'PEDIDO PARA COZINHA',order:orderId,customer:customer_name,type,address,notes,items:kitchenItems,created_at:new Date().toISOString()});
  res.json({ok:true,order_id:orderId,total,delivery_fee:deliveryFee,command_no:commandNo});}catch(e){res.status(500).json({error:e.message})}});
 app.get('/api/orders/:id/status',async(req,res)=>{
   try{
@@ -184,7 +183,7 @@ app.get('/api/orders/:id',async(req,res)=>{
   }catch(e){res.status(500).json({error:e.message})}
 });
 app.get('/api/admin/orders',auth,async(req,res)=>{const orders=await q('SELECT * FROM orders ORDER BY id DESC');for(const o of orders)o.items=await q('SELECT * FROM order_items WHERE order_id='+(isPg?'$1':'?')+' ORDER BY id',[o.id]);res.json(orders);});
-app.put('/api/admin/orders/:id/status',auth,async(req,res)=>{const status=req.body.status;const allowed=['novo','confirmado','preparando','pronto','entregando','finalizado','cancelado'];if(!allowed.includes(status))return res.status(400).json({error:'Status inválido'});await run('UPDATE orders SET status='+(isPg?'$1':'?')+' WHERE id='+(isPg?'$2':'?'),[status,Number(req.params.id)]);if(status==='finalizado'){const o=await one('SELECT * FROM orders WHERE id='+(isPg?'$1':'?'),[Number(req.params.id)]);if(o){const exists=await one('SELECT id FROM cash WHERE description='+(isPg?'$1':'?'),['Pedido #'+o.id]);if(!exists)await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4)':'?,?,?,?)'),['entrada','Pedido #'+o.id,Number(o.total),o.payment||'']);}}res.json({ok:true});});
+app.put('/api/admin/orders/:id/status',auth,async(req,res)=>{const status=req.body.status;const allowed=['novo','confirmado','preparando','pronto','entregando','finalizado','cancelado'];if(!allowed.includes(status))return res.status(400).json({error:'Status inválido'});const id=Number(req.params.id);await run('UPDATE orders SET status='+(isPg?'$1':'?')+' WHERE id='+(isPg?'$2':'?'),[status,id]);if(status==='finalizado'){const o=await one('SELECT * FROM orders WHERE id='+(isPg?'$1':'?'),[id]);if(o){const exists=await one('SELECT id FROM cash WHERE description='+(isPg?'$1':'?'),['Pedido #'+o.id]);if(!exists)await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?)'),['entrada','Pedido #'+o.id,Number(o.total),o.payment||'']);const items=await q('SELECT * FROM order_items WHERE order_id='+(isPg?'$1':'?')+' ORDER BY id',[o.id]);await enqueuePrint('receipt-order-final-'+o.id,'receipt',{title:'COMPROVANTE DE VENDA',order:o.id,customer:o.customer_name,type:o.type,address:o.address,notes:o.notes,items,total:Number(o.total||0),payment:o.payment||'',created_at:o.created_at});}}res.json({ok:true});});
 
 app.get('/api/admin/cash',auth,async(req,res)=>{
  try{
@@ -277,6 +276,7 @@ app.post('/api/admin/commands/:id/items',auth,async(req,res)=>{
    await run('INSERT INTO command_items(command_id,product_id,name,qty,unit_price,total) VALUES(?,?,?,?,?,?)',[commandId,product.id,product.name,qty,Number(product.price),line]);
    await run('UPDATE commands SET total=COALESCE(total,0)+? WHERE id=?',[line,commandId]);
   }
+  if(product.prepare_kitchen===true||product.prepare_kitchen===1){const last=await one('SELECT * FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id DESC LIMIT 1',[commandId]);if(last)await enqueuePrint('kitchen-command-item-'+last.id,'kitchen',{title:'COMANDA — COZINHA',command:command.number,customer:command.customer||'',items:[{name:product.name,qty,total:line}],created_at:new Date().toISOString()});}
   const updated=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[commandId]);
   const items=await q('SELECT * FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[commandId]);
   res.json({ok:true,command:updated,items});
