@@ -16,7 +16,7 @@ function initSqlite(){
  db=new Database(process.env.SQLITE_PATH||path.join(__dirname,'data.sqlite'));
  db.pragma('journal_mode = WAL');
  const q=(sql)=>db.prepare(sql);
- db.exec(`CREATE TABLE IF NOT EXISTS products(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,category TEXT NOT NULL DEFAULT 'Outros',description TEXT DEFAULT '',price REAL NOT NULL DEFAULT 0,image TEXT DEFAULT '',active INTEGER NOT NULL DEFAULT 1,created_at TEXT DEFAULT CURRENT_TIMESTAMP,barcode TEXT DEFAULT '',brand TEXT DEFAULT '',unit TEXT DEFAULT 'un',cost_price REAL DEFAULT 0,stock REAL DEFAULT 0,min_stock REAL DEFAULT 0);
+ db.exec(`CREATE TABLE IF NOT EXISTS products(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,category TEXT NOT NULL DEFAULT 'Outros',description TEXT DEFAULT '',price REAL NOT NULL DEFAULT 0,image TEXT DEFAULT '',active INTEGER NOT NULL DEFAULT 1,barcode TEXT DEFAULT '',brand TEXT DEFAULT '',unit TEXT DEFAULT 'un',cost_price REAL NOT NULL DEFAULT 0,stock REAL NOT NULL DEFAULT 0,min_stock REAL NOT NULL DEFAULT 0,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
  CREATE TABLE IF NOT EXISTS orders(id INTEGER PRIMARY KEY AUTOINCREMENT,customer_name TEXT NOT NULL,phone TEXT DEFAULT '',type TEXT NOT NULL DEFAULT 'balcao',address TEXT DEFAULT '',payment TEXT DEFAULT '',notes TEXT DEFAULT '',status TEXT NOT NULL DEFAULT 'novo',total REAL NOT NULL DEFAULT 0,command_no TEXT DEFAULT '',created_at TEXT DEFAULT CURRENT_TIMESTAMP);
  CREATE TABLE IF NOT EXISTS order_items(id INTEGER PRIMARY KEY AUTOINCREMENT,order_id INTEGER NOT NULL,product_id INTEGER,name TEXT NOT NULL,qty REAL NOT NULL,unit_price REAL NOT NULL,total REAL NOT NULL);
  CREATE TABLE IF NOT EXISTS cash(id INTEGER PRIMARY KEY AUTOINCREMENT,type TEXT NOT NULL,description TEXT NOT NULL,value REAL NOT NULL,payment TEXT DEFAULT '',order_id INTEGER,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
@@ -24,12 +24,13 @@ function initSqlite(){
  CREATE TABLE IF NOT EXISTS command_items(id INTEGER PRIMARY KEY AUTOINCREMENT,command_id INTEGER NOT NULL,product_id INTEGER,name TEXT NOT NULL,qty REAL NOT NULL,unit_price REAL NOT NULL,total REAL NOT NULL);
  CREATE TABLE IF NOT EXISTS customers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,phone TEXT DEFAULT '',address TEXT DEFAULT '',credit_limit REAL NOT NULL DEFAULT 0,fiado_authorized INTEGER NOT NULL DEFAULT 0,active INTEGER NOT NULL DEFAULT 1,notes TEXT DEFAULT '',created_at TEXT DEFAULT CURRENT_TIMESTAMP);
  CREATE TABLE IF NOT EXISTS fiado_payments(id INTEGER PRIMARY KEY AUTOINCREMENT,command_id INTEGER NOT NULL,customer TEXT NOT NULL,amount REAL NOT NULL,payment TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP);`);
- // Migração segura dos campos usados pelo painel de produtos.
- const productCols=db.prepare('PRAGMA table_info(products)').all().map(c=>c.name);
- for(const [col,def] of [['barcode',"TEXT DEFAULT ''"],['brand',"TEXT DEFAULT ''"],['unit',"TEXT DEFAULT 'un'"],['cost_price','REAL DEFAULT 0'],['stock','REAL DEFAULT 0'],['min_stock','REAL DEFAULT 0']]) if(!productCols.includes(col)) db.exec(`ALTER TABLE products ADD COLUMN ${col} ${def}`);
  // Migração segura: bancos antigos podem ter fiado_payments sem a coluna customer.
  const fiadoCols=db.prepare('PRAGMA table_info(fiado_payments)').all().map(c=>c.name);
  if(!fiadoCols.includes('customer')) db.exec("ALTER TABLE fiado_payments ADD COLUMN customer TEXT NOT NULL DEFAULT ''");
+ // Migração compatível com produtos cadastrados antes dos campos de estoque/código de barras.
+ const productCols=db.prepare('PRAGMA table_info(products)').all().map(c=>c.name);
+ const productMigrations={barcode:"TEXT DEFAULT ''",brand:"TEXT DEFAULT ''",unit:"TEXT DEFAULT 'un'",cost_price:'REAL NOT NULL DEFAULT 0',stock:'REAL NOT NULL DEFAULT 0',min_stock:'REAL NOT NULL DEFAULT 0'};
+ for(const [col,def] of Object.entries(productMigrations)){if(!productCols.includes(col))db.exec(`ALTER TABLE products ADD COLUMN ${col} ${def}`)}
  if(q('SELECT COUNT(*) c FROM products').get().c===0){
   const ins=q('INSERT INTO products(name,category,description,price,active) VALUES(?,?,?,?,1)');
   [['Espetinho de Carne','Espetinhos','Espetinho tradicional da casa',10],['Espetinho de Frango','Espetinhos','Temperado da casa',9],['X-Tudo','Hambúrgueres','Hambúrguer completo',25],['Super Espetinho Burguer','Hambúrgueres','Especial da casa',30],['Porção de Tilápia','Porções','Tilápia na panela de pedra',35],['Copa Lombo','Porções','Porção de copa lombo',30],['Pastel frito na hora','Salgados','Consulte sabores',7],['Açaí 300 ml','Açaí','Complementos à parte',10],['Açaí 500 ml','Açaí','Complementos à parte',14],['Suco de laranja 300 ml','Bebidas','Natural',8],['Cerveja Brahma Latão','Bebidas','473 ml',8]].forEach(x=>ins.run(...x));
@@ -38,7 +39,7 @@ function initSqlite(){
 }
 async function initPg(){
  const {Pool}=require('pg'); db=new Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_URL.includes('railway')?{rejectUnauthorized:false}:undefined});
- await db.query(`CREATE TABLE IF NOT EXISTS products(id SERIAL PRIMARY KEY,name TEXT NOT NULL,category TEXT NOT NULL DEFAULT 'Outros',description TEXT DEFAULT '',price NUMERIC(12,2) NOT NULL DEFAULT 0,image TEXT DEFAULT '',active BOOLEAN NOT NULL DEFAULT TRUE,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,barcode TEXT DEFAULT '',brand TEXT DEFAULT '',unit TEXT DEFAULT 'un',cost_price NUMERIC(12,2) DEFAULT 0,stock NUMERIC(12,3) DEFAULT 0,min_stock NUMERIC(12,3) DEFAULT 0);
+ await db.query(`CREATE TABLE IF NOT EXISTS products(id SERIAL PRIMARY KEY,name TEXT NOT NULL,category TEXT NOT NULL DEFAULT 'Outros',description TEXT DEFAULT '',price NUMERIC(12,2) NOT NULL DEFAULT 0,image TEXT DEFAULT '',active BOOLEAN NOT NULL DEFAULT TRUE,barcode TEXT DEFAULT '',brand TEXT DEFAULT '',unit TEXT DEFAULT 'un',cost_price NUMERIC(12,2) NOT NULL DEFAULT 0,stock NUMERIC(12,3) NOT NULL DEFAULT 0,min_stock NUMERIC(12,3) NOT NULL DEFAULT 0,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
  CREATE TABLE IF NOT EXISTS orders(id SERIAL PRIMARY KEY,customer_name TEXT NOT NULL,phone TEXT DEFAULT '',type TEXT NOT NULL DEFAULT 'balcao',address TEXT DEFAULT '',payment TEXT DEFAULT '',notes TEXT DEFAULT '',status TEXT NOT NULL DEFAULT 'novo',total NUMERIC(12,2) NOT NULL DEFAULT 0,command_no TEXT DEFAULT '',created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
  CREATE TABLE IF NOT EXISTS order_items(id SERIAL PRIMARY KEY,order_id INTEGER NOT NULL,product_id INTEGER,name TEXT NOT NULL,qty NUMERIC(12,2) NOT NULL,unit_price NUMERIC(12,2) NOT NULL,total NUMERIC(12,2) NOT NULL);
  CREATE TABLE IF NOT EXISTS cash(id SERIAL PRIMARY KEY,type TEXT NOT NULL,description TEXT NOT NULL,value NUMERIC(12,2) NOT NULL,payment TEXT DEFAULT '',order_id INTEGER,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
@@ -46,15 +47,15 @@ async function initPg(){
  CREATE TABLE IF NOT EXISTS command_items(id SERIAL PRIMARY KEY,command_id INTEGER NOT NULL,product_id INTEGER,name TEXT NOT NULL,qty NUMERIC(12,2) NOT NULL,unit_price NUMERIC(12,2) NOT NULL,total NUMERIC(12,2) NOT NULL);
  CREATE TABLE IF NOT EXISTS customers(id SERIAL PRIMARY KEY,name TEXT NOT NULL,phone TEXT DEFAULT '',address TEXT DEFAULT '',credit_limit NUMERIC(12,2) NOT NULL DEFAULT 0,fiado_authorized BOOLEAN NOT NULL DEFAULT FALSE,active BOOLEAN NOT NULL DEFAULT TRUE,notes TEXT DEFAULT '',created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
  CREATE TABLE IF NOT EXISTS fiado_payments(id SERIAL PRIMARY KEY,command_id INTEGER NOT NULL,customer TEXT NOT NULL,amount NUMERIC(12,2) NOT NULL,payment TEXT NOT NULL,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`);
- // Migração segura dos campos usados pelo painel de produtos.
+ // Migração segura para instalações PostgreSQL já existentes.
+ await db.query("ALTER TABLE fiado_payments ADD COLUMN IF NOT EXISTS customer TEXT NOT NULL DEFAULT ''");
+ // Migração segura dos campos adicionais de cadastro de produtos.
  await db.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS barcode TEXT DEFAULT ''");
  await db.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS brand TEXT DEFAULT ''");
  await db.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS unit TEXT DEFAULT 'un'");
- await db.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS cost_price NUMERIC(12,2) DEFAULT 0');
- await db.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS stock NUMERIC(12,3) DEFAULT 0');
- await db.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS min_stock NUMERIC(12,3) DEFAULT 0');
- // Migração segura para instalações PostgreSQL já existentes.
- await db.query("ALTER TABLE fiado_payments ADD COLUMN IF NOT EXISTS customer TEXT NOT NULL DEFAULT ''");
+ await db.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS cost_price NUMERIC(12,2) NOT NULL DEFAULT 0");
+ await db.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS stock NUMERIC(12,3) NOT NULL DEFAULT 0");
+ await db.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS min_stock NUMERIC(12,3) NOT NULL DEFAULT 0");
  const c=await db.query('SELECT COUNT(*) c FROM products');
  if(Number(c.rows[0].c)===0){for(const x of [['Espetinho de Carne','Espetinhos','Espetinho tradicional da casa',10],['Espetinho de Frango','Espetinhos','Temperado da casa',9],['X-Tudo','Hambúrgueres','Hambúrguer completo',25],['Super Espetinho Burguer','Hambúrgueres','Especial da casa',30],['Porção de Tilápia','Porções','Tilápia na panela de pedra',35],['Copa Lombo','Porções','Porção de copa lombo',30],['Pastel frito na hora','Salgados','Consulte sabores',7],['Açaí 300 ml','Açaí','Complementos à parte',10],['Açaí 500 ml','Açaí','Complementos à parte',14],['Suco de laranja 300 ml','Bebidas','Natural',8],['Cerveja Brahma Latão','Bebidas','473 ml',8]]) await db.query('INSERT INTO products(name,category,description,price,active) VALUES($1,$2,$3,$4,true)',x);}
 }
@@ -62,41 +63,52 @@ function auth(req,res,next){const supplied=String(req.headers['x-admin-password'
 function normRows(r){return r.rows||r;}
 async function q(sql,args=[]){if(isPg)return normRows(await db.query(sql,args)); return db.prepare(sql).all(...args);}
 async function one(sql,args=[]){if(isPg){const r=await db.query(sql,args);return r.rows[0];}return db.prepare(sql).get(...args);}
-async function run(sql,args=[]){if(isPg){const r=await db.query(sql,args.map(v=>v===undefined?null:v));return {lastID:r.rows[0]?.id,changes:r.rowCount};}const safeArgs=args.map(v=>v===undefined?null:(typeof v==='boolean'?(v?1:0):(typeof v==='number'&&!Number.isFinite(v)?null:v)));const r=db.prepare(sql).run(...safeArgs);return {lastID:r.lastInsertRowid,changes:r.changes};}
+async function run(sql,args=[]){if(isPg){const r=await db.query(sql,args);return {lastID:r.rows[0]?.id,changes:r.rowCount};}const r=db.prepare(sql).run(...args);return {lastID:r.lastInsertRowid,changes:r.changes};}
 function placeholders(n,start=1){return Array.from({length:n},(_,i)=>'$'+(i+start)).join(',');}
-function productNumber(v){if(v===undefined||v===null||String(v).trim()==='')return 0;const s=String(v).trim().replace(/\s/g,'').replace(/\.(?=\d{3}(?:\D|$))/g,'').replace(',','.');return Number(s);}
 
 app.get('/api/health',(req,res)=>res.json({ok:true,version:'4.0.0',database:isPg?'postgres':'sqlite',adminConfigured:Boolean(process.env.SENHA_DE_ADMINISTRADOR||process.env.ADMIN_PASSWORD)}));
 app.get('/api/config',(req,res)=>res.json({delivery_fee:DELIVERY_FEE}));
 app.get('/api/products',async(req,res)=>{try{const rows=await q('SELECT * FROM products WHERE active = '+(isPg?'true':'1')+' ORDER BY category,name');res.json(rows);}catch(e){res.status(500).json({error:e.message})}});
-app.get('/api/admin/products',auth,async(req,res)=>{try{res.json(await q('SELECT * FROM products ORDER BY category,name'));}catch(e){res.status(500).json({error:'Não foi possível carregar os produtos.'});}});
+app.get('/api/admin/products',auth,async(req,res)=>{try{res.json(await q('SELECT * FROM products ORDER BY category,name'));}catch(e){console.error('Erro ao listar produtos:',e);res.status(500).json({error:'Não foi possível listar os produtos.'});}});
+// Consulta pública Open Food Facts pelo código de barras. A consulta não impede o cadastro manual.
 app.get('/api/admin/products/barcode/:barcode/lookup',auth,async(req,res)=>{
  try{
   const barcode=String(req.params.barcode||'').replace(/\D/g,'');
-  if(!barcode) return res.status(400).json({found:false,message:'Digite um código de barras válido.'});
-  // Primeiro procura no cadastro local para reaproveitar os dados já salvos.
-  const local=await one('SELECT * FROM products WHERE barcode='+(isPg?'$1':'?')+' LIMIT 1',[barcode]);
-  if(local) return res.json({found:true,source:'local',name:local.name,brand:local.brand,category:local.category,unit:local.unit,description:local.description,image:local.image});
-  // Consulta externa Open Food Facts. A base é colaborativa e pode não conter todos os produtos.
-  const controller=new AbortController();
-  const timeout=setTimeout(()=>controller.abort(),7000);
-  try{
-   const response=await fetch('https://world.openfoodfacts.org/api/v2/product/'+encodeURIComponent(barcode)+'.json',{headers:{'User-Agent':'EspetinhoDoReinaldo/1.0 (product catalog)'},signal:controller.signal});
-   clearTimeout(timeout);
-   if(!response.ok) return res.json({found:false,message:'A base externa não respondeu agora. Você pode preencher o cadastro manualmente.'});
-   const result=await response.json();
-   const x=result && result.status===1 ? result.product : null;
-   if(!x) return res.json({found:false,message:'Produto não encontrado na base externa. Preencha os dados manualmente.'});
-   const category=String(x.categories||'').split(',')[0].trim()||'Outros';
-   const quantity=String(x.quantity||'').trim();
-   const unitMatch=quantity.match(/(kg|g|mg|l|ml|un|unidade|unidades)\b/i);
-   const unit=unitMatch?unitMatch[1].toLowerCase():'un';
-   return res.json({found:true,source:'openfoodfacts',name:String(x.product_name_pt||x.product_name||x.product_name_en||'').trim(),brand:String(x.brands||'').split(',')[0].trim(),category,unit,description:String(x.generic_name_pt||x.generic_name||quantity||'').trim(),image:String(x.image_front_url||x.image_url||'').trim(),quantity});
-  }catch(ex){clearTimeout(timeout);return res.json({found:false,message:'Não foi possível consultar a base externa agora. O cadastro manual continua disponível.'});}
- }catch(e){console.error('Erro na consulta do código de barras:',e);res.status(500).json({found:false,error:'Falha ao consultar o código de barras.'});}
+  if(!barcode)return res.status(400).json({found:false,message:'Digite um código de barras válido.'});
+  const response=await fetch('https://world.openfoodfacts.org/api/v2/product/'+encodeURIComponent(barcode)+'.json',{headers:{'User-Agent':'EspetinhoDoReinaldo/1.0 (product lookup)'}});
+  if(!response.ok)return res.json({found:false,message:'A base externa está indisponível. Você pode preencher o cadastro manualmente.'});
+  const data=await response.json(); const p=data&&data.status===1?data.product:null;
+  if(!p)return res.json({found:false,message:'Código não encontrado na base externa. Preencha os dados manualmente.'});
+  const rawCategory=String(p.categories||'').split(',')[0].trim();
+  const quantity=String(p.quantity||'').trim();
+  res.json({found:true,name:String(p.product_name||p.product_name_pt||p.generic_name||'').trim(),brand:String(p.brands||'').split(',')[0].trim(),category:rawCategory||'Outros',unit:quantity||'un',description:String(p.generic_name||p.generic_name_pt||quantity||'').trim(),image:String(p.image_front_url||p.image_url||'').trim()});
+ }catch(e){console.error('Erro na consulta de código de barras:',e);res.json({found:false,message:'Não foi possível consultar a base externa agora. Preencha os dados manualmente.'});}
 });
-app.post('/api/admin/products',auth,async(req,res)=>{try{const b=req.body||{};const name=String(b.name||'').trim();if(!name)return res.status(400).json({error:'Nome obrigatório'});const data={name,category:String(b.category||'Outros'),description:String(b.description||''),price:productNumber(b.price),image:String(b.image||''),active:isPg?(b.active!==false):(b.active!==false?1:0),barcode:String(b.barcode||'').trim(),brand:String(b.brand||''),unit:String(b.unit||'un'),cost_price:productNumber(b.cost_price),stock:productNumber(b.stock),min_stock:productNumber(b.min_stock)};if(![data.price,data.cost_price,data.stock,data.min_stock].every(Number.isFinite))return res.status(400).json({error:'Preço e estoque devem ser números válidos.'});const cols=Object.keys(data);const vals=Object.values(data);const sql=isPg?`INSERT INTO products(${cols.join(',')}) VALUES(${cols.map((_,i)=>'$'+(i+1)).join(',')}) RETURNING *`:`INSERT INTO products(${cols.join(',')}) VALUES(${cols.map(()=>'?').join(',')})`;const r=await run(sql,vals);const row=isPg?await one('SELECT * FROM products WHERE id=$1',[r.lastID]):await one('SELECT * FROM products WHERE id=?',[r.lastID]);res.json(row);}catch(e){console.error('Erro ao cadastrar produto:',e);res.status(500).json({error:'Não foi possível cadastrar o produto.'});}});
-app.put('/api/admin/products/:id',auth,async(req,res)=>{try{const id=Number(req.params.id);const b=req.body||{};const name=String(b.name||'').trim();if(!name)return res.status(400).json({error:'Nome obrigatório'});const data={name,category:String(b.category||'Outros'),description:String(b.description||''),price:productNumber(b.price),image:String(b.image||''),active:isPg?(b.active!==false):(b.active!==false?1:0),barcode:String(b.barcode||'').trim(),brand:String(b.brand||''),unit:String(b.unit||'un'),cost_price:productNumber(b.cost_price),stock:productNumber(b.stock),min_stock:productNumber(b.min_stock)};const cols=Object.keys(data);const vals=Object.values(data);if(isPg){const sets=cols.map((c,i)=>c+'=$'+(i+1)).join(',');const r=await db.query(`UPDATE products SET ${sets} WHERE id=$${cols.length+1} RETURNING *`,[...vals,id]);if(!r.rows.length)return res.status(404).json({error:'Produto não encontrado.'});return res.json(r.rows[0]);}await run(`UPDATE products SET ${cols.map(c=>c+'=?').join(',')} WHERE id=?`,[...vals,id]);const row=await one('SELECT * FROM products WHERE id=?',[id]);if(!row)return res.status(404).json({error:'Produto não encontrado.'});res.json(row);}catch(e){console.error('Erro ao atualizar produto:',e);res.status(500).json({error:'Não foi possível atualizar o produto.'});}});
+function productData(body={}){
+ const text=v=>v===undefined||v===null?'':(typeof v==='string'?v:String(v));
+ const num=v=>{if(v===undefined||v===null||v==='')return 0;const n=typeof v==='number'?v:Number(String(v).trim().replace(/\s/g,'').replace(/,(?=\d{1,2}$)/,'.'));return Number.isFinite(n)?n:NaN};
+ return {name:text(body.name).trim(),barcode:text(body.barcode).trim(),brand:text(body.brand).trim(),category:text(body.category||'Outros').trim()||'Outros',unit:text(body.unit||'un').trim()||'un',description:text(body.description),price:num(body.price),cost_price:num(body.cost_price),stock:num(body.stock),min_stock:num(body.min_stock),image:text(body.image),active:body.active===undefined?true:(body.active===true||body.active===1||body.active==='1'||body.active==='true')};
+}
+app.post('/api/admin/products',auth,async(req,res)=>{
+ try{
+  const p=productData(req.body);if(!p.name)return res.status(400).json({error:'Nome obrigatório'});
+  for(const k of ['price','cost_price','stock','min_stock'])if(!Number.isFinite(p[k]))return res.status(400).json({error:'Confira os campos numéricos: custo, venda e estoque.'});
+  const vals=[p.name,p.category,p.description,p.price,p.image,p.active,p.barcode,p.brand,p.unit,p.cost_price,p.stock,p.min_stock];
+  const sql=isPg?'INSERT INTO products(name,category,description,price,image,active,barcode,brand,unit,cost_price,stock,min_stock) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *':'INSERT INTO products(name,category,description,price,image,active,barcode,brand,unit,cost_price,stock,min_stock) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)';
+  const r=await run(sql,[...vals.slice(0,5),isPg?p.active:(p.active?1:0),...vals.slice(6)]);
+  const row=isPg?await one('SELECT * FROM products WHERE id=$1',[r.lastID]):await one('SELECT * FROM products WHERE id=?',[r.lastID]);res.json(row);
+ }catch(e){console.error('Erro ao cadastrar produto:',e);res.status(500).json({error:'Não foi possível cadastrar o produto: '+e.message});}
+});
+app.put('/api/admin/products/:id',auth,async(req,res)=>{
+ try{
+  const p=productData(req.body);const id=Number(req.params.id);if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Produto inválido.'});if(!p.name)return res.status(400).json({error:'Nome obrigatório'});
+  for(const k of ['price','cost_price','stock','min_stock'])if(!Number.isFinite(p[k]))return res.status(400).json({error:'Confira os campos numéricos: custo, venda e estoque.'});
+  const args=[p.name,p.category,p.description,p.price,p.image,isPg?p.active:(p.active?1:0),p.barcode,p.brand,p.unit,p.cost_price,p.stock,p.min_stock,id];
+  if(isPg){const r=await db.query('UPDATE products SET name=$1,category=$2,description=$3,price=$4,image=$5,active=$6,barcode=$7,brand=$8,unit=$9,cost_price=$10,stock=$11,min_stock=$12 WHERE id=$13 RETURNING *',args);if(!r.rows.length)return res.status(404).json({error:'Produto não encontrado.'});return res.json(r.rows[0]);}
+  await run('UPDATE products SET name=?,category=?,description=?,price=?,image=?,active=?,barcode=?,brand=?,unit=?,cost_price=?,stock=?,min_stock=? WHERE id=?',args);const row=await one('SELECT * FROM products WHERE id=?',[id]);if(!row)return res.status(404).json({error:'Produto não encontrado.'});res.json(row);
+ }catch(e){console.error('Erro ao atualizar produto:',e);res.status(500).json({error:'Não foi possível atualizar o produto: '+e.message});}
+});
+app.delete('/api/admin/products/:id',auth,async(req,res)=>{await run('UPDATE products SET active='+(isPg?'false':'0')+' WHERE id='+(isPg?'$1':'?'),[Number(req.params.id)]);res.json({ok:true});});
 
 app.get('/api/admin/customers',auth,async(req,res)=>{
  try{
