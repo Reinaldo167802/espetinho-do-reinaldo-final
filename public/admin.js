@@ -142,3 +142,4 @@ async function receiveFiado(){
 async function loadSettings(){const s=await api('/api/admin/settings');$('deliverySetting').value=Number(s.delivery_fee||0).toFixed(2);}
 async function saveSettings(){const d=await api('/api/admin/settings',{method:'PUT',body:JSON.stringify({delivery_fee:$('deliverySetting').value})});$('settingsMsg').textContent='Taxa de entrega salva: '+money(d.delivery_fee);}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+function escAttr(s){return esc(s).replace(/`/g,'&#96;')}
