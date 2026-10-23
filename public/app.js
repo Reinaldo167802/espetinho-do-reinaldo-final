@@ -209,14 +209,64 @@ async function sendOrder() {
 }
 
 
+function pixTlv(id, value) {
+  const text = String(value);
+  return id + String(text.length).padStart(2, '0') + text;
+}
+
+function pixCrc16(payload) {
+  let crc = 0xFFFF;
+  for (let i = 0; i < payload.length; i++) {
+    crc ^= payload.charCodeAt(i) << 8;
+    for (let bit = 0; bit < 8; bit++) {
+      crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) : (crc << 1);
+      crc &= 0xFFFF;
+    }
+  }
+  return crc.toString(16).toUpperCase().padStart(4, '0');
+}
+
+function buildPixPayload(total, orderId) {
+  // Pix key registered in the store: CNPJ 48.508.407/0001-50.
+  const pixKey = '48508407000150';
+  const merchantName = 'ESPETINHO DO REINALDO';
+  const merchantCity = 'MARIANA';
+  const amount = Number(total);
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error('Valor do pedido inválido para Pix.');
+
+  const merchantAccount = pixTlv('00', 'br.gov.bcb.pix') + pixTlv('01', pixKey);
+  const txid = ('PEDIDO' + String(orderId || 'NOVO')).replace(/[^A-Za-z0-9]/g, '').slice(0, 25) || '***';
+  let payload = pixTlv('00', '01')
+    + pixTlv('01', '12')
+    + pixTlv('26', merchantAccount)
+    + pixTlv('52', '0000')
+    + pixTlv('53', '986')
+    + pixTlv('54', amount.toFixed(2))
+    + pixTlv('58', 'BR')
+    + pixTlv('59', merchantName)
+    + pixTlv('60', merchantCity)
+    + pixTlv('62', pixTlv('05', txid))
+    + '6304';
+  payload += pixCrc16(payload);
+  return payload;
+}
+
 function showPixPayment(orderId, total) {
   const pixKey = '48.508.407/0001-50';
+  const whatsappNumber = '31995770730';
+  let pixPayload = '';
+  try {
+    pixPayload = buildPixPayload(total, orderId);
+  } catch (error) {
+    console.error('Não foi possível montar o Pix:', error);
+  }
+
   let modal = document.getElementById('pixPaymentModal');
   if (!modal) {
     modal = document.createElement('div');
     modal.id = 'pixPaymentModal';
-    modal.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#0009;display:flex;align-items:center;justify-content:center;padding:18px;';
-    modal.innerHTML = `<section style="background:#fff;color:#222;border-radius:16px;padding:22px;max-width:420px;width:100%;box-shadow:0 12px 40px #0004;font-family:Arial,sans-serif"><h2 style="margin-top:0">Pedido recebido!</h2><p id="pixOrderInfo"></p><p><b>Pagamento por Pix</b></p><p>Chave Pix (CNPJ):</p><div id="pixKeyText" style="font-size:18px;font-weight:bold;overflow-wrap:anywhere;background:#f3f3f3;padding:12px;border-radius:8px"></div><button id="copyPixKey" type="button" style="width:100%;padding:12px;margin-top:10px;border:0;border-radius:8px;background:#198754;color:white;font-weight:bold;cursor:pointer">Copiar chave Pix</button><p style="font-size:13px;line-height:1.4">Confira o nome do recebedor e o valor no aplicativo do seu banco antes de confirmar o pagamento. O envio do pedido não confirma que o Pix foi pago.</p><button id="closePixModal" type="button" style="width:100%;padding:11px;border:1px solid #ccc;border-radius:8px;background:white;cursor:pointer">Fechar</button></section>`;
+    modal.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#0009;display:flex;align-items:center;justify-content:center;padding:18px;overflow-y:auto;';
+    modal.innerHTML = `<section style="background:#fff;color:#222;border-radius:16px;padding:22px;max-width:440px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 12px 40px #0004;font-family:Arial,sans-serif;text-align:center"><h2 style="margin-top:0">Pedido recebido!</h2><p id="pixOrderInfo"></p><p><b>Pagamento por Pix</b></p><p style="margin-bottom:8px">Escaneie o QR Code com o aplicativo do seu banco:</p><div id="pixQrCode" style="display:flex;justify-content:center;align-items:center;min-height:220px;margin:10px auto;background:#fff"></div><p id="pixQrFallback" style="display:none;font-size:13px;color:#9b1c1c">Não foi possível carregar o QR Code. Use o código Pix copia e cola abaixo ou copie a chave.</p><button id="copyPixPayload" type="button" style="width:100%;padding:12px;margin-top:8px;border:0;border-radius:8px;background:#6f42c1;color:white;font-weight:bold;cursor:pointer">Copiar Pix copia e cola</button><p style="margin-bottom:6px">Ou use a chave Pix (CNPJ):</p><div id="pixKeyText" style="font-size:18px;font-weight:bold;overflow-wrap:anywhere;background:#f3f3f3;padding:12px;border-radius:8px"></div><button id="copyPixKey" type="button" style="width:100%;padding:12px;margin-top:8px;border:0;border-radius:8px;background:#198754;color:white;font-weight:bold;cursor:pointer">Copiar chave Pix</button><a id="sendPixReceipt" href="#" target="_blank" rel="noopener" style="display:block;box-sizing:border-box;width:100%;padding:13px;margin-top:14px;border-radius:8px;background:#128c7e;color:white;font-weight:bold;text-decoration:none">Já paguei — enviar comprovante pelo WhatsApp</a><p style="font-size:13px;line-height:1.4;text-align:left">Confira o recebedor e o valor no aplicativo do banco antes de pagar. Depois, envie o comprovante pelo WhatsApp. O comprovante não confirma sozinho o recebimento; o estabelecimento verificará o pagamento na conta antes de marcar o pedido como pago.</p><button id="closePixModal" type="button" style="width:100%;padding:11px;border:1px solid #ccc;border-radius:8px;background:white;cursor:pointer">Fechar</button></section>`;
     document.body.appendChild(modal);
     modal.querySelector('#copyPixKey').addEventListener('click', async () => {
       try {
@@ -226,11 +276,40 @@ function showPixPayment(orderId, total) {
         window.prompt('Copie sua chave Pix:', pixKey);
       }
     });
+    modal.querySelector('#copyPixPayload').addEventListener('click', async () => {
+      const payload = modal.dataset.pixPayload || '';
+      if (!payload) return window.alert('O código Pix não foi gerado. Use a chave Pix abaixo.');
+      try {
+        await navigator.clipboard.writeText(payload);
+        modal.querySelector('#copyPixPayload').textContent = 'Pix copia e cola copiado!';
+      } catch (_) {
+        window.prompt('Copie o código Pix copia e cola:', payload);
+      }
+    });
     modal.querySelector('#closePixModal').addEventListener('click', () => modal.remove());
   }
+
   modal.querySelector('#pixOrderInfo').textContent = `Pedido #${orderId || '—'} · Total: ${money(total)}`;
   modal.querySelector('#pixKeyText').textContent = pixKey;
   modal.querySelector('#copyPixKey').textContent = 'Copiar chave Pix';
+  modal.querySelector('#copyPixPayload').textContent = 'Copiar Pix copia e cola';
+  modal.dataset.pixPayload = pixPayload;
+  const message = `Olá! Fiz o pedido #${orderId || '—'} no Espetinho do Reinaldo, no valor de ${money(total)}. Estou enviando o comprovante Pix para conferência.`;
+  modal.querySelector('#sendPixReceipt').href = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`;
+
+  const qrContainer = modal.querySelector('#pixQrCode');
+  qrContainer.innerHTML = '';
+  modal.querySelector('#pixQrFallback').style.display = 'none';
+  if (pixPayload && window.QRCode) {
+    try {
+      new QRCode(qrContainer, { text: pixPayload, width: 220, height: 220, correctLevel: QRCode.CorrectLevel.M });
+    } catch (error) {
+      console.error('Erro ao gerar QR Code Pix:', error);
+      modal.querySelector('#pixQrFallback').style.display = 'block';
+    }
+  } else {
+    modal.querySelector('#pixQrFallback').style.display = 'block';
+  }
 }
 
 function showOrderStatus(id, updateAddress = true) {
