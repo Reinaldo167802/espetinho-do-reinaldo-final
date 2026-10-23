@@ -107,7 +107,7 @@ function renderProducts(category = '') {
   const list = category ? products.filter(product => product.category === category) : products;
   box.innerHTML = list.map(product => `
     <article class="card">
-      <div class="photo">${product.image ? `<img src="${escAttr(product.image)}" alt="${escAttr(product.name)}">` : '🍢'}</div>
+      <div class="photo">${product.image ? `<img src="${escAttr(product.image)}" alt="${escAttr(product.name)}" loading="lazy" onerror="this.style.display='none';this.parentElement.textContent='🍢'">` : '🍢'}</div>
       <h3>${esc(product.name)}</h3>
       <small>${esc(product.description || '')}</small>
       <strong>${money(product.price)}</strong>
@@ -195,12 +195,42 @@ async function sendOrder() {
     closeCart();
     const orderId = result.order_id || result.id;
     if (orderId) saveOrderId(orderId);
-    alert('Pedido enviado! Número do pedido: #' + orderId + '\nTotal: ' + money(result.total));
+    const paymentMethod = body.payment;
+    if (paymentMethod === 'pix') {
+      showPixPayment(orderId, result.total);
+    } else {
+      alert('Pedido enviado! Número do pedido: #' + orderId + '\nTotal: ' + money(result.total));
+    }
     if (orderId) showOrderStatus(orderId);
   } catch (error) {
     console.error('Erro ao enviar pedido:', error);
     toast('Falha de conexão ao enviar o pedido');
   }
+}
+
+
+function showPixPayment(orderId, total) {
+  const pixKey = '48.508.407/0001-50';
+  let modal = document.getElementById('pixPaymentModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'pixPaymentModal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#0009;display:flex;align-items:center;justify-content:center;padding:18px;';
+    modal.innerHTML = `<section style="background:#fff;color:#222;border-radius:16px;padding:22px;max-width:420px;width:100%;box-shadow:0 12px 40px #0004;font-family:Arial,sans-serif"><h2 style="margin-top:0">Pedido recebido!</h2><p id="pixOrderInfo"></p><p><b>Pagamento por Pix</b></p><p>Chave Pix (CNPJ):</p><div id="pixKeyText" style="font-size:18px;font-weight:bold;overflow-wrap:anywhere;background:#f3f3f3;padding:12px;border-radius:8px"></div><button id="copyPixKey" type="button" style="width:100%;padding:12px;margin-top:10px;border:0;border-radius:8px;background:#198754;color:white;font-weight:bold;cursor:pointer">Copiar chave Pix</button><p style="font-size:13px;line-height:1.4">Confira o nome do recebedor e o valor no aplicativo do seu banco antes de confirmar o pagamento. O envio do pedido não confirma que o Pix foi pago.</p><button id="closePixModal" type="button" style="width:100%;padding:11px;border:1px solid #ccc;border-radius:8px;background:white;cursor:pointer">Fechar</button></section>`;
+    document.body.appendChild(modal);
+    modal.querySelector('#copyPixKey').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(pixKey);
+        modal.querySelector('#copyPixKey').textContent = 'Chave copiada!';
+      } catch (_) {
+        window.prompt('Copie sua chave Pix:', pixKey);
+      }
+    });
+    modal.querySelector('#closePixModal').addEventListener('click', () => modal.remove());
+  }
+  modal.querySelector('#pixOrderInfo').textContent = `Pedido #${orderId || '—'} · Total: ${money(total)}`;
+  modal.querySelector('#pixKeyText').textContent = pixKey;
+  modal.querySelector('#copyPixKey').textContent = 'Copiar chave Pix';
 }
 
 function showOrderStatus(id, updateAddress = true) {
