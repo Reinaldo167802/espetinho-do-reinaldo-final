@@ -18,3 +18,17 @@
 #photoPreview img{object-fit:contain!important;background:#f8f5fb;border:1px solid #eee6f5;padding:3px}
 @media(max-width:420px){.grid{gap:9px;padding-left:9px;padding-right:9px}.card{padding:9px;border-radius:13px}.card .photo,.card .pic{height:128px}.card h3{font-size:14px}.card strong{font-size:16px}}
 @media(min-width:800px){.grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}.card .photo,.card .pic{height:180px}}
+
+
+/* Atualização de interface V5.1: catálogo mais limpo e imagens consistentes */
+:root{--brand:#6e35c5;--brand-dark:#24172d;--surface:#fff;--page:#f7f5f9;--text:#211b29;--muted:#716879;--border:#e8e1ee}
+body{background:var(--page);color:var(--text)}
+header{box-shadow:0 2px 14px #24172d18;gap:12px}
+header>div{min-width:0}header b{letter-spacing:.02em}header small{display:block;margin-top:3px}
+main{padding-bottom:28px}.hero{padding:30px 20px;background:radial-gradient(circle at 90% 10%,#c28cf0 0,transparent 35%),linear-gradient(135deg,#4f238e,#8b4dc9);border-radius:0 0 22px 22px}.hero h1{font-size:clamp(25px,4vw,36px);letter-spacing:-.02em}.hero p{max-width:620px;line-height:1.5;opacity:.92}
+.cats{scrollbar-width:thin;position:sticky;top:62px;z-index:4;background:var(--page);padding:12px 14px}.cat{border:1px solid var(--border);font-weight:700;box-shadow:0 1px 4px #24172d08}.cat.active,.cat.sel{background:var(--brand);color:#fff;border-color:var(--brand)}
+.card{border:1px solid var(--border);border-radius:16px}.card .photo,.card .pic{background:#fff;border:1px solid #f0eaf5}.card .photo img,.card .pic img{object-fit:contain;max-width:100%;max-height:100%;padding:8px}.card button{min-height:42px}.card:focus-within{outline:2px solid #cbb2ed;outline-offset:2px}
+.drawer{padding-bottom:env(safe-area-inset-bottom)}.drawerHead{position:sticky;top:0;z-index:2;box-shadow:0 2px 8px #0001}.totals{padding:12px 18px;background:#faf8fc}.totals>div:not(.total){display:flex;justify-content:space-between;gap:12px;padding:5px 0}.totals .total{display:flex;justify-content:space-between;gap:12px;padding:12px 0;border-top:1px solid var(--border)}
+#orderTrackingEntry,#orderStatusBox{border:1px solid var(--border);box-shadow:0 4px 16px #24172d0b!important}
+@media(min-width:800px){main{max-width:1160px;padding-left:12px;padding-right:12px}.hero{border-radius:0 0 22px 22px}.cats{border-radius:14px;margin-top:12px}.grid{padding-left:0;padding-right:0}}
+@media(max-width:520px){header{padding:12px}.hero{padding:24px 16px}.cats{top:54px}.card .photo,.card .pic{height:132px}.card small,.card p{min-height:0}.grid{padding-bottom:40px}}
