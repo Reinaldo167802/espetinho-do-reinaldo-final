@@ -312,6 +312,12 @@ function showPixPayment(orderId, total) {
   }
 }
 
+function closeOrderTracking() {
+  clearTimeout(orderPollTimer);
+  const modal = $('orderStatusBox');
+  if (modal) modal.remove();
+}
+
 function showOrderStatus(id, updateAddress = true) {
   const safeId = String(id || '').trim();
   if (!/^\d+$/.test(safeId) || Number(safeId) < 1) return toast('Número do pedido inválido');
@@ -324,27 +330,27 @@ function showOrderStatus(id, updateAddress = true) {
       window.history.replaceState({}, '', url);
     } catch (_) {}
   }
-  let box = $('orderStatusBox');
-  if (!box) {
-    box = document.createElement('section');
-    box.id = 'orderStatusBox';
-    box.style.cssText = 'margin:18px auto;padding:16px;max-width:900px;background:#fff;border-radius:12px;box-shadow:0 2px 10px #0001;';
-    const trackingEntry = $('orderTrackingEntry');
-    if (trackingEntry?.parentNode) trackingEntry.parentNode.insertBefore(box, trackingEntry.nextSibling);
-    else {
-      const productsBox = $('products');
-      if (productsBox?.parentNode) productsBox.parentNode.insertBefore(box, productsBox);
-      else document.body.appendChild(box);
-    }
-  }
-  box.innerHTML = `<h2>Acompanhe seu pedido #${Number(safeId)}</h2><div id="orderStatusContent">Consultando status do pedido...</div>`;
+  closeOrderTracking();
+  const modal = document.createElement('div');
+  modal.id = 'orderStatusBox';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-label', 'Acompanhamento do pedido ' + safeId);
+  modal.dataset.orderId = safeId;
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9998;background:#0009;display:flex;align-items:center;justify-content:center;padding:12px;box-sizing:border-box;';
+  modal.innerHTML = `<section style="background:#fff;color:#222;border-radius:16px;padding:18px;width:100%;max-width:430px;max-height:90vh;overflow-y:auto;box-sizing:border-box;box-shadow:0 12px 40px #0004;font-family:Arial,sans-serif"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><h2 style="font-size:20px;margin:0">🛍️ Pedido #${Number(safeId)}</h2><button id="closeOrderTracking" type="button" aria-label="Fechar acompanhamento" style="border:0;background:#f1f1f1;border-radius:8px;padding:9px 12px;cursor:pointer;font-size:18px">✕</button></div><div id="orderStatusContent" style="margin-top:12px">Consultando pedido...</div><button id="closeOrderTrackingBottom" type="button" style="width:100%;margin-top:14px;padding:12px;border:1px solid #ddd;border-radius:9px;background:#f7f7f7;cursor:pointer">Fechar</button></section>`;
+  document.body.appendChild(modal);
+  modal.querySelector('#closeOrderTracking').onclick = closeOrderTracking;
+  modal.querySelector('#closeOrderTrackingBottom').onclick = closeOrderTracking;
+  modal.addEventListener('click', event => { if (event.target === modal) closeOrderTracking(); });
   pollOrderStatus(safeId);
 }
 
 async function pollOrderStatus(id) {
   clearTimeout(orderPollTimer);
+  const modal = $('orderStatusBox');
   const content = $('orderStatusContent');
-  if (!content) return;
+  if (!modal || !content || modal.dataset.orderId !== String(id)) return;
   const steps = [
     ['novo','Pedido recebido'],
     ['confirmado','Pedido confirmado'],
@@ -357,18 +363,26 @@ async function pollOrderStatus(id) {
     const response = await fetch('/api/orders/' + encodeURIComponent(id), {cache:'no-store'});
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Não foi possível consultar o pedido');
+    if ($('orderStatusBox') !== modal) return;
+    const items = Array.isArray(data.items) ? data.items : [];
+    const paymentLabels = {pix:'Pix',dinheiro:'Dinheiro',debito:'Cartão de débito',credito:'Cartão de crédito',fiado:'Fiado / Promissória'};
+    const payment = paymentLabels[String(data.payment||'').toLowerCase()] || String(data.payment||'Não informado');
+    const subtotal = Number(data.subtotal || 0);
+    const fee = Number(data.delivery_fee || 0);
+    const summary = `<div style="background:#f8f8fa;border-radius:10px;padding:12px;margin-bottom:14px"><h3 style="font-size:16px;margin:0 0 10px">Resumo da compra</h3>${items.length ? items.map(item=>`<div style="display:flex;justify-content:space-between;gap:10px;margin:7px 0;font-size:14px"><span>${esc(item.name)} <b>× ${esc(item.qty)}</b></span><span style="white-space:nowrap">${money(item.total)}</span></div>`).join('') : '<p>Itens não disponíveis.</p>'}<hr style="border:0;border-top:1px solid #ddd"><div style="display:flex;justify-content:space-between;margin:6px 0"><span>Subtotal</span><b>${money(subtotal)}</b></div><div style="display:flex;justify-content:space-between;margin:6px 0"><span>Taxa de entrega</span><b>${money(fee)}</b></div><div style="display:flex;justify-content:space-between;margin:9px 0;font-size:17px"><b>Total</b><b>${money(data.total)}</b></div><div style="font-size:13px;margin-top:8px">Pagamento: <b>${esc(payment)}</b></div></div>`;
     if (data.status === 'cancelado') {
-      content.textContent = 'Este pedido foi cancelado. Entre em contato com o estabelecimento se precisar de ajuda.';
+      content.innerHTML = summary + '<p>Este pedido foi cancelado. Entre em contato com o estabelecimento se precisar de ajuda.</p>';
       return;
     }
     const currentIndex = steps.findIndex(step => step[0] === data.status);
-    content.innerHTML = steps.map((step, index) => `
-      <div style="display:flex;align-items:center;gap:10px;margin:10px 0;opacity:${index <= currentIndex ? '1' : '.45'}">
-        <span style="font-size:20px">${index <= currentIndex ? '✅' : '⚪'}</span><span>${esc(step[1])}</span>
+    content.innerHTML = summary + '<h3 style="font-size:16px;margin:0 0 8px">Acompanhe seu pedido</h3>' + steps.map((step, index) => `
+      <div style="display:flex;align-items:center;gap:10px;margin:9px 0;opacity:${index <= currentIndex ? '1' : '.45'}">
+        <span style="font-size:19px">${index <= currentIndex ? '✅' : '⚪'}</span><span>${esc(step[1])}</span>
       </div>
     `).join('');
     if (data.status !== 'finalizado') orderPollTimer = setTimeout(() => pollOrderStatus(id), 5000);
   } catch (error) {
+    if ($('orderStatusBox') !== modal) return;
     console.warn('Não foi possível atualizar o status do pedido:', error);
     content.textContent = 'Não foi possível atualizar agora. Tentaremos novamente.';
     orderPollTimer = setTimeout(() => pollOrderStatus(id), 7000);
