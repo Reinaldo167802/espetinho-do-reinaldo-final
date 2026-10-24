@@ -185,9 +185,13 @@ app.get('/api/orders/:id',async(req,res)=>{
   try{
     const id=Number(req.params.id);
     if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Pedido inválido'});
-    const o=await one('SELECT id,customer_name,phone,type,total,status,created_at FROM orders WHERE id='+(isPg?'$1':'?'),[id]);
+    const o=await one('SELECT id,customer_name,phone,type,payment,total,status,created_at FROM orders WHERE id='+(isPg?'$1':'?'),[id]);
     if(!o)return res.status(404).json({error:'Pedido não encontrado'});
-    res.json({id:o.id,customer_name:o.customer_name,phone:o.phone||'',type:o.type,total:Number(o.total||0),status:o.status,created_at:o.created_at});
+    const rows=await q('SELECT name,qty,unit_price,total FROM order_items WHERE order_id='+(isPg?'$1':'?')+' ORDER BY id',[id]);
+    const items=rows.map(it=>({name:it.name,qty:Number(it.qty),unit_price:Number(it.unit_price),total:Number(it.total)}));
+    const subtotal=Math.round(items.reduce((sum,it)=>sum+it.total,0)*100)/100;
+    const total=Number(o.total||0);
+    res.json({id:o.id,customer_name:o.customer_name,phone:o.phone||'',type:o.type,payment:o.payment||'',total,status:o.status,created_at:o.created_at,items,subtotal,delivery_fee:Math.max(0,Math.round((total-subtotal)*100)/100)});
   }catch(e){res.status(500).json({error:e.message})}
 });
 app.get('/api/admin/orders',auth,async(req,res)=>{const orders=await q('SELECT * FROM orders ORDER BY id DESC');for(const o of orders)o.items=await q('SELECT * FROM order_items WHERE order_id='+(isPg?'$1':'?')+' ORDER BY id',[o.id]);res.json(orders);});
