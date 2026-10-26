@@ -21,7 +21,7 @@
 
 
 /* Atualização de interface V5.1: catálogo mais limpo e imagens consistentes */
-:root{--brand:#6e35c5;--brand-dark:#24172d;--surface:#fff;--page:#f7f5f9;--text:#211b29;--muted:#716879;--border:#e8e1ee}
+:root{--brand:#d9232e;--brand-dark:#171717;--surface:#242424;--page:#111111;--text:#f7f3ec;--muted:#b9b1a5;--border:#3b3530}
 body{background:var(--page);color:var(--text)}
 header{box-shadow:0 2px 14px #24172d18;gap:12px}
 header>div{min-width:0}header b{letter-spacing:.02em}header small{display:block;margin-top:3px}
