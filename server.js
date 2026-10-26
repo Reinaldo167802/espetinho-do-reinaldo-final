@@ -114,6 +114,41 @@ app.get('/api/admin/products/barcode/:barcode/lookup',auth,async(req,res)=>{
 app.post('/api/admin/products',auth,async(req,res)=>{try{const b=req.body||{};const name=String(b.name||'').trim();if(!name)return res.status(400).json({error:'Nome obrigatório'});const data={name,category:String(b.category||'Outros'),description:String(b.description||''),price:productNumber(b.price),image:String(b.image||''),active:isPg?(b.active!==false):(b.active!==false?1:0),barcode:String(b.barcode||'').trim(),brand:String(b.brand||''),unit:String(b.unit||'un'),cost_price:productNumber(b.cost_price),stock:productNumber(b.stock),min_stock:productNumber(b.min_stock),prepare_kitchen:isPg?!!(b.print_command??b.prepare_kitchen):(b.print_command??b.prepare_kitchen?1:0),print_site:isPg?(b.print_site!==false):(b.print_site!==false?1:0),print_command:isPg?!!(b.print_command??b.prepare_kitchen):(b.print_command??b.prepare_kitchen?1:0)};if(![data.price,data.cost_price,data.stock,data.min_stock].every(Number.isFinite))return res.status(400).json({error:'Preço e estoque devem ser números válidos.'});const cols=Object.keys(data);const vals=Object.values(data);const sql=isPg?`INSERT INTO products(${cols.join(',')}) VALUES(${cols.map((_,i)=>'$'+(i+1)).join(',')}) RETURNING *`:`INSERT INTO products(${cols.join(',')}) VALUES(${cols.map(()=>'?').join(',')})`;const r=await run(sql,vals);const row=isPg?await one('SELECT * FROM products WHERE id=$1',[r.lastID]):await one('SELECT * FROM products WHERE id=?',[r.lastID]);res.json(row);}catch(e){console.error('Erro ao cadastrar produto:',e);res.status(500).json({error:'Não foi possível cadastrar o produto.'});}});
 app.put('/api/admin/products/:id',auth,async(req,res)=>{try{const id=Number(req.params.id);const b=req.body||{};const name=String(b.name||'').trim();if(!name)return res.status(400).json({error:'Nome obrigatório'});const data={name,category:String(b.category||'Outros'),description:String(b.description||''),price:productNumber(b.price),image:String(b.image||''),active:isPg?(b.active!==false):(b.active!==false?1:0),barcode:String(b.barcode||'').trim(),brand:String(b.brand||''),unit:String(b.unit||'un'),cost_price:productNumber(b.cost_price),stock:productNumber(b.stock),min_stock:productNumber(b.min_stock),prepare_kitchen:isPg?!!(b.print_command??b.prepare_kitchen):(b.print_command??b.prepare_kitchen?1:0),print_site:isPg?(b.print_site!==false):(b.print_site!==false?1:0),print_command:isPg?!!(b.print_command??b.prepare_kitchen):(b.print_command??b.prepare_kitchen?1:0)};const cols=Object.keys(data);const vals=Object.values(data);if(isPg){const sets=cols.map((c,i)=>c+'=$'+(i+1)).join(',');const r=await db.query(`UPDATE products SET ${sets} WHERE id=$${cols.length+1} RETURNING *`,[...vals,id]);if(!r.rows.length)return res.status(404).json({error:'Produto não encontrado.'});return res.json(r.rows[0]);}await run(`UPDATE products SET ${cols.map(c=>c+'=?').join(',')} WHERE id=?`,[...vals,id]);const row=await one('SELECT * FROM products WHERE id=?',[id]);if(!row)return res.status(404).json({error:'Produto não encontrado.'});res.json(row);}catch(e){console.error('Erro ao atualizar produto:',e);res.status(500).json({error:'Não foi possível atualizar o produto.'});}});
 
+
+// Desativação segura de produto: mantém o cadastro e o histórico, mas remove do cardápio público.
+async function deactivateProductById(id,res){
+ try{
+  if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Produto inválido.'});
+  let result;
+  if(isPg){
+   result=await db.query('UPDATE products SET active=FALSE WHERE id=$1 RETURNING *',[id]);
+   if(!result.rows.length)return res.status(404).json({error:'Produto não encontrado.'});
+   return res.json({ok:true,message:'Produto desativado.',product:result.rows[0]});
+  }
+  result=await run('UPDATE products SET active=0 WHERE id=?',[id]);
+  if(!result.changes)return res.status(404).json({error:'Produto não encontrado.'});
+  const product=await one('SELECT * FROM products WHERE id=?',[id]);
+  return res.json({ok:true,message:'Produto desativado.',product});
+ }catch(e){
+  console.error('Erro ao desativar produto:',e);
+  return res.status(500).json({error:'Não foi possível desativar o produto.'});
+ }
+}
+// Compatível com botões que enviam DELETE, PATCH ou PUT parcial para desativar.
+app.delete('/api/admin/products/:id',auth,async(req,res)=>deactivateProductById(Number(req.params.id),res));
+app.patch('/api/admin/products/:id',auth,async(req,res)=>{
+ const active=req.body?.active;
+ if(active===false || active===0 || String(active).toLowerCase()==='false' || String(active)==='0')
+  return deactivateProductById(Number(req.params.id),res);
+ return res.status(400).json({error:'Esta rota aceita somente a desativação do produto.'});
+});
+app.put('/api/admin/products/:id/active',auth,async(req,res)=>{
+ const active=req.body?.active;
+ if(active===false || active===0 || String(active).toLowerCase()==='false' || String(active)==='0')
+  return deactivateProductById(Number(req.params.id),res);
+ return res.status(400).json({error:'Informe active=false para desativar o produto.'});
+});
+
 app.get('/api/admin/customers',auth,async(req,res)=>{
  try{
   const rows=await q('SELECT * FROM customers ORDER BY name');
