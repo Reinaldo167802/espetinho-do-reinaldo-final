@@ -15,23 +15,16 @@ document.getElementById('number').textContent='Nº '+(data.number??data.command?
 function shareWhatsApp(){const lines=['ESPETINHO DO REINALDO','COMANDA / NOTA DE VENDA Nº '+(data.number??data.command??'—'),'Cliente: '+(data.customer||'Consumidor não identificado'),'Data: '+(data.created_at?new Date(data.created_at).toLocaleString('pt-BR'):'—'),'Pagamento: '+String(data.payment||'Pendente').toUpperCase(),''];(data.items||[]).forEach(i=>lines.push(`${i.qty||1} x ${i.name||'Produto'} — ${money(i.total)}`));lines.push('','TOTAL: '+money(data.total),'Obrigado pela preferência! Volte sempre!');window.open('https://wa.me/?text='+encodeURIComponent(lines.join('\\n')),'_blank','noopener');}
 </script><script>
 function voltarParaPainel(){
+  // Não usa history.back(): isso pode fechar a aba da comanda e perder a sessão do painel.
   try{
-    if(document.referrer){
-      const origem = new URL(document.referrer);
-      if(origem.origin === window.location.origin && origem.pathname !== window.location.pathname){
-        window.location.href = document.referrer;
-        return;
-      }
+    const ref = document.referrer ? new URL(document.referrer) : null;
+    if(ref && ref.origin === window.location.origin && /\/admin\.html$/.test(ref.pathname)){
+      window.location.replace(ref.href);
+      return;
     }
   }catch(e){}
-  if(window.history.length > 1){
-    window.history.back();
-    window.setTimeout(function(){
-      if(document.visibilityState === 'visible') window.location.href = '/admin.html';
-    }, 500);
-    return;
-  }
-  window.location.href = '/admin.html';
+  // Fallback direto para o painel, sem tentar voltar no histórico do navegador.
+  window.location.replace('/admin.html');
 }
 </script>
 </body></html>
