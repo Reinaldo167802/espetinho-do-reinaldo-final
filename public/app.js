@@ -21,12 +21,7 @@ async function load() {
     if (!productsResponse.ok) throw new Error('A API de produtos respondeu HTTP ' + productsResponse.status);
     const productData = await productsResponse.json();
     products = Array.isArray(productData) ? productData : (Array.isArray(productData.products) ? productData.products : []);
-
-    // Padroniza somente a categoria exibida no site do cliente; não altera o cadastro nem o banco.
-    products = products.map(product => ({
-      ...product,
-      category: normalizeCustomerCategory(product.category, product.name, product.description)
-    }));
+    products = products.map(product => ({...product, category: normalizeCustomerCategory(product.category, product.name, product.description)}));
 
     // A taxa é opcional: se a configuração falhar, o cardápio continua disponível.
     deliveryFee = 0;
@@ -51,31 +46,39 @@ async function load() {
   }
 }
 
-function setupOrderTracking() {
-  if ($('orderTrackingEntry')) return;
-  const box = document.createElement('section');
-  box.id = 'orderTrackingEntry';
-  box.style.cssText = 'margin:18px auto;padding:16px;max-width:900px;background:#fff;border-radius:12px;box-shadow:0 2px 10px #0001;';
-  box.innerHTML = `
-    <h2 style="margin-top:0">Acompanhar meu pedido</h2>
-    <p>Digite o número do pedido que você recebeu após a compra.</p>
-    <form id="trackOrderForm" style="display:flex;gap:8px;flex-wrap:wrap">
-      <input id="trackOrderNumber" type="number" min="1" step="1" inputmode="numeric" placeholder="Número do pedido (ex.: 5)" aria-label="Número do pedido" required style="flex:1;min-width:180px;padding:12px;border:1px solid #ccc;border-radius:8px">
-      <button type="submit" style="padding:12px 16px;border:0;border-radius:8px;cursor:pointer">Acompanhar pedido</button>
-    </form>
-    <p id="trackOrderHelp" style="margin-bottom:0;font-size:13px;color:#555">O último pedido feito neste mesmo navegador poderá ser retomado automaticamente.</p>
-  `;
-  const productsBox = $('products');
-  if (productsBox?.parentNode) productsBox.parentNode.insertBefore(box, productsBox);
-  else document.body.appendChild(box);
-  $('trackOrderForm').addEventListener('submit', event => {
-    event.preventDefault();
-    const id = String($('trackOrderNumber').value || '').trim();
-    if (!/^\d+$/.test(id) || Number(id) < 1) return toast('Informe um número de pedido válido');
-    showOrderStatus(id);
-  });
+function goToProducts() {
+  const target = $('cats') || $('products');
+  if (target) target.scrollIntoView({behavior:'smooth', block:'start'});
 }
 
+function setupOrderTracking() {
+  if ($('orderTrackingEntry')) return;
+
+  const box = document.createElement('div');
+  box.id = 'orderTrackingEntry';
+  box.innerHTML = `
+    <button id="openOrderTracking" type="button" class="tracking-compact-button">
+      📦 Acompanhar meu pedido
+    </button>
+  `;
+
+  const productsBox = $('products');
+  const catsBox = $('cats');
+  const anchor = catsBox || productsBox;
+  if (anchor?.parentNode) anchor.parentNode.insertBefore(box, anchor);
+  else document.body.appendChild(box);
+
+  $('openOrderTracking').addEventListener('click', () => {
+    const queryId = new URLSearchParams(window.location.search).get('pedido');
+    const savedId = getSavedOrderId();
+    const id = queryId || savedId;
+    if (id && /^\d+$/.test(String(id)) && Number(id) > 0) {
+      showOrderStatus(id);
+    } else {
+      toast('Você ainda não tem pedido salvo neste navegador. Após fazer um pedido, poderá acompanhá-lo aqui.');
+    }
+  });
+}
 function getSavedOrderId() {
   try { return localStorage.getItem(LAST_ORDER_KEY) || ''; }
   catch (_) { return ''; }
@@ -94,44 +97,18 @@ function resumeOrderTracking() {
 }
 
 function normalizeCustomerCategory(category, name = '', description = '') {
-  const normalize = value => String(value || '')
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-
-  const c = normalize(category);
-  const n = normalize(name);
-  const d = normalize(description);
-  const all = `${c} ${n} ${d}`;
-
-  // Guloseimas: agrupa chicletes, gomas, pastilhas, balas e chocolates.
-  if (/\b(trident|chiclete|chicletes|goma de mascar|gomas de mascar|pastilha|pastilhas|bala|balas|bombom|bombons|chocolate|chocolates|jujuba|jujubas|trento|paçoca|pacoca|confeitaria|guloseima|guloseimas)\b/.test(all)) {
-    return 'Guloseimas';
-  }
-
-  if (/\b(espetinho|espetinhos|espetada)\b/.test(all)) return 'Espetinhos';
-  if (/\b(hamburguer|hamburgueres|x tudo|x tudo|sanduiche|sanduiches|lanche|lanches)\b/.test(all)) {
-    return 'Hambúrgueres e Sanduíches';
-  }
-  if (/\b(porcao|porcoes|tilapia|frango a passarinho|copa lombo|costelinha|moela|dobradinha|caldo|canjiquinha|vaca atolada|rabinho|suã|sua)\b/.test(all)) {
-    return 'Porções';
-  }
-  if (/\b(acai|sorvete|picolé|picole|cascao|casquinha)\b/.test(all)) return 'Açaí e Sorvetes';
+  const norm = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const c = norm(category), n = norm(name), d = norm(description), all = `${c} ${n} ${d}`;
+  if (/\b(chips|batata chips|salgadinho|salgadinhos|snack|snacks|doritos|cheetos|ruffles|fandangos|pringles|torcida|baconzitos|pipoca pronta)\b/.test(all) || c === 'outros') return 'Salgadinhos Chips';
+  if (/\b(trident|chiclete|chicletes|goma de mascar|pastilha|pastilhas|bala|balas|bombom|bombons|chocolate|chocolates|jujuba|jujubas|trento|pacoca|guloseima|guloseimas|doces|bomboniere)\b/.test(all)) return 'Guloseimas';
+  if (/\b(espetinho|espetinhos)\b/.test(all)) return 'Espetinhos';
+  if (/\b(hamburguer|hamburgueres|x tudo|sanduiche|sanduiches|lanche|lanches)\b/.test(all)) return 'Hambúrgueres e Sanduíches';
+  if (/\b(porcao|porcoes|tilapia|frango a passarinho|copa lombo|costelinha|moela|dobradinha|caldo|canjiquinha|vaca atolada|rabinho|sua)\b/.test(all)) return 'Porções';
+  if (/\b(acai|sorvete|picole|cascao|casquinha)\b/.test(all)) return 'Açaí e Sorvetes';
   if (/\b(pastel|salgado|salgados|coxinha|empada|quibe|esfiha)\b/.test(all)) return 'Salgados e Pastéis';
-  if (/\b(bebida|bebidas|refrigerante|cerveja|brahma|suco|agua|água|energetico|energético|destilado|destilados)\b/.test(all)) {
-    return 'Bebidas';
-  }
-
-  // Categorias antigas equivalentes são agrupadas por palavras-chave.
-  if (/\b(guloseimas|bomboniere|doces|doceria|gomas|pastilhas elasticas|pastilhas elasticas sem acucar)\b/.test(c)) return 'Guloseimas';
-  if (/\b(bebidas|cervejas|refrigerantes|sucos)\b/.test(c)) return 'Bebidas';
-  if (/\b(salgados|pastel|pastéis)\b/.test(c)) return 'Salgados e Pastéis';
-  if (/\b(acai|sorvetes|picolés)\b/.test(c)) return 'Açaí e Sorvetes';
-  if (/\b(espetinhos)\b/.test(c)) return 'Espetinhos';
-  if (/\b(porcoes)\b/.test(c)) return 'Porções';
-  if (/\b(hamburgueres|sanduiches|lanches)\b/.test(c)) return 'Hambúrgueres e Sanduíches';
-
-  // Não esconder produtos que não se encaixam com segurança em uma das categorias conhecidas.
-  return category && String(category).trim() ? String(category).trim() : 'Guloseimas';
+  if (/\b(bebida|bebidas|refrigerante|cerveja|brahma|suco|agua|energetico|destilado|destilados)\b/.test(all)) return 'Bebidas';
+  const cats = {'espetinhos':'Espetinhos','hamburgueres':'Hambúrgueres e Sanduíches','sanduiches':'Hambúrgueres e Sanduíches','lanches':'Hambúrgueres e Sanduíches','porcoes':'Porções','bebidas':'Bebidas','acai':'Açaí e Sorvetes','sorvetes':'Açaí e Sorvetes','salgados':'Salgados e Pastéis','pastel':'Salgados e Pastéis','guloseimas':'Guloseimas','salgadinhos chips':'Salgadinhos Chips'};
+  return cats[c] || (category && String(category).trim() ? String(category).trim() : 'Guloseimas');
 }
 
 function renderCats() {
