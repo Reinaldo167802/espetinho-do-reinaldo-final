@@ -142,121 +142,57 @@ body:has(.admin) .admin #settings .hint {
 }
 
 
-/* V6 — ajuste preciso da tela de detalhes da comanda.
-   Corrige o campo Qtd. e a distribuição das ações; não altera lógica JavaScript. */
-body:has(.admin) .admin .command-detail-view {
-  width: 100% !important;
-  max-width: 900px !important;
-  margin: 0 auto !important;
-  padding: 8px 0 !important;
-  box-sizing: border-box !important;
+/* V7 — contraste do Controle de Fiado: corpo, linhas e área vazia da tabela. */
+body:has(.admin) .admin #fiadoHistory,
+body:has(.admin) .admin #fiadoHistory table,
+body:has(.admin) .admin #fiadoHistory thead,
+body:has(.admin) .admin #fiadoHistory tbody,
+body:has(.admin) .admin #fiadoHistory tr,
+body:has(.admin) .admin #fiadoHistory th,
+body:has(.admin) .admin #fiadoHistory td,
+body:has(.admin) .admin #fiadoHistory .table,
+body:has(.admin) .admin #fiadoHistory .table table,
+body:has(.admin) .admin #fiadoHistory .table tbody,
+body:has(.admin) .admin #fiadoHistory .table tr,
+body:has(.admin) .admin #fiadoHistory .table th,
+body:has(.admin) .admin #fiadoHistory .table td,
+body:has(.admin) .admin .panel:has(#fiadoHistory) table,
+body:has(.admin) .admin .panel:has(#fiadoHistory) thead,
+body:has(.admin) .admin .panel:has(#fiadoHistory) tbody,
+body:has(.admin) .admin .panel:has(#fiadoHistory) tr,
+body:has(.admin) .admin .panel:has(#fiadoHistory) th,
+body:has(.admin) .admin .panel:has(#fiadoHistory) td {
+  background-color: #202020 !important;
+  color: #f8f4ec !important;
+  border-color: #494139 !important;
 }
-body:has(.admin) .admin .command-detail-view .command-detail-items {
-  width: 100% !important;
-  margin: 10px 0 16px !important;
-  overflow-x: auto !important;
+body:has(.admin) .admin #fiadoHistory th,
+body:has(.admin) .admin .panel:has(#fiadoHistory) th {
+  background-color: #302c26 !important;
+  color: #e8c878 !important;
+  font-weight: 800 !important;
 }
-body:has(.admin) .admin .command-detail-view .command-detail-items table {
-  width: 100% !important;
-  min-width: 0 !important;
-  table-layout: fixed !important;
+body:has(.admin) .admin #fiadoHistory tbody tr:nth-child(even) td,
+body:has(.admin) .admin .panel:has(#fiadoHistory) tbody tr:nth-child(even) td {
+  background-color: #282828 !important;
 }
-body:has(.admin) .admin .command-detail-view .command-detail-items th,
-body:has(.admin) .admin .command-detail-view .command-detail-items td {
-  padding: 11px 12px !important;
-  overflow-wrap: anywhere !important;
+body:has(.admin) .admin #fiadoHistory td,
+body:has(.admin) .admin .panel:has(#fiadoHistory) td {
+  color: #f8f4ec !important;
+  opacity: 1 !important;
 }
-body:has(.admin) .admin .command-detail-view .command-detail-items th:first-child,
-body:has(.admin) .admin .command-detail-view .command-detail-items td:first-child {
-  width: 48% !important;
+/* Caso o histórico use uma tabela dentro de um wrapper .table, escurece também o espaço vazio. */
+body:has(.admin) .admin .panel:has(#fiadoHistory) .table,
+body:has(.admin) .admin .panel:has(#fiadoHistory) .table-responsive {
+  background: #202020 !important;
+  color: #f8f4ec !important;
+  border-color: #494139 !important;
+  border-radius: 12px !important;
 }
-body:has(.admin) .admin .command-detail-view .command-detail-items th:nth-child(2),
-body:has(.admin) .admin .command-detail-view .command-detail-items td:nth-child(2) {
-  width: 12% !important;
-  text-align: center !important;
-}
-body:has(.admin) .admin .command-detail-view .command-detail-items th:nth-child(3),
-body:has(.admin) .admin .command-detail-view .command-detail-items td:nth-child(3),
-body:has(.admin) .admin .command-detail-view .command-detail-items th:nth-child(4),
-body:has(.admin) .admin .command-detail-view .command-detail-items td:nth-child(4) {
-  width: 20% !important;
-  text-align: right !important;
-  white-space: nowrap !important;
-}
-
-/* O seletor global .row>* estava desenhando uma caixa ao redor do rótulo Qtd. */
-body:has(.admin) .admin .command-detail-view .command-product-controls {
-  display: grid !important;
-  grid-template-columns: minmax(0, 1fr) 96px !important;
-  gap: 10px !important;
-  align-items: end !important;
-  width: 100% !important;
-  margin: 10px 0 0 !important;
-}
-body:has(.admin) .admin .command-detail-view .command-product-controls > * {
-  min-width: 0 !important;
-  padding: 0 !important;
-  border: 0 !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  box-sizing: border-box !important;
-}
-body:has(.admin) .admin .command-detail-view .command-product-controls .command-qty-label {
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 6px !important;
-  width: 96px !important;
-  max-width: 96px !important;
-  color: #d6ad61 !important;
-  font-size: 13px !important;
-}
-body:has(.admin) .admin .command-detail-view .command-product-controls #cmdQtyCurrent {
-  display: block !important;
-  width: 96px !important;
-  max-width: 96px !important;
-  min-height: 44px !important;
-  padding: 10px 8px !important;
-  text-align: center !important;
-  background: #151412 !important;
-  color: #fff !important;
-  border: 1px solid #51483d !important;
-  border-radius: 10px !important;
-}
-
-/* Botões com dimensões consistentes; os três controles ficam organizados sem esticar verticalmente. */
-body:has(.admin) .admin .command-detail-view .command-detail-actions {
-  display: grid !important;
-  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-  gap: 10px !important;
-  width: 100% !important;
-  margin-top: 14px !important;
-  align-items: stretch !important;
-}
-body:has(.admin) .admin .command-detail-view .command-detail-actions > * {
-  width: 100% !important;
-  min-width: 0 !important;
-  min-height: 44px !important;
-  margin: 0 !important;
-  padding: 11px 12px !important;
-  box-sizing: border-box !important;
-  border-radius: 10px !important;
-  line-height: 1.25 !important;
-  white-space: normal !important;
-}
-body:has(.admin) .admin .command-detail-view .command-detail-actions > *:last-child:nth-child(odd) {
-  grid-column: 1 / -1 !important;
-}
-@media(max-width:600px) {
-  body:has(.admin) .admin .command-detail-view .command-detail-items table {
-    min-width: 500px !important;
-    table-layout: auto !important;
-  }
-  body:has(.admin) .admin .command-detail-view .command-product-controls {
-    grid-template-columns: minmax(0, 1fr) 88px !important;
-  }
-  body:has(.admin) .admin .command-detail-view .command-product-controls .command-qty-label,
-  body:has(.admin) .admin .command-detail-view .command-product-controls #cmdQtyCurrent {
-    width: 88px !important;
-    max-width: 88px !important;
-  }
+/* Mantém texto de mensagens de estado legível dentro do controle de fiado. */
+body:has(.admin) .admin #fiadoHistory p,
+body:has(.admin) .admin #fiadoHistory span,
+body:has(.admin) .admin #fiadoHistory small {
+  color: #f8f4ec !important;
+  opacity: 1 !important;
 }
