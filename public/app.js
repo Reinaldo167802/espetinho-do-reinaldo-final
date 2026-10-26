@@ -130,14 +130,43 @@ function renderProducts(category = '') {
   if (!box) return;
   const list = category ? products.filter(product => product.category === category) : products;
   box.innerHTML = list.map(product => `
-    <article class="card">
+    <article class="card product-card-clickable" role="button" tabindex="0" aria-label="Ver detalhes de ${escAttr(product.name)}" onclick="openProductDetails(${Number(product.id)})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openProductDetails(${Number(product.id)})}">
       <div class="photo">${product.image ? `<img src="${escAttr(product.image)}" alt="${escAttr(product.name)}" loading="lazy" onerror="this.style.display='none';this.parentElement.textContent='🍢'">` : '🍢'}</div>
       <h3>${esc(product.name)}</h3>
       <small>${esc(product.description || '')}</small>
       <strong>${money(product.price)}</strong>
-      <button onclick="add(${Number(product.id)})">Adicionar</button>
+      <button onclick="event.stopPropagation();add(${Number(product.id)})">Adicionar</button>
+      <small class="product-details-hint">Toque para ver foto e descrição completa</small>
     </article>
   `).join('') || '<p>Nenhum produto disponível nesta categoria.</p>';
+}
+
+function openProductDetails(id) {
+  const product = products.find(item => Number(item.id) === Number(id));
+  if (!product) return;
+  const previous = $('productDetailsModal');
+  if (previous) previous.remove();
+  const modal = document.createElement('div');
+  modal.id = 'productDetailsModal';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-label', 'Detalhes de ' + product.name);
+  modal.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:14px;box-sizing:border-box;overflow-y:auto;';
+  const image = product.image
+    ? `<img src="${escAttr(product.image)}" alt="${escAttr(product.name)}" style="display:block;width:100%;max-height:42vh;object-fit:contain;border-radius:10px;background:#f5f5f5" onerror="this.style.display='none'">`
+    : '<div style="padding:36px 12px;background:#f5f5f5;border-radius:10px;font-size:56px;text-align:center">🍢</div>';
+  modal.innerHTML = `<section style="background:#fff;color:#222;border-radius:16px;padding:18px;width:100%;max-width:480px;max-height:92vh;overflow-y:auto;box-sizing:border-box;box-shadow:0 12px 40px #0006;font-family:Arial,sans-serif"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><h2 style="font-size:22px;margin:0 0 12px">${esc(product.name)}</h2><button id="closeProductDetails" type="button" aria-label="Fechar detalhes" style="flex-shrink:0;border:0;background:#eee;border-radius:8px;padding:9px 12px;cursor:pointer;font-size:20px">✕</button></div>${image}<p style="font-size:16px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;margin:16px 0">${esc(product.description || 'Descrição não informada para este produto.')}</p><strong style="display:block;font-size:22px;margin:12px 0 16px">${money(product.price)}</strong><button id="addProductFromDetails" type="button" style="width:100%;padding:13px;border:0;border-radius:9px;background:#b91c1c;color:#fff;font-size:16px;font-weight:bold;cursor:pointer">Adicionar ao pedido</button></section>`;
+  document.body.appendChild(modal);
+  modal.querySelector('#closeProductDetails').onclick = () => modal.remove();
+  modal.querySelector('#addProductFromDetails').onclick = () => { modal.remove(); add(id); };
+  modal.addEventListener('click', event => { if (event.target === modal) modal.remove(); });
+  const closeOnEscape = event => {
+    if (event.key === 'Escape' && $('productDetailsModal') === modal) {
+      modal.remove();
+      document.removeEventListener('keydown', closeOnEscape);
+    }
+  };
+  document.addEventListener('keydown', closeOnEscape);
 }
 
 function add(id) {
