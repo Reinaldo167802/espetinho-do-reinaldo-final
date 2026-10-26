@@ -10,41 +10,42 @@ body:has(.admin){background:radial-gradient(ellipse at top,#26211b 0%,#111 52%);
 @media(min-width:800px){.hero{grid-template-columns:minmax(0,1.1fr) minmax(260px,.9fr)}.grid{grid-template-columns:repeat(4,minmax(0,1fr))!important}}@media(max-width:799px){.hero{grid-template-columns:1fr;min-height:0}.hero-art{min-height:170px;max-height:220px;transform:none}.cats{top:70px!important}.admin-header .admin-live{display:none}.admin .nav button{flex:1 1 auto}}@media(max-width:520px){.site-header,.admin-header{min-height:64px;padding:10px 12px}.brand-mark{width:40px;height:40px;border-radius:12px}.brand-lockup b{font-size:12px;letter-spacing:.035em}.brand-lockup small{font-size:8px;letter-spacing:.1em}.hero{margin:12px 0 14px;padding:24px 18px!important;border-radius:19px!important}.hero h1{font-size:36px!important}.hero-art{min-height:145px}.cats{top:62px!important;padding:10px 0!important}.grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px!important}.card{padding:9px!important;border-radius:15px!important}.card .photo,.card .pic{height:125px!important}.card h3{font-size:14px!important}.card strong{font-size:17px!important}.card button{font-size:11px;padding:10px 7px!important}.site-footer{padding:18px 14px}.admin{padding:12px!important}.admin .panel{padding:13px!important}.admin .table{margin:0 -4px}.admin .nav{padding:8px!important}.admin .nav button{font-size:12px;padding:9px 10px!important}}
 
 
-/* V2 — página do cliente inspirada na referência aprovada */
-.catalog-section{margin-top:24px}
-.section-heading{display:flex;align-items:end;justify-content:space-between;gap:14px;margin:20px 2px 8px}
-.section-heading h2{font-size:clamp(21px,3vw,30px);line-height:1.1;margin:0;color:#fff;letter-spacing:-.025em}
-.section-heading .eyebrow{margin-bottom:7px}
-.section-note{color:var(--bp-gold);font-size:13px;font-weight:800;white-space:nowrap}
-.hero-cta{display:inline-flex;align-items:center;justify-content:center;gap:10px;margin-top:24px;max-width:100%;padding:15px 24px;border:1px solid #ff6870;border-radius:999px;background:linear-gradient(135deg,#f32632,#b80e1c);color:#fff;font-size:15px;font-weight:1000;letter-spacing:.02em;box-shadow:0 10px 26px #d9232e45}
-.hero-cta:hover{filter:brightness(1.12);transform:translateY(-1px)}
-#orderTrackingEntry{margin:8px auto 16px!important;padding:0 16px!important}
-#orderTrackingEntry #openOrderTracking{background:#171615!important;border-color:#d6ad6180!important;color:#f5d779!important;box-shadow:0 4px 14px #0003!important}
-#products .card .photo{background:#151311!important;border:1px solid #ffffff12}
-#products .card .photo img{object-fit:cover!important;padding:0!important}
-#products .card h3{color:#fff!important}
-#products .card small{color:#c4bbae!important}
-#products .card strong{color:var(--bp-gold)!important}
-#products .card button{background:linear-gradient(135deg,#e72531,#b60e1a)!important;color:#fff!important;border-radius:12px!important}
-.site-footer{margin-top:30px}
-@media(max-width:700px){
-  .site-header{min-height:65px;padding:10px 14px}
-  .brand-mark{width:40px;height:40px;border-radius:12px}
-  .hero{grid-template-columns:1fr!important;min-height:unset!important;margin:14px 0 16px!important;padding:24px 20px!important;gap:18px!important}
-  .hero:before{background:linear-gradient(90deg,#171411ed 0%,#171411c9 58%,#17141170 100%),url('https://images.unsplash.com/photo-1529193591184-b1d58069ecdd?auto=format&fit=crop&w=1000&q=80') center/cover no-repeat}
-  .hero-art{min-height:120px;max-width:100%;transform:none}
-  .hero h1{font-size:clamp(34px,10vw,48px)!important}
-  .hero-cta{width:100%;padding:15px 16px}
-  .cats{top:64px!important}
-  .section-heading{margin-top:18px}
-  .section-heading h2{font-size:22px}
-  #products.grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px!important}
-  #products .card{padding:9px!important;border-radius:15px!important}
-  #products .card .photo{height:130px!important}
-  #products .card h3{font-size:14px!important;min-height:0!important}
-  #products .card small{font-size:11px!important;min-height:0!important}
-  #products .card strong{font-size:16px!important}
+/* V3 fix: acompanhamento discreto, nunca uma caixa branca grande */
+#orderTrackingEntry{
+  display:flex!important;
+  justify-content:center!important;
+  align-items:center!important;
+  width:100%!important;
+  max-width:1200px!important;
+  margin:8px auto 14px!important;
+  padding:0 16px!important;
+  background:transparent!important;
+  border:0!important;
+  border-radius:0!important;
+  box-shadow:none!important;
+  box-sizing:border-box!important;
 }
-@media(min-width:701px){
-  #products.grid{grid-template-columns:repeat(4,minmax(0,1fr))!important}
+#orderTrackingEntry h2,
+#orderTrackingEntry p,
+#orderTrackingEntry form,
+#orderTrackingEntry input{display:none!important}
+#orderTrackingEntry .tracking-compact-button{
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  width:auto!important;
+  min-height:38px!important;
+  padding:9px 15px!important;
+  border:1px solid rgba(212,175,55,.55)!important;
+  border-radius:999px!important;
+  background:#171615!important;
+  color:#f5d779!important;
+  font-size:13px!important;
+  line-height:1.2!important;
+  font-weight:700!important;
+  box-shadow:0 4px 14px rgba(0,0,0,.15)!important;
+  cursor:pointer!important;
 }
+#orderTrackingEntry .tracking-compact-button:hover{filter:brightness(1.12)!important}
+.hero-cta{cursor:pointer}
+html{scroll-behavior:smooth}
