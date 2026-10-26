@@ -32,3 +32,41 @@ main{padding-bottom:28px}.hero{padding:30px 20px;background:radial-gradient(circ
 #orderTrackingEntry,#orderStatusBox{border:1px solid var(--border);box-shadow:0 4px 16px #24172d0b!important}
 @media(min-width:800px){main{max-width:1160px;padding-left:12px;padding-right:12px}.hero{border-radius:0 0 22px 22px}.cats{border-radius:14px;margin-top:12px}.grid{padding-left:0;padding-right:0}}
 @media(max-width:520px){header{padding:12px}.hero{padding:24px 16px}.cats{top:54px}.card .photo,.card .pic{height:132px}.card small,.card p{min-height:0}.grid{padding-bottom:40px}}
+
+
+/* Correção de contraste nas tabelas do painel administrativo.
+   Escopo restrito ao painel que contém a lista de produtos; não altera o catálogo do cliente. */
+body:has(#productsList) #productsList table,
+body:has(#productsList) #productsList thead,
+body:has(#productsList) #productsList tbody,
+body:has(#productsList) #productsList tr,
+body:has(#productsList) #productsList th,
+body:has(#productsList) #productsList td {
+  color: #f7f3ec !important;
+}
+body:has(#productsList) #productsList table {
+  background: #1b1b1b !important;
+  border-color: #3b3530 !important;
+}
+body:has(#productsList) #productsList thead th {
+  background: #242424 !important;
+  color: #e8c878 !important;
+  border-color: #3b3530 !important;
+}
+body:has(#productsList) #productsList tbody tr,
+body:has(#productsList) #productsList tbody td {
+  background: #202020 !important;
+  color: #f7f3ec !important;
+  border-color: #3b3530 !important;
+}
+body:has(#productsList) #productsList tbody tr:nth-child(even),
+body:has(#productsList) #productsList tbody tr:nth-child(even) td {
+  background: #282828 !important;
+}
+body:has(#productsList) #productsList input,
+body:has(#productsList) #productsList select,
+body:has(#productsList) #productsList textarea {
+  background: #171717 !important;
+  color: #f7f3ec !important;
+  border-color: #554b40 !important;
+}
