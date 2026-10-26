@@ -45,31 +45,39 @@ async function load() {
   }
 }
 
-function setupOrderTracking() {
-  if ($('orderTrackingEntry')) return;
-  const box = document.createElement('section');
-  box.id = 'orderTrackingEntry';
-  box.style.cssText = 'margin:18px auto;padding:16px;max-width:900px;background:#fff;border-radius:12px;box-shadow:0 2px 10px #0001;';
-  box.innerHTML = `
-    <h2 style="margin-top:0">Acompanhar meu pedido</h2>
-    <p>Digite o número do pedido que você recebeu após a compra.</p>
-    <form id="trackOrderForm" style="display:flex;gap:8px;flex-wrap:wrap">
-      <input id="trackOrderNumber" type="number" min="1" step="1" inputmode="numeric" placeholder="Número do pedido (ex.: 5)" aria-label="Número do pedido" required style="flex:1;min-width:180px;padding:12px;border:1px solid #ccc;border-radius:8px">
-      <button type="submit" style="padding:12px 16px;border:0;border-radius:8px;cursor:pointer">Acompanhar pedido</button>
-    </form>
-    <p id="trackOrderHelp" style="margin-bottom:0;font-size:13px;color:#555">O último pedido feito neste mesmo navegador poderá ser retomado automaticamente.</p>
-  `;
-  const productsBox = $('products');
-  if (productsBox?.parentNode) productsBox.parentNode.insertBefore(box, productsBox);
-  else document.body.appendChild(box);
-  $('trackOrderForm').addEventListener('submit', event => {
-    event.preventDefault();
-    const id = String($('trackOrderNumber').value || '').trim();
-    if (!/^\d+$/.test(id) || Number(id) < 1) return toast('Informe um número de pedido válido');
-    showOrderStatus(id);
-  });
+function goToProducts() {
+  const target = $('cats') || $('products');
+  if (target) target.scrollIntoView({behavior:'smooth', block:'start'});
 }
 
+function setupOrderTracking() {
+  if ($('orderTrackingEntry')) return;
+
+  const box = document.createElement('div');
+  box.id = 'orderTrackingEntry';
+  box.innerHTML = `
+    <button id="openOrderTracking" type="button" class="tracking-compact-button">
+      📦 Acompanhar meu pedido
+    </button>
+  `;
+
+  const productsBox = $('products');
+  const catsBox = $('cats');
+  const anchor = catsBox || productsBox;
+  if (anchor?.parentNode) anchor.parentNode.insertBefore(box, anchor);
+  else document.body.appendChild(box);
+
+  $('openOrderTracking').addEventListener('click', () => {
+    const queryId = new URLSearchParams(window.location.search).get('pedido');
+    const savedId = getSavedOrderId();
+    const id = queryId || savedId;
+    if (id && /^\d+$/.test(String(id)) && Number(id) > 0) {
+      showOrderStatus(id);
+    } else {
+      toast('Você ainda não tem pedido salvo neste navegador. Após fazer um pedido, poderá acompanhá-lo aqui.');
+    }
+  });
+}
 function getSavedOrderId() {
   try { return localStorage.getItem(LAST_ORDER_KEY) || ''; }
   catch (_) { return ''; }
