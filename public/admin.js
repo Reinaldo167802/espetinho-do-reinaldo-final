@@ -6,7 +6,51 @@ const api=async(url,opt={})=>{opt.headers={...(opt.headers||{}),'x-admin-passwor
 function login(){const pw=$('pw');pass=pw.value.trim();if(!pass){alert('Digite a senha administrativa.');return}api('/api/admin/orders').then(()=>{$('login').style.display='none';$('app').style.display='block';loadAll()}).catch(err=>alert('Erro ao entrar: '+err.message));}
 function tab(id){['orders','products','cash','commands','customers','fiado','settings'].forEach(x=>{if($(x))$(x).style.display=x===id?'block':'none'});if(id==='orders')loadOrders();if(id==='products')loadProducts();if(id==='cash')loadCash();if(id==='commands')loadCommands();if(id==='customers')loadCustomers();if(id==='fiado')loadFiado();if(id==='settings')loadSettings();}
 async function loadAll(){loadOrders();loadCustomerOptions()}
-async function loadOrders(){const a=await api('/api/admin/orders');$('ordersList').innerHTML=a.map(o=>`<div class="panel"><b>Pedido #${o.id} — ${esc(o.customer_name)}</b><br>${o.items.map(i=>`${i.qty}x ${esc(i.name)}`).join(', ')}<br><span>Subtotal: ${money(o.items.reduce((sum,i)=>sum+Number(i.total||0),0))}</span>${Number(o.total)-o.items.reduce((sum,i)=>sum+Number(i.total||0),0)>0?`<br><span>Taxa de entrega: ${money(Number(o.total)-o.items.reduce((sum,i)=>sum+Number(i.total||0),0))}</span>`:''}<br><strong>TOTAL: ${money(o.total)}</strong>${o.type==='entrega'?`<br>🛵 Entrega: ${esc(o.address||'Endereço não informado')}`:''}<br>Pagamento: ${esc(o.payment||'Não informado')} · ${o.payment_confirmed===true||o.payment_confirmed===1?'✅ PAGAMENTO CONFIRMADO':'⏳ AGUARDANDO CONFIRMAÇÃO'}<br><button onclick="confirmOrderPayment(${o.id})" ${o.payment_confirmed===true||o.payment_confirmed===1?'disabled':''}>CONFIRMAR PAGAMENTO E IMPRIMIR COMPROVANTE</button><br>Status: <select onchange="status(${o.id},this.value)">${['novo','confirmado','preparando','pronto','entregando','finalizado','cancelado'].map(s=>`<option ${s===o.status?'selected':''}>${s}</option>`).join('')}</select> ${esc(o.payment||'')}</div>`).join('')||'<p>Nenhum pedido.</p>';}
+function installCompactOrderStyles(){
+  if(document.getElementById('compact-order-card-styles')) return;
+  const style=document.createElement('style');
+  style.id='compact-order-card-styles';
+  style.textContent=`
+    #ordersList.order-card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,310px),1fr));gap:12px;align-items:start}
+    #ordersList .order-card{margin:0!important;padding:14px!important;min-width:0;border:1px solid rgba(212,175,55,.35);border-radius:14px;display:flex;flex-direction:column;gap:8px;box-shadow:0 5px 16px rgba(0,0,0,.16)}
+    #ordersList .order-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;border-bottom:1px solid rgba(212,175,55,.22);padding-bottom:8px}
+    #ordersList .order-card-number{font-weight:800;font-size:1.02rem;line-height:1.25}
+    #ordersList .order-card-customer{font-weight:600;overflow-wrap:anywhere}
+    #ordersList .order-card-total{font-size:1.25rem;font-weight:900;color:#d9b65d;white-space:nowrap}
+    #ordersList .order-card-items{font-size:.9rem;line-height:1.35;overflow-wrap:anywhere}
+    #ordersList .order-card-meta{font-size:.88rem;line-height:1.4;overflow-wrap:anywhere}
+    #ordersList .order-card-payment{font-weight:700;font-size:.86rem}
+    #ordersList .order-card button{width:100%;margin-top:2px}
+    #ordersList .order-card-status{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:.9rem}
+    #ordersList .order-card-status select{flex:1;min-width:125px;max-width:100%}
+    @media(max-width:480px){#ordersList.order-card-grid{grid-template-columns:1fr}#ordersList .order-card{padding:12px!important}}
+  `;
+  document.head.appendChild(style);
+}
+async function loadOrders(){
+  const a=await api('/api/admin/orders');
+  const list=$('ordersList');
+  installCompactOrderStyles();
+  list.classList.add('order-card-grid');
+  list.innerHTML=a.map(o=>{
+    const items=Array.isArray(o.items)?o.items:[];
+    const subtotal=items.reduce((sum,i)=>sum+Number(i.total||0),0);
+    const delivery=Math.max(0,Number(o.total||0)-subtotal);
+    const paid=o.payment_confirmed===true||o.payment_confirmed===1;
+    return `<div class="panel order-card">
+      <div class="order-card-head">
+        <div><div class="order-card-number">Pedido #${o.id}</div><div class="order-card-customer">${esc(o.customer_name||'Cliente não informado')}</div></div>
+        <div class="order-card-total">${money(o.total)}</div>
+      </div>
+      <div class="order-card-items">${items.map(i=>`${i.qty}x ${esc(i.name)}`).join(', ')||'Itens não informados'}</div>
+      <div class="order-card-meta">Subtotal: ${money(subtotal)}${delivery>0?` · Entrega: ${money(delivery)}`:''}</div>
+      ${o.type==='entrega'?`<div class="order-card-meta">🛵 ${esc(o.address||'Endereço não informado')}</div>`:''}
+      <div class="order-card-payment">${esc(o.payment||'Não informado')} · ${paid?'✅ PAGAMENTO CONFIRMADO':'⏳ AGUARDANDO CONFIRMAÇÃO'}</div>
+      <button onclick="confirmOrderPayment(${o.id})" ${paid?'disabled':''}>CONFIRMAR PAGAMENTO E IMPRIMIR COMPROVANTE</button>
+      <div class="order-card-status"><span>Status:</span><select onchange="status(${o.id},this.value)">${['novo','confirmado','preparando','pronto','entregando','finalizado','cancelado'].map(s=>`<option ${s===o.status?'selected':''}>${s}</option>`).join('')}</select></div>
+    </div>`;
+  }).join('')||'<p>Nenhum pedido.</p>';
+}
 async function status(id,s){await api('/api/admin/orders/'+id+'/status',{method:'PUT',body:JSON.stringify({status:s})});loadOrders()}
 async function loadProducts(){const a=await api('/api/admin/products');$('productsList').innerHTML='<div class="table"><table><tr><th>Foto</th><th>Código</th><th>Produto</th><th>Categoria</th><th>Custo</th><th>Venda</th><th>Estoque</th><th>Ações</th></tr>'+a.map(p=>`<tr><td>${p.image?`<img class="admin-product-thumb" src="${escAttr(p.image)}" alt="${escAttr(p.name)}" loading="lazy" onerror="this.style.display='none'">`:'<span class="admin-product-no-photo">🍢</span>'}</td><td>${esc(p.barcode||'-')}</td><td><b>${esc(p.name)}</b><br><span class="small">${esc(p.brand||'')}</span></td><td>${esc(p.category)}</td><td>${money(p.cost_price)}</td><td>${money(p.price)}</td><td class="${Number(p.stock)<=Number(p.min_stock)&&Number(p.min_stock)>0?'low':''}">${p.stock} ${esc(p.unit||'un')}</td><td><button onclick="editProduct(${p.id})">Editar</button> ${p.active?`<button onclick="del(${p.id})">Desativar</button>`:'<span class="muted">Inativo</span>'}</td></tr>`).join('')+'</table></div>';}
 function fill(p){editingId=p.id;$('pfile').value='';$('photoPreview').innerHTML=p.image?`<img src="${escAttr(p.image)}" style="width:90px;height:90px;object-fit:cover;border-radius:10px">`:'Sem foto';$('pb').value=p.barcode||'';$('pn').value=p.name||'';$('pbrand').value=p.brand||'';$('pc').value=p.category||'';$('pu').value=p.unit||'un';$('pcost').value=p.cost_price??0;$('pp').value=p.price??0;$('pstock').value=p.stock??0;$('pmin').value=p.min_stock??0;$('pi').value=p.image||'';$('pd').value=p.description||'';$('psite').checked=p.print_site===undefined||p.print_site===null||p.print_site===true||p.print_site===1;$('pcommand').checked=(p.print_command===true||p.print_command===1)||(p.print_command===undefined&&(p.prepare_kitchen===true||p.prepare_kitchen===1));$('saveBtn').textContent='SALVAR ALTERAÇÕES';window.scrollTo({top:0,behavior:'smooth'});}
