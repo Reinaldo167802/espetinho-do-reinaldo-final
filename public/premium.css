@@ -196,3 +196,75 @@ body:has(.admin) .admin #fiadoHistory small {
   color: #f8f4ec !important;
   opacity: 1 !important;
 }
+
+
+/* V8 — correção consolidada de contraste das tabelas do painel.
+   Aplica fundo escuro e texto claro às tabelas administrativas, inclusive Clientes e Controle de Fiado. */
+body:has(.admin) .admin .table,
+body:has(.admin) .admin .table table,
+body:has(.admin) .admin .table thead,
+body:has(.admin) .admin .table tbody,
+body:has(.admin) .admin .table tr,
+body:has(.admin) .admin .table th,
+body:has(.admin) .admin .table td,
+body:has(.admin) .admin table,
+body:has(.admin) .admin table thead,
+body:has(.admin) .admin table tbody,
+body:has(.admin) .admin table tr,
+body:has(.admin) .admin table th,
+body:has(.admin) .admin table td {
+  background-color: #202020 !important;
+  color: #f8f4ec !important;
+  border-color: #494139 !important;
+  opacity: 1 !important;
+}
+body:has(.admin) .admin .table th,
+body:has(.admin) .admin table th {
+  background-color: #302c26 !important;
+  color: #e8c878 !important;
+  font-weight: 800 !important;
+}
+body:has(.admin) .admin .table tbody tr:nth-child(even) td,
+body:has(.admin) .admin table tbody tr:nth-child(even) td {
+  background-color: #282828 !important;
+}
+body:has(.admin) .admin .table tbody tr:hover td,
+body:has(.admin) .admin table tbody tr:hover td {
+  background-color: #34302a !important;
+  color: #fffaf1 !important;
+}
+/* Área vazia das tabelas, mesmo quando ainda não há registros. */
+body:has(.admin) .admin .table,
+body:has(.admin) .admin .table-responsive {
+  background-color: #202020 !important;
+  color: #f8f4ec !important;
+  border-color: #494139 !important;
+}
+/* Tabela da comanda: cabe no painel de computador sem barra horizontal. */
+body:has(.admin) .admin .command-detail-items {
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow-x: hidden !important;
+}
+body:has(.admin) .admin .command-detail-items table {
+  width: 100% !important;
+  min-width: 0 !important;
+  table-layout: fixed !important;
+}
+body:has(.admin) .admin .command-detail-items th,
+body:has(.admin) .admin .command-detail-items td {
+  overflow-wrap: anywhere !important;
+  padding: 10px 8px !important;
+}
+body:has(.admin) .admin .command-detail-items th:first-child,
+body:has(.admin) .admin .command-detail-items td:first-child { width: 44% !important; }
+body:has(.admin) .admin .command-detail-items th:nth-child(2),
+body:has(.admin) .admin .command-detail-items td:nth-child(2) { width: 12% !important; text-align: center !important; }
+body:has(.admin) .admin .command-detail-items th:nth-child(3),
+body:has(.admin) .admin .command-detail-items td:nth-child(3),
+body:has(.admin) .admin .command-detail-items th:nth-child(4),
+body:has(.admin) .admin .command-detail-items td:nth-child(4) { width: 22% !important; text-align: right !important; }
+@media(max-width:600px) {
+  body:has(.admin) .admin .command-detail-items { overflow-x: auto !important; }
+  body:has(.admin) .admin .command-detail-items table { min-width: 480px !important; table-layout: auto !important; }
+}
