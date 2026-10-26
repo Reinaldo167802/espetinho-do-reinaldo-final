@@ -49,3 +49,66 @@ body:has(.admin){background:radial-gradient(ellipse at top,#26211b 0%,#111 52%);
 #orderTrackingEntry .tracking-compact-button:hover{filter:brightness(1.12)!important}
 .hero-cta{cursor:pointer}
 html{scroll-behavior:smooth}
+
+
+/* V4 — correção global de contraste das tabelas do painel administrativo.
+   Não afeta a página pública do cliente; escopo limitado a body.admin e áreas internas do painel. */
+body:has(.admin) .admin table,
+body:has(.admin) .admin thead,
+body:has(.admin) .admin tbody,
+body:has(.admin) .admin tr,
+body:has(.admin) .admin th,
+body:has(.admin) .admin td,
+body:has(.admin) .admin .table,
+body:has(.admin) .admin .table table,
+body:has(.admin) .admin .table thead,
+body:has(.admin) .admin .table tbody,
+body:has(.admin) .admin .table tr,
+body:has(.admin) .admin .table th,
+body:has(.admin) .admin .table td {
+  background-color: #202020 !important;
+  color: #f5eee3 !important;
+  border-color: #494139 !important;
+}
+body:has(.admin) .admin th,
+body:has(.admin) .admin .table th {
+  background-color: #302c26 !important;
+  color: #e8c878 !important;
+  font-weight: 800 !important;
+}
+body:has(.admin) .admin tbody tr:nth-child(even) td,
+body:has(.admin) .admin .table tbody tr:nth-child(even) td {
+  background-color: #282828 !important;
+}
+body:has(.admin) .admin tbody tr:hover td,
+body:has(.admin) .admin .table tbody tr:hover td {
+  background-color: #34302a !important;
+  color: #fffaf1 !important;
+}
+/* A tela de detalhes da comanda usa também estes componentes específicos. */
+body:has(.admin) .admin .command-detail-items,
+body:has(.admin) .admin .command-detail-items table,
+body:has(.admin) .admin .command-detail-items thead,
+body:has(.admin) .admin .command-detail-items tbody,
+body:has(.admin) .admin .command-detail-items tr,
+body:has(.admin) .admin .command-detail-items th,
+body:has(.admin) .admin .command-detail-items td,
+body:has(.admin) .admin .command-detail-head,
+body:has(.admin) .admin .command-detail-total {
+  background-color: #202020 !important;
+  color: #f5eee3 !important;
+  border-color: #494139 !important;
+}
+body:has(.admin) .admin .command-detail-items th {
+  background-color: #302c26 !important;
+  color: #e8c878 !important;
+}
+/* Fiado, caixa, clientes e produtos: mantém todos os textos legíveis mesmo se o HTML trouxer fundo claro. */
+body:has(.admin) .admin .panel table td,
+body:has(.admin) .admin .panel table th,
+body:has(.admin) .admin #fiadoHistory td,
+body:has(.admin) .admin #fiadoHistory th,
+body:has(.admin) .admin #fiadoHistory tr {
+  color: #f5eee3 !important;
+  border-color: #494139 !important;
+}
