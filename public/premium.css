@@ -51,64 +51,92 @@ body:has(.admin){background:radial-gradient(ellipse at top,#26211b 0%,#111 52%);
 html{scroll-behavior:smooth}
 
 
-/* V4 — correção global de contraste das tabelas do painel administrativo.
-   Não afeta a página pública do cliente; escopo limitado a body.admin e áreas internas do painel. */
-body:has(.admin) .admin table,
-body:has(.admin) .admin thead,
-body:has(.admin) .admin tbody,
-body:has(.admin) .admin tr,
-body:has(.admin) .admin th,
-body:has(.admin) .admin td,
-body:has(.admin) .admin .table,
-body:has(.admin) .admin .table table,
-body:has(.admin) .admin .table thead,
-body:has(.admin) .admin .table tbody,
-body:has(.admin) .admin .table tr,
-body:has(.admin) .admin .table th,
-body:has(.admin) .admin .table td {
-  background-color: #202020 !important;
-  color: #f5eee3 !important;
-  border-color: #494139 !important;
+/* V5 — ajustes de layout nas duas áreas indicadas: detalhe da comanda e configurações. */
+/* Comanda: alinhar tabela, colunas e botões sem mudar a lógica dos lançamentos. */
+body:has(.admin) .admin .command-detail-view {
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
 }
-body:has(.admin) .admin th,
-body:has(.admin) .admin .table th {
-  background-color: #302c26 !important;
-  color: #e8c878 !important;
-  font-weight: 800 !important;
+body:has(.admin) .admin .command-detail-items {
+  width: 100% !important;
+  overflow-x: auto !important;
+  border: 1px solid #494139 !important;
+  border-radius: 12px !important;
+  background: #202020 !important;
+  box-sizing: border-box !important;
 }
-body:has(.admin) .admin tbody tr:nth-child(even) td,
-body:has(.admin) .admin .table tbody tr:nth-child(even) td {
-  background-color: #282828 !important;
+body:has(.admin) .admin .command-detail-items table {
+  width: 100% !important;
+  min-width: 560px !important;
+  border-collapse: collapse !important;
+  table-layout: auto !important;
+  background: #202020 !important;
 }
-body:has(.admin) .admin tbody tr:hover td,
-body:has(.admin) .admin .table tbody tr:hover td {
-  background-color: #34302a !important;
-  color: #fffaf1 !important;
-}
-/* A tela de detalhes da comanda usa também estes componentes específicos. */
-body:has(.admin) .admin .command-detail-items,
-body:has(.admin) .admin .command-detail-items table,
-body:has(.admin) .admin .command-detail-items thead,
-body:has(.admin) .admin .command-detail-items tbody,
-body:has(.admin) .admin .command-detail-items tr,
 body:has(.admin) .admin .command-detail-items th,
-body:has(.admin) .admin .command-detail-items td,
-body:has(.admin) .admin .command-detail-head,
-body:has(.admin) .admin .command-detail-total {
-  background-color: #202020 !important;
+body:has(.admin) .admin .command-detail-items td {
+  padding: 12px 14px !important;
+  text-align: left !important;
+  vertical-align: middle !important;
+  white-space: normal !important;
   color: #f5eee3 !important;
-  border-color: #494139 !important;
+  background: #202020 !important;
+  border-bottom: 1px solid #494139 !important;
 }
 body:has(.admin) .admin .command-detail-items th {
-  background-color: #302c26 !important;
+  background: #302c26 !important;
   color: #e8c878 !important;
+  font-size: 11px !important;
+  text-transform: uppercase !important;
 }
-/* Fiado, caixa, clientes e produtos: mantém todos os textos legíveis mesmo se o HTML trouxer fundo claro. */
-body:has(.admin) .admin .panel table td,
-body:has(.admin) .admin .panel table th,
-body:has(.admin) .admin #fiadoHistory td,
-body:has(.admin) .admin #fiadoHistory th,
-body:has(.admin) .admin #fiadoHistory tr {
-  color: #f5eee3 !important;
+body:has(.admin) .admin .command-detail-items td:last-child,
+body:has(.admin) .admin .command-detail-items th:last-child {
+  text-align: center !important;
+  white-space: nowrap !important;
+}
+body:has(.admin) .admin .command-detail-view .command-detail-head {
+  gap: 12px !important;
+  align-items: center !important;
+  margin-bottom: 12px !important;
   border-color: #494139 !important;
+}
+body:has(.admin) .admin .command-detail-view .command-detail-head h2 {
+  flex: 1 1 auto !important;
+}
+
+/* Configurações: impedir que o campo da taxa fique apertado ou desalinhado. */
+body:has(.admin) .admin #settings .row {
+  display: block !important;
+  width: 100% !important;
+  margin: 14px 0 8px !important;
+}
+body:has(.admin) .admin #settings .row label {
+  display: block !important;
+  width: 100% !important;
+  max-width: 520px !important;
+  color: #f5eee3 !important;
+  font-weight: 700 !important;
+  box-sizing: border-box !important;
+}
+body:has(.admin) .admin #settings #deliverySetting {
+  display: block !important;
+  width: 100% !important;
+  max-width: 520px !important;
+  margin-top: 8px !important;
+  padding: 12px 14px !important;
+  box-sizing: border-box !important;
+  background: #151412 !important;
+  color: #f9f4ec !important;
+  border: 1px solid #51483d !important;
+  border-radius: 10px !important;
+}
+body:has(.admin) .admin #settings .hint {
+  display: block !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  line-height: 1.5 !important;
+}
+@media(max-width:600px) {
+  body:has(.admin) .admin .command-detail-items table { min-width: 520px !important; }
+  body:has(.admin) .admin #settings #deliverySetting { max-width: 100% !important; }
 }
