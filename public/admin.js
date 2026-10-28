@@ -4,7 +4,7 @@ const toNumber=v=>{if(v===undefined||v===null||String(v).trim()==='')return 0;co
 const $=id=>document.getElementById(id);
 const api=async(url,opt={})=>{opt.headers={...(opt.headers||{}),'x-admin-password':pass,'Content-Type':'application/json'};const r=await fetch(url,opt);const raw=await r.text();let d;try{d=JSON.parse(raw)}catch(_){throw Error('O servidor respondeu uma página HTML em vez de JSON. Confira a implantação do sistema.')}if(!r.ok)throw Error(d.error||d.message||'Erro');return d};
 function login(){const pw=$('pw');pass=pw.value.trim();if(!pass){alert('Digite a senha administrativa.');return}api('/api/admin/orders').then(()=>{$('login').style.display='none';$('app').style.display='block';loadAll()}).catch(err=>alert('Erro ao entrar: '+err.message));}
-function tab(id){['orders','products','purchases','cash','commands','customers','fiado','settings'].forEach(x=>{if($(x))$(x).style.display=x===id?'block':'none'});if(id==='orders')loadOrders();if(id==='products')loadProducts();if(id==='purchases'){loadPurchaseHistory();}if(id==='cash')loadCash();if(id==='commands')loadCommands();if(id==='customers')loadCustomers();if(id==='fiado')loadFiado();if(id==='settings')loadSettings();}
+function tab(id){['orders','products','purchases','suppliers','cash','commands','customers','fiado','settings'].forEach(x=>{if($(x))$(x).style.display=x===id?'block':'none'});if(id==='orders')loadOrders();if(id==='products')loadProducts();if(id==='purchases'){loadPurchaseHistory();}if(id==='suppliers')loadSuppliers();if(id==='cash')loadCash();if(id==='commands')loadCommands();if(id==='customers')loadCustomers();if(id==='fiado')loadFiado();if(id==='settings')loadSettings();}
 async function loadAll(){loadOrders();loadCustomerOptions()}
 function installCompactOrderStyles(){
   if(document.getElementById('compact-order-card-styles')) return;
@@ -198,6 +198,16 @@ async function receiveFiado(){
   if($('cash').style.display!=='none')await loadCash();
  }catch(e){alert(e.message)}
 }
+
+
+let supplierRows=[];
+async function loadSuppliers(){try{supplierRows=await api('/api/admin/suppliers');renderSuppliers();$('supplierMsg').textContent=`${supplierRows.length} fornecedor(es) cadastrado(s).`;}catch(e){$('suppliersList').innerHTML='<p class="muted">Não foi possível carregar fornecedores: '+esc(e.message)+'</p>';}}
+function renderSuppliers(){const raw=String($('supplierSearch')?.value||'').trim().toLowerCase();const digits=raw.replace(/\D/g,'');const rows=supplierRows.filter(s=>String(s.name||'').toLowerCase().includes(raw)||(digits.length>0&&String(s.cnpj||'').includes(digits)));$('suppliersList').innerHTML=rows.length?'<div class="table"><table><thead><tr><th>Fornecedor</th><th>CNPJ</th><th>Cadastrado em</th><th>Ação</th></tr></thead><tbody>'+rows.map(s=>`<tr><td>${esc(s.name)}</td><td>${esc(s.cnpj)}</td><td>${esc(s.created_at||'')}</td><td><button type="button" onclick="editSupplier(${Number(s.id)})">EDITAR</button></td></tr>`).join('')+'</tbody></table></div>':'<p class="muted">Nenhum fornecedor encontrado.</p>'; }
+function filterSuppliers(){renderSuppliers()}
+function editSupplier(id){const s=supplierRows.find(x=>Number(x.id)===Number(id));if(!s)return;$('supplierEditId').value=s.id;$('supplierName').value=s.name||'';$('supplierCnpj').value=s.cnpj||'';$('supplierMsg').textContent='Editando fornecedor. Altere os dados e clique em SALVAR FORNECEDOR.';window.scrollTo({top:0,behavior:'smooth'});}
+function clearSupplierForm(){$('supplierEditId').value='';$('supplierName').value='';$('supplierCnpj').value='';$('supplierMsg').textContent='';}
+async function saveSupplierFromPanel(){const id=$('supplierEditId').value;const name=$('supplierName').value.trim();const cnpj=$('supplierCnpj').value.replace(/\D/g,'');if(!name)return alert('Informe a razão social ou nome do fornecedor.');if(cnpj.length!==14)return alert('Informe um CNPJ com 14 dígitos.');const btn=document.querySelector('#suppliers button.primary');try{if(btn){btn.disabled=true;btn.textContent='SALVANDO...'}$('supplierMsg').textContent='Salvando fornecedor...';const result=await api(id?'/api/admin/suppliers/'+encodeURIComponent(id):'/api/admin/suppliers',{method:id?'PUT':'POST',body:JSON.stringify({name,cnpj})});$('supplierMsg').textContent=result.message||'Fornecedor salvo com sucesso.';clearSupplierForm();await loadSuppliers();}catch(e){$('supplierMsg').textContent='Erro ao salvar fornecedor: '+e.message;alert('Não foi possível salvar o fornecedor: '+e.message)}finally{if(btn){btn.disabled=false;btn.textContent='SALVAR FORNECEDOR'}}}
+window.loadSuppliers=loadSuppliers;window.filterSuppliers=filterSuppliers;window.editSupplier=editSupplier;window.clearSupplierForm=clearSupplierForm;window.saveSupplierFromPanel=saveSupplierFromPanel;
 
 async function loadSettings(){const s=await api('/api/admin/settings');$('deliverySetting').value=Number(s.delivery_fee||0).toFixed(2);}
 async function saveSettings(){const d=await api('/api/admin/settings',{method:'PUT',body:JSON.stringify({delivery_fee:$('deliverySetting').value})});$('settingsMsg').textContent='Taxa de entrega salva: '+money(d.delivery_fee);}
