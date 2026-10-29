@@ -1,3 +1,4 @@
+// ESPETINHO DO REINALDO — integração fornecedores + insumos + entrada XML — V4 2026-10-29
 const express=require('express');
 const path=require('path');
 const crypto=require('crypto');
