@@ -1,7 +1,7 @@
 // ESPETINHO DO REINALDO — painel fornecedores/insumos/XML — V4 2026-10-29
 let pass='';let editingId=null;let productMode='venda';
 const money=v=>Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
-const toNumber=v=>{if(v===undefined||v===null||String(v).trim()==='')return 0;const s=String(v).trim().replace(/\s/g,'').replace(/\.(?=\d{3}(?:\D|$))/g,'').replace(',','.');const n=Number(s);return Number.isFinite(n)?n:NaN};
+const toNumber=v=>{if(v===undefined||v===null||String(v).trim()==='')return 0;const s=String(v).trim().replace(/\s/g,'').replace(',','.');const n=Number(s);return Number.isFinite(n)?n:NaN};
 const $=id=>document.getElementById(id);
 const api=async(url,opt={})=>{opt.headers={...(opt.headers||{}),'x-admin-password':pass,'Content-Type':'application/json'};const r=await fetch(url,opt);const raw=await r.text();let d;try{d=JSON.parse(raw)}catch(_){throw Error('O servidor respondeu uma página HTML em vez de JSON. Confira a implantação do sistema.')}if(!r.ok)throw Error(d.error||d.message||'Erro');return d};
 function login(){const pw=$('pw');pass=pw.value.trim();if(!pass){alert('Digite a senha administrativa.');return}api('/api/admin/orders').then(()=>{$('login').style.display='none';$('app').style.display='block';loadAll()}).catch(err=>alert('Erro ao entrar: '+err.message));}
