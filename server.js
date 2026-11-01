@@ -2,6 +2,7 @@
 const express=require('express');
 const path=require('path');
 const crypto=require('crypto');
+const fs=require('fs');
 const app=express();
 app.use(express.json({limit:'8mb'}));
 app.use(express.urlencoded({extended:true}));
@@ -92,13 +93,72 @@ async function run(sql,args=[]){if(isPg){const r=await db.query(sql,args.map(v=>
 function placeholders(n,start=1){return Array.from({length:n},(_,i)=>'$'+(i+start)).join(',');}
 function productNumber(v){if(v===undefined||v===null||String(v).trim()==='')return 0;if(typeof v==='number')return Number.isFinite(v)?v:NaN;const s=String(v).trim().replace(/\s/g,'').replace(',','.');return Number(s);}
 
+
+// LIMPEZA CONTROLADA DE DADOS DE TESTE — somente SQLite, com backup obrigatório.
+let cleanupBackupReadyAt=0;
+const CLEANUP_INVOICE_SQL="SELECT * FROM purchase_invoices WHERE TRIM(invoice_number)='15811716' AND TRIM(series)='3' AND LOWER(supplier_name) LIKE '%rio branco%' AND ABS(COALESCE(total,0)-385.10)<0.02";
+app.get('/api/admin/cleanup/preview',auth,async(req,res)=>{
+ try{
+  if(isPg)return res.status(400).json({error:'Esta rotina foi preparada para o banco SQLite da produção.'});
+  const invoice=db.prepare(CLEANUP_INVOICE_SQL).all();
+  const counts={orders:db.prepare('SELECT COUNT(*) n FROM orders').get().n,order_items:db.prepare('SELECT COUNT(*) n FROM order_items').get().n,cash:db.prepare('SELECT COUNT(*) n FROM cash').get().n,commands:db.prepare('SELECT COUNT(*) n FROM commands').get().n,command_items:db.prepare('SELECT COUNT(*) n FROM command_items').get().n,customers:db.prepare('SELECT COUNT(*) n FROM customers').get().n,fiado_payments:db.prepare('SELECT COUNT(*) n FROM fiado_payments').get().n};
+  let invoiceInfo=null;
+  if(invoice.length===1){const inv=invoice[0];const movements=db.prepare('SELECT m.product_id,p.name,SUM(m.quantity) quantity,m.unit,SUM(m.secondary_quantity) secondary_quantity,m.secondary_unit FROM inventory_movements m LEFT JOIN products p ON p.id=m.product_id WHERE m.invoice_id=? GROUP BY m.product_id,m.unit,m.secondary_unit').all(inv.id);const lines=db.prepare('SELECT COUNT(*) n FROM purchase_invoice_lines WHERE invoice_id=?').get(inv.id).n;invoiceInfo={id:inv.id,number:inv.invoice_number,series:inv.series,supplier:inv.supplier_name,total:Number(inv.total),line_count:lines,movements};}
+  res.json({ok:true,database:'sqlite',counts,invoice_matches:invoice.length,invoice:invoiceInfo,backup_required:true,confirmation_phrase:'LIMPAR DADOS DE TESTE'});
+ }catch(e){console.error('Prévia da limpeza:',e);res.status(500).json({error:'Não foi possível conferir os dados antes da limpeza.'})}
+});
+app.get('/api/admin/cleanup/backup',auth,async(req,res)=>{
+ try{
+  if(isPg)return res.status(400).json({error:'Backup desta rotina disponível somente para SQLite.'});
+  const dir=path.join(path.dirname(process.env.SQLITE_PATH||path.join(__dirname,'data.sqlite')),'backups');
+  fs.mkdirSync(dir,{recursive:true});
+  const stamp=new Date().toISOString().replace(/[:.]/g,'-');
+  const file=path.join(dir,'backup-antes-limpeza-'+stamp+'.sqlite');
+  await db.backup(file);
+  cleanupBackupReadyAt=Date.now();
+  res.download(file,path.basename(file));
+ }catch(e){console.error('Backup antes da limpeza:',e);res.status(500).json({error:'Falha ao gerar o backup. Nenhum dado foi apagado.'})}
+});
+app.post('/api/admin/cleanup/execute',auth,async(req,res)=>{
+ try{
+  if(isPg)return res.status(400).json({error:'Esta rotina foi preparada para o banco SQLite da produção.'});
+  if(String(req.body.confirm||'')!=='LIMPAR DADOS DE TESTE')return res.status(400).json({error:'Digite a frase de confirmação exatamente como solicitado.'});
+  if(!cleanupBackupReadyAt||Date.now()-cleanupBackupReadyAt>30*60*1000)return res.status(400).json({error:'Gere e baixe um backup atualizado antes de executar. O backup precisa ter menos de 30 minutos.'});
+  const invoiceRows=db.prepare(CLEANUP_INVOICE_SQL).all();
+  if(invoiceRows.length!==1)return res.status(409).json({error:'A NF-e informada não foi encontrada de forma única. Nenhum dado foi alterado.',invoice_matches:invoiceRows.length});
+  const invoice=invoiceRows[0];
+  const summary=db.transaction(()=>{
+   const movements=db.prepare('SELECT product_id,SUM(quantity) quantity,SUM(secondary_quantity) secondary_quantity FROM inventory_movements WHERE invoice_id=? GROUP BY product_id').all(invoice.id);
+   for(const m of movements){
+    if(m.product_id===null)continue;
+    db.prepare('UPDATE products SET stock=COALESCE(stock,0)-?,stock_secondary=COALESCE(stock_secondary,0)-?,cost_price=0 WHERE id=?').run(Number(m.quantity||0),Number(m.secondary_quantity||0),m.product_id);
+   }
+   const orderItems=db.prepare('DELETE FROM order_items').run().changes;
+   const orders=db.prepare('DELETE FROM orders').run().changes;
+   const commandItems=db.prepare('DELETE FROM command_items').run().changes;
+   const commands=db.prepare('DELETE FROM commands').run().changes;
+   const fiadoPayments=db.prepare('DELETE FROM fiado_payments').run().changes;
+   const cash=db.prepare('DELETE FROM cash').run().changes;
+   const customers=db.prepare('DELETE FROM customers').run().changes;
+   const printJobs=db.prepare('DELETE FROM print_jobs').run().changes;
+   const invoiceLines=db.prepare('DELETE FROM purchase_invoice_lines WHERE invoice_id=?').run(invoice.id).changes;
+   const inventoryMovements=db.prepare('DELETE FROM inventory_movements WHERE invoice_id=?').run(invoice.id).changes;
+   const invoices=db.prepare('DELETE FROM purchase_invoices WHERE id=?').run(invoice.id).changes;
+   db.prepare("DELETE FROM sqlite_sequence WHERE name='orders'").run();
+   return {orders,order_items:orderItems,commands,command_items:commandItems,cash,customers,fiado_payments:fiadoPayments,print_jobs:printJobs,invoice:invoices,invoice_lines:invoiceLines,inventory_movements:inventoryMovements,products_stock_reversed:movements.length,products_cost_zeroed:movements.filter(x=>x.product_id!==null).length};
+  })();
+  cleanupBackupReadyAt=0;
+  res.json({ok:true,message:'Limpeza concluída. Catálogo, preços, categorias, fornecedores e configurações foram preservados.',deleted:summary,invoice_removed:{number:invoice.invoice_number,series:invoice.series,supplier:invoice.supplier_name,total:Number(invoice.total)},next_order_id:1,display_order_format:'0001'});
+ }catch(e){console.error('Execução da limpeza:',e);res.status(500).json({error:'A limpeza foi cancelada por erro. Consulte o backup antes de tentar novamente.'})}
+});
+
 app.get('/api/health',(req,res)=>res.json({ok:true,version:'4.0.0',database:isPg?'postgres':'sqlite',adminConfigured:Boolean(process.env.SENHA_DE_ADMINISTRADOR||process.env.ADMIN_PASSWORD)}));
 async function enqueuePrint(jobKey,kind,payload){try{const key=String(jobKey),printPayload={companyName:'ESPETINHO DO REINALDO',cnpj:'48.508.407/0001-50',...payload},data=JSON.stringify(printPayload);if(isPg)await db.query('INSERT INTO print_jobs(job_key,kind,payload) VALUES($1,$2,$3) ON CONFLICT(job_key) DO NOTHING',[key,kind,data]);else await run('INSERT OR IGNORE INTO print_jobs(job_key,kind,payload) VALUES(?,?,?)',[key,kind,data]);}catch(e){console.error('Falha ao criar trabalho de impressão:',e)}}
 function bridgeAuth(req,res,next){if(!PRINTER_BRIDGE_TOKEN)return res.status(503).json({error:'PRINTER_BRIDGE_TOKEN não configurado no servidor'});if(String(req.headers['x-printer-token']||'')!==PRINTER_BRIDGE_TOKEN)return res.status(401).json({error:'Token da impressora inválido'});next()}
 app.get('/api/printer/next',bridgeAuth,async(req,res)=>{try{let job;if(isPg){const r=await db.query("UPDATE print_jobs SET status='printing',attempts=attempts+1,claimed_at=CURRENT_TIMESTAMP WHERE id=(SELECT id FROM print_jobs WHERE status='pending' ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING *");job=r.rows[0]}else{const candidate=await one("SELECT * FROM print_jobs WHERE status='pending' ORDER BY id LIMIT 1");if(candidate){await run("UPDATE print_jobs SET status='printing',attempts=attempts+1,claimed_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'",[candidate.id]);job=await one("SELECT * FROM print_jobs WHERE id=? AND status='printing'",[candidate.id])}}if(!job)return res.status(204).end();res.json({...job,payload:JSON.parse(job.payload)})}catch(e){console.error('Fila de impressão:',e);res.status(500).json({error:'Falha ao consultar fila'})}});
 app.post('/api/printer/:id/ack',bridgeAuth,async(req,res)=>{try{const id=Number(req.params.id),ok=req.body.ok===true,status=ok?'printed':'pending',error=String(req.body.error||'').slice(0,500);if(isPg)await db.query('UPDATE print_jobs SET status=$1,printed_at=CASE WHEN $2 THEN CURRENT_TIMESTAMP ELSE printed_at END,last_error=$3 WHERE id=$4',[status,ok,error,id]);else await run('UPDATE print_jobs SET status=?,printed_at=CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE printed_at END,last_error=? WHERE id=?',[status,ok?1:0,error,id]);res.json({ok:true})}catch(e){res.status(500).json({error:'Falha ao confirmar impressão'})}});
 app.post('/api/admin/print/command/:id',auth,async(req,res)=>{try{const id=Number(req.params.id),c=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[id]);if(!c)return res.status(404).json({error:'Comanda não encontrada'});const items=await q('SELECT * FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[id]);const stage=String(req.body.stage||'conferencia');const key='command-'+(stage==='paga'?'receipt':'bill')+'-'+id+'-'+Date.now();await enqueuePrint(key,stage==='paga'?'receipt':'bill',{title:stage==='paga'?'COMPROVANTE DE VENDA':'CONFERÊNCIA DE CONTA',stage,command:c.number,customer:c.customer||'',items,total:Number(c.total||0),payment:c.payment||'Pendente',created_at:c.closed_at||c.created_at});res.json({ok:true})}catch(e){console.error(e);res.status(500).json({error:'Não foi possível enfileirar a impressão'})}});
-app.post('/api/admin/print/order-receipt/:id',auth,async(req,res)=>{try{const id=Number(req.params.id),o=await one('SELECT * FROM orders WHERE id='+(isPg?'$1':'?'),[id]);if(!o)return res.status(404).json({error:'Pedido não encontrado'});if(!(o.payment_confirmed===true||o.payment_confirmed===1))return res.status(400).json({error:'Confirme o recebimento do pagamento antes de imprimir o comprovante.'});const items=await q('SELECT * FROM order_items WHERE order_id='+(isPg?'$1':'?')+' ORDER BY id',[id]);const subtotal=items.reduce((sum,it)=>sum+Number(it.total||0),0);await enqueuePrint('receipt-order-paid-'+id,'receipt',{title:'COMPROVANTE DE VENDA — PAGAMENTO CONFIRMADO',order:id,customer:o.customer_name,type:o.type,address:o.address,notes:o.notes,items,subtotal,delivery_fee:Math.max(0,Number(o.total||0)-subtotal),total:Number(o.total||0),payment:o.payment||'',created_at:o.created_at});res.json({ok:true})}catch(e){console.error(e);res.status(500).json({error:'Não foi possível enfileirar o comprovante'})}});
+app.post('/api/admin/print/order-receipt/:id',auth,async(req,res)=>{try{const id=Number(req.params.id),o=await one('SELECT * FROM orders WHERE id='+(isPg?'$1':'?'),[id]);if(!o)return res.status(404).json({error:'Pedido não encontrado'});if(!(o.payment_confirmed===true||o.payment_confirmed===1))return res.status(400).json({error:'Confirme o recebimento do pagamento antes de imprimir o comprovante.'});const items=await q('SELECT * FROM order_items WHERE order_id='+(isPg?'$1':'?')+' ORDER BY id',[id]);const subtotal=items.reduce((sum,it)=>sum+Number(it.total||0),0);await enqueuePrint('receipt-order-paid-'+id,'receipt',{title:'COMPROVANTE DE VENDA — PAGAMENTO CONFIRMADO',order:String(id).padStart(4,'0'),customer:o.customer_name,type:o.type,address:o.address,notes:o.notes,items,subtotal,delivery_fee:Math.max(0,Number(o.total||0)-subtotal),total:Number(o.total||0),payment:o.payment||'',created_at:o.created_at});res.json({ok:true})}catch(e){console.error(e);res.status(500).json({error:'Não foi possível enfileirar o comprovante'})}});
 app.get('/api/config',(req,res)=>res.json({delivery_fee:DELIVERY_FEE}));
 app.get('/api/products',async(req,res)=>{try{const rows=await q('SELECT * FROM products WHERE active = '+(isPg?'true':'1')+" AND COALESCE(product_type,'venda') <> 'insumo' ORDER BY category,name");res.json(rows);}catch(e){res.status(500).json({error:e.message})}});
 app.get('/api/admin/suppliers',auth,async(req,res)=>{try{res.json(await q('SELECT * FROM suppliers ORDER BY name'))}catch(e){console.error(e);res.status(500).json({error:'Não foi possível carregar fornecedores.'})}});
@@ -241,8 +301,8 @@ app.post('/api/orders',async(req,res)=>{try{const {customer_name,phone='',type='
  let orderId,commandNo=String(req.body.command_no||'');if(isPg){const r=await db.query('INSERT INTO orders(customer_name,phone,type,address,payment,notes,status,total,command_no) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id',[customer_name,phone,type,address,payment,notes,'novo',total,commandNo]);orderId=r.rows[0].id;for(const x of products)await db.query('INSERT INTO order_items(order_id,product_id,name,qty,unit_price,total) VALUES($1,$2,$3,$4,$5,$6)',[orderId,x.p.id,x.p.name,x.qty,x.p.price,x.line]);}else{const r=await run('INSERT INTO orders(customer_name,phone,type,address,payment,notes,status,total,command_no) VALUES(?,?,?,?,?,?,?,?,?)',[customer_name,phone,type,address,payment,notes,'novo',total,commandNo]);orderId=r.lastID;for(const x of products)await run('INSERT INTO order_items(order_id,product_id,name,qty,unit_price,total) VALUES(?,?,?,?,?,?)',[orderId,x.p.id,x.p.name,x.qty,x.p.price,x.line]);}
  // Pedido feito pelo site: imprimir TODOS os itens para produção e separação, inclusive bebidas e produtos prontos.
  const orderPrintItems=products.filter(x=>x.p.print_site===true||x.p.print_site===1||x.p.print_site===undefined||x.p.print_site===null).map(x=>({name:x.p.name,qty:x.qty,unit_price:Number(x.p.price),total:x.line}));
- if(orderPrintItems.length)await enqueuePrint('site-order-'+orderId,'kitchen',{title:'PEDIDO DO SITE — PRODUÇÃO E SEPARAÇÃO',order:orderId,customer:customer_name,phone,type,address,notes,items:orderPrintItems,subtotal:products.reduce((s,x)=>s+x.line,0),delivery_fee:deliveryFee,total,created_at:new Date().toISOString()});
- res.json({ok:true,order_id:orderId,total,delivery_fee:deliveryFee,command_no:commandNo});}catch(e){res.status(500).json({error:e.message})}});
+ if(orderPrintItems.length)await enqueuePrint('site-order-'+orderId,'kitchen',{title:'PEDIDO DO SITE — PRODUÇÃO E SEPARAÇÃO',order:String(orderId).padStart(4,'0'),customer:customer_name,phone,type,address,notes,items:orderPrintItems,subtotal:products.reduce((s,x)=>s+x.line,0),delivery_fee:deliveryFee,total,created_at:new Date().toISOString()});
+ res.json({ok:true,order_id:orderId,order_number:String(orderId).padStart(4,'0'),total,delivery_fee:deliveryFee,command_no:commandNo});}catch(e){res.status(500).json({error:e.message})}});
 app.get('/api/orders/:id/status',async(req,res)=>{
   try{
     const id=Number(req.params.id);
@@ -267,7 +327,7 @@ app.get('/api/orders/:id',async(req,res)=>{
 });
 app.get('/api/admin/orders',auth,async(req,res)=>{const orders=await q('SELECT * FROM orders ORDER BY id DESC');for(const o of orders)o.items=await q('SELECT * FROM order_items WHERE order_id='+(isPg?'$1':'?')+' ORDER BY id',[o.id]);res.json(orders);});
 app.put('/api/admin/orders/:id/status',auth,async(req,res)=>{try{const status=req.body.status;const allowed=['novo','confirmado','preparando','pronto','entregando','finalizado','cancelado'];if(!allowed.includes(status))return res.status(400).json({error:'Status inválido'});const id=Number(req.params.id);await run('UPDATE orders SET status='+(isPg?'$1':'?')+' WHERE id='+(isPg?'$2':'?'),[status,id]);res.json({ok:true});}catch(e){res.status(500).json({error:e.message})}});
-app.post('/api/admin/orders/:id/confirm-payment',auth,async(req,res)=>{try{const id=Number(req.params.id);const o=await one('SELECT * FROM orders WHERE id='+(isPg?'$1':'?'),[id]);if(!o)return res.status(404).json({error:'Pedido não encontrado'});if(o.payment_confirmed===true||o.payment_confirmed===1)return res.json({ok:true,already_confirmed:true});await run('UPDATE orders SET payment_confirmed='+(isPg?'TRUE':'1')+' WHERE id='+(isPg?'$1':'?'),[id]);const exists=await one('SELECT id FROM cash WHERE description='+(isPg?'$1':'?'),['Pedido #'+o.id]);if(!exists)await run('INSERT INTO cash(type,description,value,payment,order_id) VALUES('+(isPg?'$1,$2,$3,$4,$5':'?,?,?,?,?')+')',['entrada','Pedido #'+o.id,Number(o.total),o.payment||'',id]);const items=await q('SELECT * FROM order_items WHERE order_id='+(isPg?'$1':'?')+' ORDER BY id',[id]);const subtotal=items.reduce((sum,it)=>sum+Number(it.total||0),0);const fee=Math.max(0,Number(o.total||0)-subtotal);await enqueuePrint('receipt-order-paid-'+o.id,'receipt',{title:'COMPROVANTE DE VENDA — PAGAMENTO CONFIRMADO',order:o.id,customer:o.customer_name,type:o.type,address:o.address,notes:o.notes,items,subtotal,delivery_fee:fee,total:Number(o.total||0),payment:o.payment||'',created_at:o.created_at});res.json({ok:true});}catch(e){console.error(e);res.status(500).json({error:'Não foi possível confirmar o pagamento'});}});
+app.post('/api/admin/orders/:id/confirm-payment',auth,async(req,res)=>{try{const id=Number(req.params.id);const o=await one('SELECT * FROM orders WHERE id='+(isPg?'$1':'?'),[id]);if(!o)return res.status(404).json({error:'Pedido não encontrado'});if(o.payment_confirmed===true||o.payment_confirmed===1)return res.json({ok:true,already_confirmed:true});await run('UPDATE orders SET payment_confirmed='+(isPg?'TRUE':'1')+' WHERE id='+(isPg?'$1':'?'),[id]);const exists=await one('SELECT id FROM cash WHERE description='+(isPg?'$1':'?'),['Pedido #'+o.id]);if(!exists)await run('INSERT INTO cash(type,description,value,payment,order_id) VALUES('+(isPg?'$1,$2,$3,$4,$5':'?,?,?,?,?')+')',['entrada','Pedido #'+o.id,Number(o.total),o.payment||'',id]);const items=await q('SELECT * FROM order_items WHERE order_id='+(isPg?'$1':'?')+' ORDER BY id',[id]);const subtotal=items.reduce((sum,it)=>sum+Number(it.total||0),0);const fee=Math.max(0,Number(o.total||0)-subtotal);await enqueuePrint('receipt-order-paid-'+o.id,'receipt',{title:'COMPROVANTE DE VENDA — PAGAMENTO CONFIRMADO',order:String(o.id).padStart(4,'0'),customer:o.customer_name,type:o.type,address:o.address,notes:o.notes,items,subtotal,delivery_fee:fee,total:Number(o.total||0),payment:o.payment||'',created_at:o.created_at});res.json({ok:true});}catch(e){console.error(e);res.status(500).json({error:'Não foi possível confirmar o pagamento'});}});
 
 app.get('/api/admin/cash',auth,async(req,res)=>{
  try{
