@@ -70,7 +70,19 @@ async function loadOrders(){
     const delivery=Math.max(0,Number(o.total||0)-subtotal);
     const paid=o.payment_confirmed===true||o.payment_confirmed===1;
     const statusClass=['novo','confirmado','preparando','pronto','entregando','finalizado','cancelado'].includes(String(o.status||'').toLowerCase())?String(o.status).toLowerCase():'novo';
-    return `<div class="panel order-card order-status-${statusClass}">
+    const statusColors={
+      novo:{bg:'#c8e3ff',border:'#1e88e5',text:'#12395c'},
+      confirmado:{bg:'#e3cdf2',border:'#8e44ad',text:'#3c2050'},
+      preparando:{bg:'#ffe0a8',border:'#e58a00',text:'#553300'},
+      pronto:{bg:'#c7efd5',border:'#229653',text:'#17472a'},
+      entregando:{bg:'#bfeaf0',border:'#07869b',text:'#12434a'},
+      finalizado:{bg:'#9fdaa9',border:'#176b2c',text:'#103d1b'},
+      cancelado:{bg:'#f4c2bf',border:'#c0392b',text:'#5a1c17'}
+    };
+    const statusColor=statusColors[statusClass];
+    const cardColorStyle=`background:${statusColor.bg} !important;background-color:${statusColor.bg} !important;background-image:none !important;color:${statusColor.text} !important;border:2px solid ${statusColor.border} !important;border-left:8px solid ${statusColor.border} !important;`;
+    const selectColorStyle=`background:${statusColor.border} !important;background-color:${statusColor.border} !important;color:#fff !important;border:2px solid ${statusColor.border} !important;font-weight:800 !important;`;
+    return `<div class="panel order-card order-status-${statusClass}" style="${cardColorStyle}">
       <div class="order-card-head">
         <div><div class="order-card-number">Pedido #${o.id}</div><div class="order-card-customer">${esc(o.customer_name||'Cliente não informado')}</div></div>
         <div class="order-card-total">${money(o.total)}</div>
@@ -80,7 +92,7 @@ async function loadOrders(){
       ${o.type==='entrega'?`<div class="order-card-meta">🛵 ${esc(o.address||'Endereço não informado')}</div>`:''}
       <div class="order-card-payment">${esc(o.payment||'Não informado')} · ${paid?'✅ PAGAMENTO CONFIRMADO':'⏳ AGUARDANDO CONFIRMAÇÃO'}</div>
       <button onclick="confirmOrderPayment(${o.id})" ${paid?'disabled':''}>CONFIRMAR PAGAMENTO E IMPRIMIR COMPROVANTE</button>
-      <div class="order-card-status"><span>Status:</span><select class="status-color-${statusClass}" onchange="status(${o.id},this.value)">${['novo','confirmado','preparando','pronto','entregando','finalizado','cancelado'].map(s=>`<option ${s===o.status?'selected':''}>${s}</option>`).join('')}</select></div>
+      <div class="order-card-status"><span>Status:</span><select class="status-color-${statusClass}" style="${selectColorStyle}" onchange="status(${o.id},this.value)">${['novo','confirmado','preparando','pronto','entregando','finalizado','cancelado'].map(s=>`<option ${s===o.status?'selected':''}>${s}</option>`).join('')}</select></div>
     </div>`;
   }).join('')||'<p>Nenhum pedido.</p>';
 }
