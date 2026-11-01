@@ -84,7 +84,7 @@ async function loadOrders(){
     const selectColorStyle=`background:${statusColor.border} !important;background-color:${statusColor.border} !important;color:#fff !important;border:2px solid ${statusColor.border} !important;font-weight:800 !important;`;
     return `<div class="panel order-card order-status-${statusClass}" style="${cardColorStyle}">
       <div class="order-card-head">
-        <div><div class="order-card-number">Pedido #${o.id}</div><div class="order-card-customer">${esc(o.customer_name||'Cliente não informado')}</div></div>
+        <div><div class="order-card-number">Pedido #${String(o.id).padStart(4,'0')}</div><div class="order-card-customer">${esc(o.customer_name||'Cliente não informado')}</div></div>
         <div class="order-card-total">${money(o.total)}</div>
       </div>
       <div class="order-card-items">${items.map(i=>`<div class="order-item-line">${i.qty}x ${esc(i.name)}</div>`).join('')||'Itens não informados'}</div>
@@ -284,3 +284,8 @@ async function deactivateInsumo(id){if(!confirm('Deseja desativar este insumo? O
 window.parsePurchaseXml = parsePurchaseXml;
 window.receivePurchaseXml = receivePurchaseXml;
 window.loadPurchaseHistory = loadPurchaseHistory;
+
+// Limpeza inicial: exige prévia, backup baixado e frase de confirmação.
+async function previewCleanup(){try{const d=await api('/api/admin/cleanup/preview');$('cleanupPreview').textContent=JSON.stringify(d,null,2);$('cleanupMsg').textContent=d.invoice_matches===1?'Conferência concluída: a NF-e exata foi localizada.':'ATENÇÃO: a NF-e não foi localizada de forma única. Não execute a limpeza.';}catch(e){$('cleanupMsg').textContent='Erro na conferência: '+e.message;}}
+async function downloadCleanupBackup(){try{const r=await fetch('/api/admin/cleanup/backup',{headers:{'x-admin-password':pass}});if(!r.ok){let d={};try{d=await r.json()}catch(_){}throw Error(d.error||'Não foi possível gerar o backup.')}const blob=await r.blob();const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='backup-espetinho-antes-limpeza.sqlite';document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);$('cleanupMsg').textContent='Backup gerado e download iniciado. Guarde esse arquivo antes de executar.';}catch(e){$('cleanupMsg').textContent='Erro no backup: '+e.message;}}
+async function executeCleanup(){const phrase=$('cleanupConfirm').value.trim();if(phrase!=='LIMPAR DADOS DE TESTE'){alert('Digite exatamente: LIMPAR DADOS DE TESTE');return;}if(!confirm('ÚLTIMA CONFIRMAÇÃO: todos os dados de teste de pedidos, comandas, caixa, fiado e clientes serão apagados. Confirme que o backup foi baixado e guardado.'))return;try{const d=await api('/api/admin/cleanup/execute',{method:'POST',body:JSON.stringify({confirm:phrase})});$('cleanupMsg').textContent='LIMPEZA CONCLUÍDA. '+JSON.stringify(d.deleted)+' Próximo pedido: 0001.';$('cleanupPreview').textContent=JSON.stringify(d,null,2);$('cleanupConfirm').value='';alert('Limpeza concluída. O catálogo e os fornecedores foram preservados.');}catch(e){$('cleanupMsg').textContent='A limpeza não foi concluída: '+e.message;}}
