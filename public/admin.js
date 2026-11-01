@@ -24,6 +24,22 @@ function installCompactOrderStyles(){
     #ordersList .order-card button{width:100%;margin-top:2px}
     #ordersList .order-card-status{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:.9rem}
     #ordersList .order-card-status select{flex:1;min-width:125px;max-width:100%}
+    #ordersList .order-card{border-left:7px solid #64748b}
+    #ordersList .order-card.order-status-novo{border-left-color:#1e88e5;background:linear-gradient(90deg,rgba(30,136,229,.10),transparent 42%)}
+    #ordersList .order-card.order-status-confirmado{border-left-color:#8e44ad;background:linear-gradient(90deg,rgba(142,68,173,.10),transparent 42%)}
+    #ordersList .order-card.order-status-preparando{border-left-color:#f39c12;background:linear-gradient(90deg,rgba(243,156,18,.12),transparent 42%)}
+    #ordersList .order-card.order-status-pronto{border-left-color:#27ae60;background:linear-gradient(90deg,rgba(39,174,96,.10),transparent 42%)}
+    #ordersList .order-card.order-status-entregando{border-left-color:#17a2b8;background:linear-gradient(90deg,rgba(23,162,184,.10),transparent 42%)}
+    #ordersList .order-card.order-status-finalizado{border-left-color:#1b5e20;background:linear-gradient(90deg,rgba(27,94,32,.13),transparent 42%)}
+    #ordersList .order-card.order-status-cancelado{border-left-color:#c0392b;background:linear-gradient(90deg,rgba(192,57,43,.12),transparent 42%)}
+    #ordersList .order-card-status select{font-weight:800;border-width:2px}
+    #ordersList .order-card-status select.status-color-novo{background:#1e88e5;color:#fff;border-color:#1e88e5}
+    #ordersList .order-card-status select.status-color-confirmado{background:#8e44ad;color:#fff;border-color:#8e44ad}
+    #ordersList .order-card-status select.status-color-preparando{background:#f39c12;color:#222;border-color:#f39c12}
+    #ordersList .order-card-status select.status-color-pronto{background:#27ae60;color:#fff;border-color:#27ae60}
+    #ordersList .order-card-status select.status-color-entregando{background:#17a2b8;color:#fff;border-color:#17a2b8}
+    #ordersList .order-card-status select.status-color-finalizado{background:#1b5e20;color:#fff;border-color:#1b5e20}
+    #ordersList .order-card-status select.status-color-cancelado{background:#c0392b;color:#fff;border-color:#c0392b}
     @media(max-width:480px){#ordersList.order-card-grid{grid-template-columns:1fr}#ordersList .order-card{padding:12px!important}}
   `;
   document.head.appendChild(style);
@@ -38,7 +54,8 @@ async function loadOrders(){
     const subtotal=items.reduce((sum,i)=>sum+Number(i.total||0),0);
     const delivery=Math.max(0,Number(o.total||0)-subtotal);
     const paid=o.payment_confirmed===true||o.payment_confirmed===1;
-    return `<div class="panel order-card">
+    const statusClass=['novo','confirmado','preparando','pronto','entregando','finalizado','cancelado'].includes(String(o.status||'').toLowerCase())?String(o.status).toLowerCase():'novo';
+    return `<div class="panel order-card order-status-${statusClass}">
       <div class="order-card-head">
         <div><div class="order-card-number">Pedido #${o.id}</div><div class="order-card-customer">${esc(o.customer_name||'Cliente não informado')}</div></div>
         <div class="order-card-total">${money(o.total)}</div>
@@ -48,7 +65,7 @@ async function loadOrders(){
       ${o.type==='entrega'?`<div class="order-card-meta">🛵 ${esc(o.address||'Endereço não informado')}</div>`:''}
       <div class="order-card-payment">${esc(o.payment||'Não informado')} · ${paid?'✅ PAGAMENTO CONFIRMADO':'⏳ AGUARDANDO CONFIRMAÇÃO'}</div>
       <button onclick="confirmOrderPayment(${o.id})" ${paid?'disabled':''}>CONFIRMAR PAGAMENTO E IMPRIMIR COMPROVANTE</button>
-      <div class="order-card-status"><span>Status:</span><select onchange="status(${o.id},this.value)">${['novo','confirmado','preparando','pronto','entregando','finalizado','cancelado'].map(s=>`<option ${s===o.status?'selected':''}>${s}</option>`).join('')}</select></div>
+      <div class="order-card-status"><span>Status:</span><select class="status-color-${statusClass}" onchange="status(${o.id},this.value)">${['novo','confirmado','preparando','pronto','entregando','finalizado','cancelado'].map(s=>`<option ${s===o.status?'selected':''}>${s}</option>`).join('')}</select></div>
     </div>`;
   }).join('')||'<p>Nenhum pedido.</p>';
 }
