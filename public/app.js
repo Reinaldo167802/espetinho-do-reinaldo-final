@@ -342,7 +342,7 @@ function showPixPayment(orderId, total) {
     modal.querySelector('#closePixModal').addEventListener('click', () => modal.remove());
   }
 
-  modal.querySelector('#pixOrderInfo').textContent = `Pedido #${orderId || '—'} · Total: ${money(total)}`;
+  modal.querySelector('#pixOrderInfo').textContent = `Pedido #${String(orderId || '').padStart(4,'0') || '—'} · Total: ${money(total)}`;
   modal.querySelector('#pixKeyText').textContent = pixKey;
   modal.querySelector('#copyPixKey').textContent = 'Copiar chave Pix';
   modal.querySelector('#copyPixPayload').textContent = 'Copiar Pix copia e cola';
@@ -391,7 +391,7 @@ function showOrderStatus(id, updateAddress = true) {
   modal.setAttribute('aria-label', 'Acompanhamento do pedido ' + safeId);
   modal.dataset.orderId = safeId;
   modal.style.cssText = 'position:fixed;inset:0;z-index:9998;background:#0009;display:flex;align-items:center;justify-content:center;padding:12px;box-sizing:border-box;';
-  modal.innerHTML = `<section style="background:#fff;color:#222;border-radius:16px;padding:18px;width:100%;max-width:430px;max-height:90vh;overflow-y:auto;box-sizing:border-box;box-shadow:0 12px 40px #0004;font-family:Arial,sans-serif"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><h2 style="font-size:20px;margin:0">🛍️ Pedido #${Number(safeId)}</h2><button id="closeOrderTracking" type="button" aria-label="Fechar acompanhamento" style="border:0;background:#f1f1f1;border-radius:8px;padding:9px 12px;cursor:pointer;font-size:18px">✕</button></div><div id="orderStatusContent" style="margin-top:12px">Consultando pedido...</div><button id="closeOrderTrackingBottom" type="button" style="width:100%;margin-top:14px;padding:12px;border:1px solid #ddd;border-radius:9px;background:#f7f7f7;cursor:pointer">Fechar</button></section>`;
+  modal.innerHTML = `<section style="background:#fff;color:#222;border-radius:16px;padding:18px;width:100%;max-width:430px;max-height:90vh;overflow-y:auto;box-sizing:border-box;box-shadow:0 12px 40px #0004;font-family:Arial,sans-serif"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><h2 style="font-size:20px;margin:0">🛍️ Pedido #${String(Number(safeId)).padStart(4,'0')}</h2><button id="closeOrderTracking" type="button" aria-label="Fechar acompanhamento" style="border:0;background:#f1f1f1;border-radius:8px;padding:9px 12px;cursor:pointer;font-size:18px">✕</button></div><div id="orderStatusContent" style="margin-top:12px">Consultando pedido...</div><button id="closeOrderTrackingBottom" type="button" style="width:100%;margin-top:14px;padding:12px;border:1px solid #ddd;border-radius:9px;background:#f7f7f7;cursor:pointer">Fechar</button></section>`;
   document.body.appendChild(modal);
   modal.querySelector('#closeOrderTracking').onclick = closeOrderTracking;
   modal.querySelector('#closeOrderTrackingBottom').onclick = closeOrderTracking;
