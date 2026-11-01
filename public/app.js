@@ -405,12 +405,12 @@ async function pollOrderStatus(id) {
   const content = $('orderStatusContent');
   if (!modal || !content || modal.dataset.orderId !== String(id)) return;
   const steps = [
-    ['novo','Pedido recebido'],
-    ['confirmado','Pedido confirmado'],
-    ['preparando','Preparando seu pedido'],
-    ['pronto','Pedido pronto'],
-    ['entregando','Saiu para entrega'],
-    ['finalizado','Pedido finalizado']
+    ['novo','Pedido recebido','#1e88e5','#e8f2fc'],
+    ['confirmado','Pedido confirmado','#8e44ad','#f3eafa'],
+    ['preparando','Preparando seu pedido','#f39c12','#fff4df'],
+    ['pronto','Pedido pronto','#27ae60','#e8f7ee'],
+    ['entregando','Saiu para entrega','#17a2b8','#e5f6f8'],
+    ['finalizado','Pedido finalizado','#1b5e20','#e8f3e9']
   ];
   try {
     const response = await fetch('/api/orders/' + encodeURIComponent(id), {cache:'no-store'});
@@ -428,11 +428,16 @@ async function pollOrderStatus(id) {
       return;
     }
     const currentIndex = steps.findIndex(step => step[0] === data.status);
-    content.innerHTML = summary + '<h3 style="font-size:16px;margin:0 0 8px">Acompanhe seu pedido</h3>' + steps.map((step, index) => `
-      <div style="display:flex;align-items:center;gap:10px;margin:9px 0;opacity:${index <= currentIndex ? '1' : '.45'}">
-        <span style="font-size:19px">${index <= currentIndex ? '✅' : '⚪'}</span><span>${esc(step[1])}</span>
-      </div>
-    `).join('');
+    content.innerHTML = summary + '<h3 style="font-size:16px;margin:0 0 8px">Acompanhe seu pedido</h3>' + steps.map((step, index) => {
+      const completed = index < currentIndex;
+      const current = index === currentIndex;
+      const background = current ? step[2] : completed ? step[3] : '#f1f3f5';
+      const foreground = current ? '#fff' : completed ? step[2] : '#7b8490';
+      const border = current ? step[2] : completed ? step[2] : '#d8dde3';
+      return `<div style="display:flex;align-items:center;gap:10px;margin:9px 0;padding:10px 12px;border-radius:9px;background:${background};color:${foreground};border-left:5px solid ${border};font-weight:${current?'800':'600'};opacity:${index <= currentIndex ? '1' : '.72'}">
+        <span style="font-size:19px">${index <= currentIndex ? '✓' : '○'}</span><span>${esc(step[1])}</span>
+      </div>`;
+    }).join('') + (data.status === 'finalizado' ? '<div style="margin-top:12px;padding:13px;border-radius:10px;background:#1b5e20;color:#fff;text-align:center;font-weight:800">✓ PEDIDO FINALIZADO</div>' : '');
     if (data.status !== 'finalizado') orderPollTimer = setTimeout(() => pollOrderStatus(id), 5000);
   } catch (error) {
     if ($('orderStatusBox') !== modal) return;
