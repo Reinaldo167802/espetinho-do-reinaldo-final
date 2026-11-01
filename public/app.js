@@ -125,6 +125,13 @@ function filterCat(category) {
   renderProducts(category);
 }
 
+// Remove informações internas geradas pela importação de XML do texto público do catálogo.
+function publicProductDescription(description) {
+  const value = String(description || '').trim();
+  if (/^Cadastrado a partir de XML de compra\./i.test(value)) return '';
+  return value;
+}
+
 function renderProducts(category = '') {
   const box = $('products');
   if (!box) return;
@@ -133,7 +140,7 @@ function renderProducts(category = '') {
     <article class="card product-card-clickable" role="button" tabindex="0" aria-label="Ver detalhes de ${escAttr(product.name)}" onclick="openProductDetails(${Number(product.id)})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openProductDetails(${Number(product.id)})}">
       <div class="photo">${product.image ? `<img src="${escAttr(product.image)}" alt="${escAttr(product.name)}" loading="lazy" onerror="this.style.display='none';this.parentElement.textContent='🍢'">` : '🍢'}</div>
       <h3>${esc(product.name)}</h3>
-      <small>${esc(product.description || '')}</small>
+      <small>${esc(publicProductDescription(product.description))}</small>
       <strong>${money(product.price)}</strong>
       <button onclick="event.stopPropagation();add(${Number(product.id)})">Adicionar</button>
       <small class="product-details-hint">Toque para ver foto e descrição completa</small>
@@ -155,7 +162,7 @@ function openProductDetails(id) {
   const image = product.image
     ? `<img src="${escAttr(product.image)}" alt="${escAttr(product.name)}" style="display:block;width:100%;max-height:42vh;object-fit:contain;border-radius:10px;background:#f5f5f5" onerror="this.style.display='none'">`
     : '<div style="padding:36px 12px;background:#f5f5f5;border-radius:10px;font-size:56px;text-align:center">🍢</div>';
-  modal.innerHTML = `<section style="background:#fff;color:#222;border-radius:16px;padding:18px;width:100%;max-width:480px;max-height:92vh;overflow-y:auto;box-sizing:border-box;box-shadow:0 12px 40px #0006;font-family:Arial,sans-serif"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><h2 style="font-size:22px;margin:0 0 12px">${esc(product.name)}</h2><button id="closeProductDetails" type="button" aria-label="Fechar detalhes" style="flex-shrink:0;border:0;background:#eee;border-radius:8px;padding:9px 12px;cursor:pointer;font-size:20px">✕</button></div>${image}<p style="font-size:16px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;margin:16px 0">${esc(product.description || 'Descrição não informada para este produto.')}</p><strong style="display:block;font-size:22px;margin:12px 0 16px">${money(product.price)}</strong><button id="addProductFromDetails" type="button" style="width:100%;padding:13px;border:0;border-radius:9px;background:#b91c1c;color:#fff;font-size:16px;font-weight:bold;cursor:pointer">Adicionar ao pedido</button></section>`;
+  modal.innerHTML = `<section style="background:#fff;color:#222;border-radius:16px;padding:18px;width:100%;max-width:480px;max-height:92vh;overflow-y:auto;box-sizing:border-box;box-shadow:0 12px 40px #0006;font-family:Arial,sans-serif"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><h2 style="font-size:22px;margin:0 0 12px">${esc(product.name)}</h2><button id="closeProductDetails" type="button" aria-label="Fechar detalhes" style="flex-shrink:0;border:0;background:#eee;border-radius:8px;padding:9px 12px;cursor:pointer;font-size:20px">✕</button></div>${image}<p style="font-size:16px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;margin:16px 0">${esc(publicProductDescription(product.description) || 'Descrição não informada para este produto.')}</p><strong style="display:block;font-size:22px;margin:12px 0 16px">${money(product.price)}</strong><button id="addProductFromDetails" type="button" style="width:100%;padding:13px;border:0;border-radius:9px;background:#b91c1c;color:#fff;font-size:16px;font-weight:bold;cursor:pointer">Adicionar ao pedido</button></section>`;
   document.body.appendChild(modal);
   modal.querySelector('#closeProductDetails').onclick = () => modal.remove();
   modal.querySelector('#addProductFromDetails').onclick = () => { modal.remove(); add(id); };
@@ -342,7 +349,7 @@ function showPixPayment(orderId, total) {
     modal.querySelector('#closePixModal').addEventListener('click', () => modal.remove());
   }
 
-  modal.querySelector('#pixOrderInfo').textContent = `Pedido #${String(orderId || '').padStart(4,'0') || '—'} · Total: ${money(total)}`;
+  modal.querySelector('#pixOrderInfo').textContent = `Pedido #${orderId || '—'} · Total: ${money(total)}`;
   modal.querySelector('#pixKeyText').textContent = pixKey;
   modal.querySelector('#copyPixKey').textContent = 'Copiar chave Pix';
   modal.querySelector('#copyPixPayload').textContent = 'Copiar Pix copia e cola';
@@ -391,7 +398,7 @@ function showOrderStatus(id, updateAddress = true) {
   modal.setAttribute('aria-label', 'Acompanhamento do pedido ' + safeId);
   modal.dataset.orderId = safeId;
   modal.style.cssText = 'position:fixed;inset:0;z-index:9998;background:#0009;display:flex;align-items:center;justify-content:center;padding:12px;box-sizing:border-box;';
-  modal.innerHTML = `<section style="background:#fff;color:#222;border-radius:16px;padding:18px;width:100%;max-width:430px;max-height:90vh;overflow-y:auto;box-sizing:border-box;box-shadow:0 12px 40px #0004;font-family:Arial,sans-serif"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><h2 style="font-size:20px;margin:0">🛍️ Pedido #${String(Number(safeId)).padStart(4,'0')}</h2><button id="closeOrderTracking" type="button" aria-label="Fechar acompanhamento" style="border:0;background:#f1f1f1;border-radius:8px;padding:9px 12px;cursor:pointer;font-size:18px">✕</button></div><div id="orderStatusContent" style="margin-top:12px">Consultando pedido...</div><button id="closeOrderTrackingBottom" type="button" style="width:100%;margin-top:14px;padding:12px;border:1px solid #ddd;border-radius:9px;background:#f7f7f7;cursor:pointer">Fechar</button></section>`;
+  modal.innerHTML = `<section style="background:#fff;color:#222;border-radius:16px;padding:18px;width:100%;max-width:430px;max-height:90vh;overflow-y:auto;box-sizing:border-box;box-shadow:0 12px 40px #0004;font-family:Arial,sans-serif"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><h2 style="font-size:20px;margin:0">🛍️ Pedido #${Number(safeId)}</h2><button id="closeOrderTracking" type="button" aria-label="Fechar acompanhamento" style="border:0;background:#f1f1f1;border-radius:8px;padding:9px 12px;cursor:pointer;font-size:18px">✕</button></div><div id="orderStatusContent" style="margin-top:12px">Consultando pedido...</div><button id="closeOrderTrackingBottom" type="button" style="width:100%;margin-top:14px;padding:12px;border:1px solid #ddd;border-radius:9px;background:#f7f7f7;cursor:pointer">Fechar</button></section>`;
   document.body.appendChild(modal);
   modal.querySelector('#closeOrderTracking').onclick = closeOrderTracking;
   modal.querySelector('#closeOrderTrackingBottom').onclick = closeOrderTracking;
@@ -405,12 +412,12 @@ async function pollOrderStatus(id) {
   const content = $('orderStatusContent');
   if (!modal || !content || modal.dataset.orderId !== String(id)) return;
   const steps = [
-    ['novo','Pedido recebido','#1e88e5','#e8f2fc'],
-    ['confirmado','Pedido confirmado','#8e44ad','#f3eafa'],
-    ['preparando','Preparando seu pedido','#f39c12','#fff4df'],
-    ['pronto','Pedido pronto','#27ae60','#e8f7ee'],
-    ['entregando','Saiu para entrega','#17a2b8','#e5f6f8'],
-    ['finalizado','Pedido finalizado','#1b5e20','#e8f3e9']
+    ['novo','Pedido recebido'],
+    ['confirmado','Pedido confirmado'],
+    ['preparando','Preparando seu pedido'],
+    ['pronto','Pedido pronto'],
+    ['entregando','Saiu para entrega'],
+    ['finalizado','Pedido finalizado']
   ];
   try {
     const response = await fetch('/api/orders/' + encodeURIComponent(id), {cache:'no-store'});
@@ -428,16 +435,11 @@ async function pollOrderStatus(id) {
       return;
     }
     const currentIndex = steps.findIndex(step => step[0] === data.status);
-    content.innerHTML = summary + '<h3 style="font-size:16px;margin:0 0 8px">Acompanhe seu pedido</h3>' + steps.map((step, index) => {
-      const completed = index < currentIndex;
-      const current = index === currentIndex;
-      const background = current ? step[2] : completed ? step[3] : '#f1f3f5';
-      const foreground = current ? '#fff' : completed ? step[2] : '#7b8490';
-      const border = current ? step[2] : completed ? step[2] : '#d8dde3';
-      return `<div style="display:flex;align-items:center;gap:10px;margin:9px 0;padding:10px 12px;border-radius:9px;background:${background};color:${foreground};border-left:5px solid ${border};font-weight:${current?'800':'600'};opacity:${index <= currentIndex ? '1' : '.72'}">
-        <span style="font-size:19px">${index <= currentIndex ? '✓' : '○'}</span><span>${esc(step[1])}</span>
-      </div>`;
-    }).join('') + (data.status === 'finalizado' ? '<div style="margin-top:12px;padding:13px;border-radius:10px;background:#1b5e20;color:#fff;text-align:center;font-weight:800">✓ PEDIDO FINALIZADO</div>' : '');
+    content.innerHTML = summary + '<h3 style="font-size:16px;margin:0 0 8px">Acompanhe seu pedido</h3>' + steps.map((step, index) => `
+      <div style="display:flex;align-items:center;gap:10px;margin:9px 0;opacity:${index <= currentIndex ? '1' : '.45'}">
+        <span style="font-size:19px">${index <= currentIndex ? '✅' : '⚪'}</span><span>${esc(step[1])}</span>
+      </div>
+    `).join('');
     if (data.status !== 'finalizado') orderPollTimer = setTimeout(() => pollOrderStatus(id), 5000);
   } catch (error) {
     if ($('orderStatusBox') !== modal) return;
