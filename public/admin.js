@@ -12,13 +12,13 @@ function installCompactOrderStyles(){
   const style=document.createElement('style');
   style.id='compact-order-card-styles';
   style.textContent=`
-    #ordersList.order-card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,310px),1fr));gap:12px;align-items:start}
+    #ordersList.order-card-grid{display:grid;grid-template-columns:1fr;gap:12px;align-items:start}
     #ordersList .order-card{margin:0!important;padding:14px!important;min-width:0;border:1px solid rgba(212,175,55,.35);border-radius:14px;display:flex;flex-direction:column;gap:8px;box-shadow:0 5px 16px rgba(0,0,0,.16)}
     #ordersList .order-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;border-bottom:1px solid rgba(212,175,55,.22);padding-bottom:8px}
     #ordersList .order-card-number{font-weight:800;font-size:1.02rem;line-height:1.25}
     #ordersList .order-card-customer{font-weight:600;overflow-wrap:anywhere}
     #ordersList .order-card-total{font-size:1.25rem;font-weight:900;color:#d9b65d;white-space:nowrap}
-    #ordersList .order-card-items{font-size:.9rem;line-height:1.35;overflow-wrap:anywhere}
+    #ordersList .order-card-items{font-size:.9rem;line-height:1.55;overflow-wrap:anywhere;display:flex;flex-direction:column;gap:3px}
     #ordersList .order-card-meta{font-size:.88rem;line-height:1.4;overflow-wrap:anywhere}
     #ordersList .order-card-payment{font-weight:700;font-size:.86rem}
     #ordersList .order-card button{width:100%;margin-top:2px}
@@ -43,7 +43,7 @@ async function loadOrders(){
         <div><div class="order-card-number">Pedido #${o.id}</div><div class="order-card-customer">${esc(o.customer_name||'Cliente não informado')}</div></div>
         <div class="order-card-total">${money(o.total)}</div>
       </div>
-      <div class="order-card-items">${items.map(i=>`${i.qty}x ${esc(i.name)}`).join(', ')||'Itens não informados'}</div>
+      <div class="order-card-items">${items.map(i=>`<div class="order-item-line">${i.qty}x ${esc(i.name)}</div>`).join('')||'Itens não informados'}</div>
       <div class="order-card-meta">Subtotal: ${money(subtotal)}${delivery>0?` · Entrega: ${money(delivery)}`:''}</div>
       ${o.type==='entrega'?`<div class="order-card-meta">🛵 ${esc(o.address||'Endereço não informado')}</div>`:''}
       <div class="order-card-payment">${esc(o.payment||'Não informado')} · ${paid?'✅ PAGAMENTO CONFIRMADO':'⏳ AGUARDANDO CONFIRMAÇÃO'}</div>
