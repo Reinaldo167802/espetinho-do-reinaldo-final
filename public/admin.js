@@ -25,13 +25,28 @@ function installCompactOrderStyles(){
     #ordersList .order-card-status{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:.9rem}
     #ordersList .order-card-status select{flex:1;min-width:125px;max-width:100%}
     #ordersList .order-card{border-left:7px solid #64748b}
-    #ordersList .order-card.order-status-novo{border-left-color:#1e88e5;background:linear-gradient(90deg,rgba(30,136,229,.10),transparent 42%)}
-    #ordersList .order-card.order-status-confirmado{border-left-color:#8e44ad;background:linear-gradient(90deg,rgba(142,68,173,.10),transparent 42%)}
-    #ordersList .order-card.order-status-preparando{border-left-color:#f39c12;background:linear-gradient(90deg,rgba(243,156,18,.12),transparent 42%)}
-    #ordersList .order-card.order-status-pronto{border-left-color:#27ae60;background:linear-gradient(90deg,rgba(39,174,96,.10),transparent 42%)}
-    #ordersList .order-card.order-status-entregando{border-left-color:#17a2b8;background:linear-gradient(90deg,rgba(23,162,184,.10),transparent 42%)}
-    #ordersList .order-card.order-status-finalizado{border-left-color:#1b5e20;background:linear-gradient(90deg,rgba(27,94,32,.13),transparent 42%)}
-    #ordersList .order-card.order-status-cancelado{border-left-color:#c0392b;background:linear-gradient(90deg,rgba(192,57,43,.12),transparent 42%)}
+    /* Cor aplicada ao cartão inteiro conforme a etapa do pedido */
+    #ordersList .order-card.order-status-novo{background:#dceeff!important;background-image:none!important;border:2px solid #1e88e5!important;border-left:8px solid #1e88e5!important;color:#17324d!important}
+    #ordersList .order-card.order-status-confirmado{background:#eee1f7!important;background-image:none!important;border:2px solid #8e44ad!important;border-left:8px solid #8e44ad!important;color:#382047!important}
+    #ordersList .order-card.order-status-preparando{background:#fff0d6!important;background-image:none!important;border:2px solid #f39c12!important;border-left:8px solid #f39c12!important;color:#49320b!important}
+    #ordersList .order-card.order-status-pronto{background:#dcf5e5!important;background-image:none!important;border:2px solid #27ae60!important;border-left:8px solid #27ae60!important;color:#17452b!important}
+    #ordersList .order-card.order-status-entregando{background:#d9f3f6!important;background-image:none!important;border:2px solid #17a2b8!important;border-left:8px solid #17a2b8!important;color:#12434a!important}
+    #ordersList .order-card.order-status-finalizado{background:#cce8d0!important;background-image:none!important;border:2px solid #1b5e20!important;border-left:8px solid #1b5e20!important;color:#123b17!important}
+    #ordersList .order-card.order-status-cancelado{background:#f8dddd!important;background-image:none!important;border:2px solid #c0392b!important;border-left:8px solid #c0392b!important;color:#5a1c17!important}
+    #ordersList .order-card.order-status-novo .order-card-head,
+    #ordersList .order-card.order-status-confirmado .order-card-head,
+    #ordersList .order-card.order-status-preparando .order-card-head,
+    #ordersList .order-card.order-status-pronto .order-card-head,
+    #ordersList .order-card.order-status-entregando .order-card-head,
+    #ordersList .order-card.order-status-finalizado .order-card-head,
+    #ordersList .order-card.order-status-cancelado .order-card-head{border-bottom-color:rgba(0,0,0,.16)}
+    #ordersList .order-card.order-status-novo .order-card-total,
+    #ordersList .order-card.order-status-confirmado .order-card-total,
+    #ordersList .order-card.order-status-preparando .order-card-total,
+    #ordersList .order-card.order-status-pronto .order-card-total,
+    #ordersList .order-card.order-status-entregando .order-card-total,
+    #ordersList .order-card.order-status-finalizado .order-card-total,
+    #ordersList .order-card.order-status-cancelado .order-card-total{color:inherit!important}
     #ordersList .order-card-status select{font-weight:800;border-width:2px}
     #ordersList .order-card-status select.status-color-novo{background:#1e88e5;color:#fff;border-color:#1e88e5}
     #ordersList .order-card-status select.status-color-confirmado{background:#8e44ad;color:#fff;border-color:#8e44ad}
