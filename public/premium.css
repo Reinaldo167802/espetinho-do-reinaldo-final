@@ -268,3 +268,7 @@ body:has(.admin) .admin .command-detail-items td:nth-child(4) { width: 22% !impo
   body:has(.admin) .admin .command-detail-items { overflow-x: auto !important; }
   body:has(.admin) .admin .command-detail-items table { min-width: 480px !important; table-layout: auto !important; }
 }
+
+
+/* CORRECAO 2026-11-01: nomes dos produtos em preto nos cartões claros do catálogo. */
+#products .card h3 { color: #000000 !important; }
