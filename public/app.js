@@ -28,18 +28,13 @@ async function load() {
     products = Array.isArray(productData) ? productData : (Array.isArray(productData.products) ? productData.products : []);
     products = products.map(product => {
       const originalDescription = String(product.description || '');
-      // Dados técnicos da importação XML são internos e não devem aparecer no catálogo público.
-      // Mantém descrições normais e preserva o texto original no banco/painel administrativo.
       const customerDescription = originalDescription
-        .replace(/(?:^|[.!?\\s])Cadastrado\\s+a\\s+partir\\s+de\\s+XML\\s+de\\s+compra[^.!?]*(?:[.!?]|$)/ig, ' ')
-        .replace(/(?:^|[.!?\\s])Código\\s+(?:do\\s+)?fornecedor\\s*:\\s*\\d+[^.!?]*(?:[.!?]|$)/ig, ' ')
+        .replace(/Cadastrado\\s+a\\s+partir\\s+de\\s+XML\\s+de\\s+compra\\.?/ig, ' ')
+        .replace(/Código\\s+(?:do\\s+)?fornecedor\\s*:\\s*\\d+/ig, ' ')
         .replace(/\\s+/g, ' ')
         .trim();
-      return {
-        ...product,
-        description: customerDescription,
-        category: normalizeCustomerCategory(product.category, product.name, originalDescription)
-      };
+      return {...product, description: customerDescription,
+        category: normalizeCustomerCategory(product.category, product.name, originalDescription)};
     });
 
     // A taxa é opcional: se a configuração falhar, o cardápio continua disponível.
