@@ -7,6 +7,11 @@
 let products = [];
 let cart = [];
 let deliveryFee = 0;
+let sandwichPaused = false;
+let sandwichLimit = 10;
+let sandwichActiveOrders = 0;
+let capacityRefreshTimer = null;
+let currentCategory = '';
 let orderPollTimer = null;
 const LAST_ORDER_KEY = 'espetinhoReinaldoUltimoPedido';
 
@@ -30,6 +35,9 @@ async function load() {
       if (configResponse.ok) {
         const configData = await configResponse.json();
         deliveryFee = Number(configData.delivery_fee || 0);
+        sandwichPaused = Boolean(configData.sandwich_paused);
+        sandwichLimit = Number(configData.sandwich_limit || 10);
+        sandwichActiveOrders = Number(configData.sandwich_active_orders || 0);
       }
     } catch (configError) {
       console.warn('Não foi possível carregar a taxa de entrega:', configError);
@@ -37,6 +45,7 @@ async function load() {
 
     renderCats();
     renderProducts();
+    startCapacityRefresh();
     update();
     resumeOrderTracking();
   } catch (error) {
@@ -125,63 +134,71 @@ function filterCat(category) {
   renderProducts(category);
 }
 
-// Remove informações internas geradas pela importação de XML do texto público do catálogo.
-function publicProductDescription(description) {
-  const value = String(description || '').trim();
-  if (/^Cadastrado a partir de XML de compra\./i.test(value)) return '';
-  return value;
+function isSandwichItem(item) {
+  const norm = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const category = norm(item?.category || '');
+  const name = norm(item?.name || '');
+  return /hamburg|sanduich|sanduiche|lanches|lanche/.test(category) || /hamburg|burguer|burger|sanduich|sanduiche|x\s*[- ]?tudo|x\s*[- ]?salada/.test(name);
+}
+function showSandwichCapacityNotice() {
+  const productsBox = $('products');
+  if (!productsBox) return;
+  let notice = $('sandwichCapacityNotice');
+  if (!notice) {
+    notice = document.createElement('div');
+    notice.id = 'sandwichCapacityNotice';
+    notice.style.cssText = 'display:none;margin:12px 0;padding:12px 14px;border:1px solid #d9a441;border-radius:10px;background:#fff5dc;color:#593b0b;font-weight:600;line-height:1.4';
+    productsBox.parentNode.insertBefore(notice, productsBox);
+  }
+  notice.style.display = sandwichPaused ? 'block' : 'none';
+  notice.textContent = sandwichPaused
+    ? `No momento atingimos nossa capacidade de produção de sanduíches (${sandwichActiveOrders}/${sandwichLimit} pedidos em andamento). Os sanduíches estão temporariamente indisponíveis. Os demais produtos continuam disponíveis.`
+    : '';
+}
+async function refreshSandwichCapacity() {
+  try {
+    const response = await fetch('/api/config', {cache:'no-store'});
+    if (!response.ok) return;
+    const data = await response.json();
+    const wasPaused = sandwichPaused;
+    sandwichPaused = Boolean(data.sandwich_paused);
+    sandwichLimit = Number(data.sandwich_limit || 10);
+    sandwichActiveOrders = Number(data.sandwich_active_orders || 0);
+    showSandwichCapacityNotice();
+    if (wasPaused !== sandwichPaused) renderProducts(currentCategory);
+  } catch (error) {
+    console.warn('Não foi possível atualizar a capacidade de sanduíches:', error);
+  }
+}
+function startCapacityRefresh() {
+  if (capacityRefreshTimer) clearInterval(capacityRefreshTimer);
+  capacityRefreshTimer = setInterval(refreshSandwichCapacity, 12000);
 }
 
 function renderProducts(category = '') {
+  currentCategory = category;
   const box = $('products');
+  showSandwichCapacityNotice();
   if (!box) return;
   const list = category ? products.filter(product => product.category === category) : products;
   box.innerHTML = list.map(product => `
-    <article class="card product-card-clickable" role="button" tabindex="0" aria-label="Ver detalhes de ${escAttr(product.name)}" onclick="openProductDetails(${Number(product.id)})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openProductDetails(${Number(product.id)})}">
+    <article class="card">
       <div class="photo">${product.image ? `<img src="${escAttr(product.image)}" alt="${escAttr(product.name)}" loading="lazy" onerror="this.style.display='none';this.parentElement.textContent='🍢'">` : '🍢'}</div>
       <h3>${esc(product.name)}</h3>
-      <small>${esc(publicProductDescription(product.description))}</small>
+      <small>${esc(product.description || '')}</small>
       <strong>${money(product.price)}</strong>
-      <button onclick="event.stopPropagation();add(${Number(product.id)})">Adicionar</button>
-      <small class="product-details-hint">Toque para ver foto e descrição completa</small>
+      <button ${sandwichPaused && isSandwichItem(product) ? 'disabled aria-disabled="true"' : ''} onclick="add(${Number(product.id)})">${sandwichPaused && isSandwichItem(product) ? 'Temporariamente indisponível' : 'Adicionar'}</button>
     </article>
   `).join('') || '<p>Nenhum produto disponível nesta categoria.</p>';
-}
-
-function openProductDetails(id) {
-  const product = products.find(item => Number(item.id) === Number(id));
-  if (!product) return;
-  const previous = $('productDetailsModal');
-  if (previous) previous.remove();
-  const modal = document.createElement('div');
-  modal.id = 'productDetailsModal';
-  modal.setAttribute('role', 'dialog');
-  modal.setAttribute('aria-modal', 'true');
-  modal.setAttribute('aria-label', 'Detalhes de ' + product.name);
-  modal.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:14px;box-sizing:border-box;overflow-y:auto;';
-  const image = product.image
-    ? `<img src="${escAttr(product.image)}" alt="${escAttr(product.name)}" style="display:block;width:100%;max-height:42vh;object-fit:contain;border-radius:10px;background:#f5f5f5" onerror="this.style.display='none'">`
-    : '<div style="padding:36px 12px;background:#f5f5f5;border-radius:10px;font-size:56px;text-align:center">🍢</div>';
-  modal.innerHTML = `<section style="background:#fff;color:#222;border-radius:16px;padding:18px;width:100%;max-width:480px;max-height:92vh;overflow-y:auto;box-sizing:border-box;box-shadow:0 12px 40px #0006;font-family:Arial,sans-serif"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><h2 style="font-size:22px;margin:0 0 12px">${esc(product.name)}</h2><button id="closeProductDetails" type="button" aria-label="Fechar detalhes" style="flex-shrink:0;border:0;background:#eee;border-radius:8px;padding:9px 12px;cursor:pointer;font-size:20px">✕</button></div>${image}<p style="font-size:16px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;margin:16px 0">${esc(publicProductDescription(product.description) || 'Descrição não informada para este produto.')}</p><strong style="display:block;font-size:22px;margin:12px 0 16px">${money(product.price)}</strong><button id="addProductFromDetails" type="button" style="width:100%;padding:13px;border:0;border-radius:9px;background:#b91c1c;color:#fff;font-size:16px;font-weight:bold;cursor:pointer">Adicionar ao pedido</button></section>`;
-  document.body.appendChild(modal);
-  modal.querySelector('#closeProductDetails').onclick = () => modal.remove();
-  modal.querySelector('#addProductFromDetails').onclick = () => { modal.remove(); add(id); };
-  modal.addEventListener('click', event => { if (event.target === modal) modal.remove(); });
-  const closeOnEscape = event => {
-    if (event.key === 'Escape' && $('productDetailsModal') === modal) {
-      modal.remove();
-      document.removeEventListener('keydown', closeOnEscape);
-    }
-  };
-  document.addEventListener('keydown', closeOnEscape);
 }
 
 function add(id) {
   const product = products.find(item => Number(item.id) === Number(id));
   if (!product) return;
+  if (sandwichPaused && isSandwichItem(product)) return toast('Os sanduíches estão temporariamente pausados.');
   const index = cart.findIndex(item => Number(item.id) === Number(id));
   if (index >= 0) cart[index].qty++;
-  else cart.push({id:Number(product.id), name:product.name, price:Number(product.price), qty:1});
+  else cart.push({id:Number(product.id), name:product.name, category:product.category, price:Number(product.price), qty:1});
   update();
   toast('Adicionado ao pedido');
 }
@@ -248,7 +265,18 @@ async function sendOrder() {
       body:JSON.stringify(body)
     });
     const result = await response.json();
-    if (!response.ok) return toast(result.error || 'Não foi possível enviar o pedido');
+    if (!response.ok) {
+      if (response.status === 409 && result.sandwich_paused) {
+        sandwichPaused = true;
+        sandwichLimit = Number(result.sandwich_limit || sandwichLimit);
+        sandwichActiveOrders = Number(result.sandwich_active_orders || sandwichActiveOrders);
+        cart = cart.filter(item => !isSandwichItem(item));
+        renderProducts(currentCategory);
+        update();
+        if (cart.length) return toast('Os sanduíches foram pausados e retirados do carrinho. Os demais produtos continuam no pedido.');
+      }
+      return toast(result.error || 'Não foi possível enviar o pedido');
+    }
 
     cart = [];
     update();
