@@ -272,3 +272,19 @@ body:has(.admin) .admin .command-detail-items td:nth-child(4) { width: 22% !impo
 
 /* CORRECAO 2026-11-01 V2: nomes dos produtos em marfim para alto contraste nos cartões escuros. */
 #products .card h3 { color: #FFF4E6 !important; font-weight: 800 !important; }
+
+
+/* CORREÇÃO DEFINITIVA — descrições dos produtos legíveis no catálogo público. */
+#products .card p,
+#products .card small,
+.card p,
+.card small {
+  color: #FFF4E6 !important;
+  opacity: 1 !important;
+  font-weight: 700 !important;
+  text-shadow: none !important;
+}
+#products .card h3,
+.card h3 { color: #FFF4E6 !important; font-weight: 800 !important; }
+#products .card strong,
+.card strong { color: #D6AD61 !important; }
