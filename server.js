@@ -132,7 +132,21 @@ app.post('/api/admin/print/order-receipt/:id',auth,async(req,res)=>{try{const id
 app.get('/api/config',async(req,res)=>{try{const capacity=await getSandwichCapacity();res.set('Cache-Control','no-store');res.json({delivery_fee:DELIVERY_FEE,...capacity,sandwich_message:capacity.sandwich_paused?'Estamos temporariamente sem capacidade para receber novos pedidos de sanduíches. Os demais produtos continuam disponíveis.':''});}catch(e){console.error('Falha ao consultar capacidade de sanduíches:',e);res.status(500).json({error:'Não foi possível consultar a disponibilidade.'})}});
 app.get('/api/admin/sandwich-capacity',auth,async(req,res)=>{try{res.json(await getSandwichCapacity())}catch(e){res.status(500).json({error:'Não foi possível carregar o limite de sanduíches.'})}});
 app.put('/api/admin/sandwich-capacity',auth,async(req,res)=>{try{const limit=await saveSandwichLimit(req.body?.sandwich_limit);res.json({ok:true,...await getSandwichCapacity()})}catch(e){res.status(400).json({error:e.message||'Não foi possível salvar o limite.'})}});
-app.get('/api/products',async(req,res)=>{try{const rows=await q('SELECT * FROM products WHERE active = '+(isPg?'true':'1')+" AND COALESCE(product_type,'venda') <> 'insumo' ORDER BY category,name");res.json(rows);}catch(e){res.status(500).json({error:e.message})}});
+app.get('/api/products',async(req,res)=>{try{
+  const rows=await q('SELECT * FROM products WHERE active = '+(isPg?'true':'1')+" AND COALESCE(product_type,'venda') <> 'insumo' ORDER BY category,name");
+  // Remove metadados internos da importação XML somente na resposta pública.
+  // A descrição original permanece intacta no banco e no painel administrativo.
+  const publicRows=rows.map(row=>{
+    const description=String(row.description||'')
+      .replace(/Cadastrado\\s+a\\s+partir\\s+de\\s+XML\\s+de\\s+compra\\.?/gi,' ')
+      .replace(/Código\\s+(?:do\\s+)?fornecedor\\s*:\\s*\\d+/gi,' ')
+      .replace(/\\s+/g,' ')
+      .trim();
+    return {...row,description};
+  });
+  res.set('Cache-Control','no-store');
+  res.json(publicRows);
+}catch(e){res.status(500).json({error:e.message})}});
 app.get('/api/admin/suppliers',auth,async(req,res)=>{try{res.json(await q('SELECT * FROM suppliers ORDER BY name'))}catch(e){console.error(e);res.status(500).json({error:'Não foi possível carregar fornecedores.'})}});
 app.post('/api/admin/suppliers',auth,async(req,res)=>{try{const name=String(req.body.name||'').trim(),cnpj=String(req.body.cnpj||'').replace(/\D/g,'');if(!name||cnpj.length!==14)return res.status(400).json({error:'Informe a razão social e um CNPJ válido com 14 dígitos.'});let row;if(isPg){const r=await db.query('INSERT INTO suppliers(name,cnpj) VALUES($1,$2) ON CONFLICT(cnpj) DO UPDATE SET name=EXCLUDED.name RETURNING *',[name,cnpj]);row=r.rows[0]}else{await run('INSERT INTO suppliers(name,cnpj) VALUES(?,?) ON CONFLICT(cnpj) DO UPDATE SET name=excluded.name',[name,cnpj]);row=await one('SELECT * FROM suppliers WHERE cnpj=?',[cnpj])}res.json({ok:true,supplier:row,message:'Fornecedor cadastrado/atualizado.'})}catch(e){console.error(e);res.status(500).json({error:'Não foi possível cadastrar o fornecedor.'})}});
 app.put('/api/admin/suppliers/:id',auth,async(req,res)=>{try{const id=Number(req.params.id),name=String(req.body.name||'').trim(),cnpj=String(req.body.cnpj||'').replace(/\D/g,'');if(!Number.isInteger(id)||id<1)return res.status(400).json({error:'Fornecedor inválido.'});if(!name||cnpj.length!==14)return res.status(400).json({error:'Informe a razão social e um CNPJ válido com 14 dígitos.'});let result;if(isPg){result=await db.query('UPDATE suppliers SET name=$1,cnpj=$2 WHERE id=$3 RETURNING *',[name,cnpj,id]);if(!result.rows[0])return res.status(404).json({error:'Fornecedor não encontrado.'});res.json({ok:true,supplier:result.rows[0],message:'Fornecedor atualizado com sucesso.'});}else{const existing=await one('SELECT id FROM suppliers WHERE id=?',[id]);if(!existing)return res.status(404).json({error:'Fornecedor não encontrado.'});await run('UPDATE suppliers SET name=?,cnpj=? WHERE id=?',[name,cnpj,id]);res.json({ok:true,supplier:await one('SELECT * FROM suppliers WHERE id=?',[id]),message:'Fornecedor atualizado com sucesso.'});}}catch(e){if(String(e.message||'').toLowerCase().includes('unique')||String(e.message||'').toLowerCase().includes('duplicate'))return res.status(409).json({error:'Já existe outro fornecedor cadastrado com esse CNPJ.'});console.error(e);res.status(500).json({error:'Não foi possível atualizar o fornecedor.'})}});
