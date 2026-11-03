@@ -286,7 +286,7 @@ function parsePurchaseXml(input){
       purchaseDraft={access_key:key,invoice_number:xmlText(ide,'nNF'),series:xmlText(ide,'serie'),supplier_name:xmlText(emit,'xNome'),supplier_cnpj:xmlText(emit,'CNPJ')||xmlText(emit,'CPF'),issue_date:xmlText(ide,'dhEmi')||xmlText(ide,'dEmi'),total:Number(xmlText(total,'vNF'))||0,lines:[]};
       purchaseDraft.lines=dets.map((det,i)=>{
         const prod=det.getElementsByTagName('prod')[0],qty=Number(xmlText(prod,'qCom'))||0,unit=xmlText(prod,'uCom')||'un',unitPrice=Number(xmlText(prod,'vUnCom'))||0,lineTotal=Number(xmlText(prod,'vProd'))||qty*unitPrice;
-        return {index:i,product_name:xmlText(prod,'xProd'),code:xmlText(prod,'cProd'),purchase_qty:qty,purchase_unit:unit,purchase_unit_price:unitPrice,line_total:lineTotal,stock_qty:qty,stock_unit:unit,units_per_pack:1,unit_cost:unitPrice,product_id:'',products};
+        return {index:i,product_name:xmlText(prod,'xProd'),code:xmlText(prod,'cProd'),purchase_qty:qty,purchase_unit:unit,purchase_unit_price:unitPrice,line_total:lineTotal,stock_qty:qty,stock_unit:unit,units_per_pack:qty,unit_cost:lineTotal/Math.max(1,qty),product_id:'',products};
       });
       $('purchaseInvoiceInfo').innerHTML=`<b>NF-e ${esc(purchaseDraft.invoice_number)}</b> · ${esc(purchaseDraft.supplier_name)} · CNPJ: ${esc(purchaseDraft.supplier_cnpj)} · Total: ${money(purchaseDraft.total)}<br>Chave: ${esc(key)}`;
       renderPurchaseLines();$('receivePurchaseBtn').disabled=!purchaseDraft.lines.length;
@@ -298,23 +298,22 @@ function renderPurchaseLines(){
   const box=$('purchaseLines');if(!box||!purchaseDraft)return;
   const products=purchaseDraft.lines[0]?.products||[];
   box.innerHTML='<div class="table"><table><tr><th>Item da NF-e</th><th>Qtd. recebida</th><th>Unidade</th><th>Produto cadastrado</th></tr>'+
-    purchaseDraft.lines.map((l,i)=>`<tr><td>${esc(l.product_name)}<br><small>Cód. ${esc(l.code)} · ${money(l.line_total)}</small></td><td><input type="number" min="0.001" step="0.001" value="${l.stock_qty}" onchange="setPurchaseLine(${i},'stock_qty',this.value);updateXmlCostPreview(${i})"></td><td><input value="${esc(l.stock_unit)}" onchange="setPurchaseLine(${i},'stock_unit',this.value)" style="width:70px"><label style="display:block;font-size:11px">Unid. por caixa/fardo <input id="xmlUnitsPerPack_${i}" type="number" min="1" step="1" value="${Number(l.units_per_pack||1)}" style="width:65px" onchange="setXmlUnitsPerPack(${i},this.value)"></label><small id="xmlUnitCost_${i}">Custo unitário: —</small></td><td><select id="purchaseProduct_${i}" onchange="setPurchaseLine(${i},'product_id',this.value)"><option value="">Selecione o produto...</option>${products.map(p=>`<option value="${p.id}">${esc(p.name)} (${esc(p.barcode||'sem código')})</option>`).join('')}</select><button type="button" onclick="toggleNewXmlProduct(${i})">Cadastrar novo produto</button><div id="newXmlProduct_${i}" style="display:none;min-width:210px;margin-top:8px"><input id="newXmlName_${i}" type="text" value="${esc(l.product_name)}" placeholder="Nome do produto" aria-label="Nome do produto"><input id="newXmlCategory_${i}" placeholder="Categoria (ex.: Bebidas)" value="Bebidas"><input id="newXmlCost_${i}" type="number" min="0" step="0.0001" value="${Number(l.unit_cost||l.purchase_unit_price||0).toFixed(4)}" placeholder="Custo por unidade (R$)" oninput="this.dataset.touched='1';updateXmlMarkup(${i})"><input id="newXmlPrice_${i}" type="number" min="0" step="0.01" placeholder="Preço de venda (R$)" oninput="updateXmlMarkup(${i})"><small id="newXmlMarkup_${i}">Markup: — · Margem: —</small><button type="button" onclick="createXmlProduct(${i})">Salvar produto</button><button type="button" onclick="closeNewXmlProduct(${i})">Voltar à nota</button><small>Será cadastrado inativo até você definir o preço e liberar no catálogo.</small></div></td></tr>`).join('')+'</table></div>';
+    purchaseDraft.lines.map((l,i)=>`<tr><td>${esc(l.product_name)}<br><small>Cód. ${esc(l.code)} · ${money(l.line_total)}</small></td><td><input type="number" min="0.001" step="0.001" value="${l.stock_qty}" onchange="setPurchaseLine(${i},'stock_qty',this.value);updateXmlCostPreview(${i})"></td><td><input value="${esc(l.stock_unit)}" onchange="setPurchaseLine(${i},'stock_unit',this.value)" style="width:70px"><label style="display:block;font-size:11px">Total de unidades recebidas <input id="xmlUnitsPerPack_${i}" type="number" min="1" step="1" value="${Number(l.units_per_pack||l.purchase_qty||1)}" style="width:90px" onchange="setXmlUnitsPerPack(${i},this.value)"></label><small id="xmlUnitCost_${i}">Custo unitário: —</small></td><td><select id="purchaseProduct_${i}" onchange="setPurchaseLine(${i},'product_id',this.value)"><option value="">Selecione o produto...</option>${products.map(p=>`<option value="${p.id}">${esc(p.name)} (${esc(p.barcode||'sem código')})</option>`).join('')}</select><button type="button" onclick="toggleNewXmlProduct(${i})">Cadastrar novo produto</button><div id="newXmlProduct_${i}" style="display:none;min-width:210px;margin-top:8px"><input id="newXmlName_${i}" type="text" value="${esc(l.product_name)}" placeholder="Nome do produto" aria-label="Nome do produto"><input id="newXmlCategory_${i}" placeholder="Categoria (ex.: Bebidas)" value="Bebidas"><input id="newXmlCost_${i}" type="number" min="0" step="0.0001" value="${Number(l.unit_cost||l.purchase_unit_price||0).toFixed(4)}" placeholder="Custo por unidade (R$)" oninput="this.dataset.touched='1';updateXmlMarkup(${i})"><input id="newXmlPrice_${i}" type="number" min="0" step="0.01" placeholder="Preço de venda (R$)" oninput="updateXmlMarkup(${i})"><small id="newXmlMarkup_${i}">Markup: — · Margem: —</small><button type="button" onclick="createXmlProduct(${i})">Salvar produto</button><button type="button" onclick="closeNewXmlProduct(${i})">Voltar à nota</button><small>Será cadastrado inativo até você definir o preço e liberar no catálogo.</small></div></td></tr>`).join('')+'</table></div>';
   purchaseDraft.lines.forEach((l,i)=>updateXmlCostPreview(i));
 }
 function setPurchaseLine(i,k,v){if(purchaseDraft&&purchaseDraft.lines[i])purchaseDraft.lines[i][k]=k==='stock_qty'?Number(v):v;}
 function setXmlUnitsPerPack(i,v){
   if(!purchaseDraft||!purchaseDraft.lines[i])return;
-  const n=Math.max(1,Math.floor(Number(v)||1));
-  purchaseDraft.lines[i].units_per_pack=n;
-  purchaseDraft.lines[i].unit_cost=(Number(purchaseDraft.lines[i].purchase_unit_price)||0)/n;
+  const totalUnits=Math.max(1,Math.floor(Number(v)||1));
+  purchaseDraft.lines[i].units_per_pack=totalUnits;
   updateXmlCostPreview(i);updateXmlMarkup(i);
 }
 function updateXmlCostPreview(i){
   if(!purchaseDraft||!purchaseDraft.lines[i])return;
-  const l=purchaseDraft.lines[i],packs=Number(l.stock_qty)||0,units=Math.max(1,Number(l.units_per_pack)||1);
-  l.unit_cost=(Number(l.purchase_unit_price)||0)/units;
+  const l=purchaseDraft.lines[i],totalUnits=Math.max(1,Number(l.units_per_pack)||1);
+  l.unit_cost=(Number(l.line_total)||0)/totalUnits;
   const el=$('xmlUnitCost_'+i);
-  if(el)el.textContent='Custo unitário: '+money(l.unit_cost)+' · Estoque: '+(packs*units)+' un.';
+  if(el)el.textContent='Custo unitário: '+money(l.unit_cost)+' · Estoque: '+totalUnits+' un.';
   const cost=$('newXmlCost_'+i);if(cost&&!cost.dataset.touched)cost.value=l.unit_cost.toFixed(4);
   updateXmlMarkup(i);
 }
@@ -331,7 +330,7 @@ async function receivePurchaseXml(){
   if(!purchaseDraft)return alert('Carregue primeiro o XML da NF-e.');
   if(purchaseDraft.lines.some(l=>!Number(l.product_id)||!(Number(l.stock_qty)>0)||!String(l.stock_unit||'').trim()))return alert('Vincule todos os itens a um produto cadastrado e confira as quantidades.');
   if(!confirm('Confirma a entrada desta NF-e? O estoque dos produtos vinculados será atualizado.'))return;
-  const payload={...purchaseDraft,lines:purchaseDraft.lines.map(({products,index,...l})=>({...l,package_qty:Number(l.stock_qty)||0,package_unit:l.stock_unit,units_per_pack:Math.max(1,Number(l.units_per_pack)||1),stock_qty:(Number(l.stock_qty)||0)*Math.max(1,Number(l.units_per_pack)||1),stock_unit:'un',unit_cost:(Number(l.purchase_unit_price)||0)/Math.max(1,Number(l.units_per_pack)||1)}))};
+  const payload={...purchaseDraft,lines:purchaseDraft.lines.map(({products,index,...l})=>({...l,package_qty:Number(l.stock_qty)||0,package_unit:l.stock_unit,total_units:Math.max(1,Number(l.units_per_pack)||1),units_per_pack:Math.max(1,Number(l.units_per_pack)||1),stock_qty:Math.max(1,Number(l.units_per_pack)||1),stock_unit:'un',unit_cost:(Number(l.line_total)||0)/Math.max(1,Number(l.units_per_pack)||1)}))};
   try{const d=await api('/api/admin/purchases/receive',{method:'POST',body:JSON.stringify(payload)});alert(d.message||'Entrada registrada.');purchaseDraft=null;$('purchaseLines').innerHTML='';$('purchaseInvoiceInfo').textContent='Nota recebida com sucesso.';$('receivePurchaseBtn').disabled=true;await loadPurchaseHistory();await loadProducts();}
   catch(e){alert(e.message);}
 }
