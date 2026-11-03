@@ -190,29 +190,6 @@ app.post('/api/admin/purchases/receive',auth,async(req,res)=>{try{
  }catch(e){console.error('Erro ao receber NF-e:',e);res.status(500).json({error:'Falha ao receber a nota. Confira o histórico antes de tentar novamente: '+e.message})}});
 app.post('/api/admin/products/xml-match',auth,async(req,res)=>{try{const b=req.body||{},cnpj=String(b.supplier_cnpj||'').replace(/\D/g,''),code=String(b.supplier_code||'').trim(),barcode=String(b.barcode||'').replace(/\D/g,''),name=String(b.name||'').trim();let product=null,reason='';if(cnpj&&code){const map=await one('SELECT product_id FROM supplier_product_codes WHERE supplier_cnpj='+(isPg?'$1':'?')+' AND supplier_code='+(isPg?'$2':'?'),[cnpj,code]);if(map){product=await one('SELECT * FROM products WHERE id='+(isPg?'$1':'?'),[map.product_id]);if(product)reason='código deste fornecedor';}}if(!product&&barcode){product=await one('SELECT * FROM products WHERE barcode='+(isPg?'$1':'?')+' ORDER BY active DESC,id LIMIT 1',[barcode]);if(product)reason='código de barras';}if(!product&&name){const rows=await q('SELECT * FROM products WHERE LOWER(TRIM(name))=LOWER(TRIM('+(isPg?'$1':'?')+')) ORDER BY active DESC,id',[name]);if(rows.length===1){product=rows[0];reason='nome exato';}}res.json({found:!!product,product:product||null,reason});}catch(e){console.error('XML product match:',e);res.status(500).json({error:'Não foi possível identificar o produto correspondente.'})}});
 app.get('/api/admin/products',auth,async(req,res)=>{try{const type=String(req.query.type||'venda');const where=type==='all'?'':' WHERE COALESCE(product_type,\'venda\') = '+(type==='insumo'?"'insumo'":"'venda'");res.json(await q('SELECT * FROM products'+where+' ORDER BY category,name'));}catch(e){res.status(500).json({error:'Não foi possível carregar os produtos.'});}});
-// Auditoria somente de leitura para preparar a limpeza dos cadastros criados no teste da NF-e.
-app.get('/api/admin/products/cleanup-audit',auth,async(req,res)=>{
- try{
-  const duplicateIds=[64,65,66,67,68,69,70,71];
-  const keepIds=[72,73,74,75];
-  const allIds=[...duplicateIds,...keepIds];
-  const marks=isPg?placeholders(allIds.length):allIds.map(()=>'?').join(',');
-  const products=await q('SELECT id,internal_code,name,barcode,stock,stock_secondary,active,cost_price,price FROM products WHERE id IN ('+marks+') ORDER BY id',allIds);
-  const invoiceKey='31261061186888001599550010027760271090332535';
-  const invoice=await one('SELECT id,access_key,invoice_number,supplier_name,supplier_cnpj,total,created_at FROM purchase_invoices WHERE access_key='+(isPg?'$1':'?'),[invoiceKey]);
-  const refs={
-   order_items:await q('SELECT product_id,COUNT(*) AS records FROM order_items WHERE product_id IN ('+marks+') GROUP BY product_id ORDER BY product_id',allIds),
-   command_items:await q('SELECT product_id,COUNT(*) AS records FROM command_items WHERE product_id IN ('+marks+') GROUP BY product_id ORDER BY product_id',allIds),
-   purchase_invoice_lines:await q('SELECT product_id,invoice_id,COUNT(*) AS records FROM purchase_invoice_lines WHERE product_id IN ('+marks+') GROUP BY product_id,invoice_id ORDER BY product_id,invoice_id',allIds),
-   inventory_movements:await q('SELECT product_id,invoice_id,COUNT(*) AS records FROM inventory_movements WHERE product_id IN ('+marks+') GROUP BY product_id,invoice_id ORDER BY product_id,invoice_id',allIds),
-   supplier_product_codes:await q('SELECT supplier_cnpj,supplier_code,product_id FROM supplier_product_codes WHERE product_id IN ('+marks+') ORDER BY product_id',allIds)
-  };
-  let invoiceLines=[],invoiceMovements=[];
-  if(invoice){invoiceLines=await q('SELECT id,invoice_id,product_id,product_name,code,purchase_qty,purchase_unit,stock_qty,stock_unit,secondary_qty,secondary_unit,line_total FROM purchase_invoice_lines WHERE invoice_id='+(isPg?'$1':'?')+' ORDER BY id',[invoice.id]);invoiceMovements=await q('SELECT id,product_id,invoice_id,quantity,unit,secondary_quantity,secondary_unit,cost_total,description FROM inventory_movements WHERE invoice_id='+(isPg?'$1':'?')+' ORDER BY id',[invoice.id]);}
-  res.json({generated_at:new Date().toISOString(),read_only:true,duplicate_ids:duplicateIds,keep_ids:keepIds,products,invoice,invoice_lines:invoiceLines,invoice_movements:invoiceMovements,references:refs,note:'Relatório somente de leitura. Nenhum cadastro, estoque, lançamento ou XML foi alterado.'});
- }catch(e){console.error('Auditoria de limpeza:',e);res.status(500).json({error:'Não foi possível conferir os vínculos dos produtos.'});}
-});
-
 app.get('/api/admin/products/diagnostic',auth,async(req,res)=>{
  try{
   const rows=await q('SELECT * FROM products ORDER BY id');
@@ -281,6 +258,48 @@ async function deactivateProductById(id,res){
 }
 // Compatível com botões que enviam DELETE, PATCH ou PUT parcial para desativar.
 app.delete('/api/admin/products/:id',auth,async(req,res)=>deactivateProductById(Number(req.params.id),res));
+
+// Exclusão definitiva restrita aos oito cadastros de teste autorizados pelo responsável.
+const TEST_PRODUCT_CODES=['ER000064','ER000065','ER000066','ER000067','ER000068','ER000069','ER000070','ER000071'];
+app.delete('/api/admin/products/test-duplicates/:code',auth,async(req,res)=>{
+ const code=String(req.params.code||'').toUpperCase();
+ if(!TEST_PRODUCT_CODES.includes(code))return res.status(403).json({error:'Este cadastro não está na lista autorizada para exclusão.'});
+ try{
+  if(isPg){
+   const client=await db.connect();
+   try{
+    await client.query('BEGIN');
+    const found=await client.query('SELECT id,internal_code,name,stock,active FROM products WHERE internal_code=$1 FOR UPDATE',[code]);
+    if(!found.rows.length){await client.query('ROLLBACK');return res.status(404).json({error:'Produto não encontrado.'});}
+    const product=found.rows[0];
+    if(Number(product.stock||0)!==0 || product.active===true){await client.query('ROLLBACK');return res.status(409).json({error:'Só é permitido excluir cadastro de teste inativo e com estoque zero.'});}
+    const id=product.id;
+    await client.query('UPDATE order_items SET product_id=NULL WHERE product_id=$1',[id]);
+    await client.query('UPDATE command_items SET product_id=NULL WHERE product_id=$1',[id]);
+    await client.query('UPDATE purchase_invoice_lines SET product_id=NULL WHERE product_id=$1',[id]);
+    await client.query('DELETE FROM inventory_movements WHERE product_id=$1',[id]);
+    await client.query('DELETE FROM supplier_product_codes WHERE product_id=$1',[id]);
+    await client.query('DELETE FROM products WHERE id=$1',[id]);
+    await client.query('COMMIT');
+    return res.json({ok:true,code,message:'Cadastro de teste excluído.'});
+   }catch(err){await client.query('ROLLBACK').catch(()=>{});throw err;}finally{client.release();}
+  }
+  const product=db.prepare('SELECT id,internal_code,name,stock,active FROM products WHERE internal_code=?').get(code);
+  if(!product)return res.status(404).json({error:'Produto não encontrado.'});
+  if(Number(product.stock||0)!==0 || Number(product.active)!==0)return res.status(409).json({error:'Só é permitido excluir cadastro de teste inativo e com estoque zero.'});
+  const remove=db.transaction(()=>{
+   const id=product.id;
+   db.prepare('UPDATE order_items SET product_id=NULL WHERE product_id=?').run(id);
+   db.prepare('UPDATE command_items SET product_id=NULL WHERE product_id=?').run(id);
+   db.prepare('UPDATE purchase_invoice_lines SET product_id=NULL WHERE product_id=?').run(id);
+   db.prepare('DELETE FROM inventory_movements WHERE product_id=?').run(id);
+   db.prepare('DELETE FROM supplier_product_codes WHERE product_id=?').run(id);
+   db.prepare('DELETE FROM products WHERE id=?').run(id);
+  });
+  remove();
+  return res.json({ok:true,code,message:'Cadastro de teste excluído.'});
+ }catch(e){console.error('Exclusão de cadastro de teste:',e);return res.status(500).json({error:'Não foi possível excluir o cadastro.'});}
+});
 app.patch('/api/admin/products/:id',auth,async(req,res)=>{
  const active=req.body?.active;
  if(active===false || active===0 || String(active).toLowerCase()==='false' || String(active)==='0')
