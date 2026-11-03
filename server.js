@@ -2,6 +2,8 @@
 const express=require('express');
 const path=require('path');
 const crypto=require('crypto');
+const fs=require('fs');
+const os=require('os');
 const app=express();
 app.use(express.json({limit:'8mb'}));
 app.use(express.urlencoded({extended:true}));
@@ -188,6 +190,24 @@ app.post('/api/admin/purchases/receive',auth,async(req,res)=>{try{
  }catch(e){console.error('Erro ao receber NF-e:',e);res.status(500).json({error:'Falha ao receber a nota. Confira o histórico antes de tentar novamente: '+e.message})}});
 app.post('/api/admin/products/xml-match',auth,async(req,res)=>{try{const b=req.body||{},cnpj=String(b.supplier_cnpj||'').replace(/\D/g,''),code=String(b.supplier_code||'').trim(),barcode=String(b.barcode||'').replace(/\D/g,''),name=String(b.name||'').trim();let product=null,reason='';if(cnpj&&code){const map=await one('SELECT product_id FROM supplier_product_codes WHERE supplier_cnpj='+(isPg?'$1':'?')+' AND supplier_code='+(isPg?'$2':'?'),[cnpj,code]);if(map){product=await one('SELECT * FROM products WHERE id='+(isPg?'$1':'?'),[map.product_id]);if(product)reason='código deste fornecedor';}}if(!product&&barcode){product=await one('SELECT * FROM products WHERE barcode='+(isPg?'$1':'?')+' ORDER BY active DESC,id LIMIT 1',[barcode]);if(product)reason='código de barras';}if(!product&&name){const rows=await q('SELECT * FROM products WHERE LOWER(TRIM(name))=LOWER(TRIM('+(isPg?'$1':'?')+')) ORDER BY active DESC,id',[name]);if(rows.length===1){product=rows[0];reason='nome exato';}}res.json({found:!!product,product:product||null,reason});}catch(e){console.error('XML product match:',e);res.status(500).json({error:'Não foi possível identificar o produto correspondente.'})}});
 app.get('/api/admin/products',auth,async(req,res)=>{try{const type=String(req.query.type||'venda');const where=type==='all'?'':' WHERE COALESCE(product_type,\'venda\') = '+(type==='insumo'?"'insumo'":"'venda'");res.json(await q('SELECT * FROM products'+where+' ORDER BY category,name'));}catch(e){res.status(500).json({error:'Não foi possível carregar os produtos.'});}});
+app.get('/api/admin/products/diagnostic',auth,async(req,res)=>{
+ try{
+  const rows=await q('SELECT * FROM products ORDER BY id');
+  const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+  const names=new Map(),barcodes=new Map();
+  for(const p of rows){const n=norm(p.name);if(n)names.set(n,[...(names.get(n)||[]),p.id]);const b=String(p.barcode||'').replace(/\D/g,'');if(b)barcodes.set(b,[...(barcodes.get(b)||[]),p.id]);}
+  const validEan=value=>{const s=String(value||'').replace(/\D/g,'');if(![8,12,13,14].includes(s.length))return false;let sum=0,weight=3;for(let i=s.length-2;i>=0;i--){sum+=Number(s[i])*weight;weight=weight===3?1:3;}return (10-(sum%10))%10===Number(s[s.length-1]);};
+  const diagnosed=rows.map(p=>{const flags=[];const nameKey=norm(p.name);const barcode=String(p.barcode||'').replace(/\D/g,'');if(nameKey&&(names.get(nameKey)||[]).length>1)flags.push('NOME REPETIDO');if(barcode&&(barcodes.get(barcode)||[]).length>1)flags.push('EAN REPETIDO');if(!barcode)flags.push('SEM EAN');else if(!validEan(barcode))flags.push('EAN FORA DO PADRÃO/INVÁLIDO');if(!String(p.brand||'').trim())flags.push('SEM MARCA');if(!String(p.category||'').trim())flags.push('SEM CATEGORIA');if(!String(p.unit||'').trim())flags.push('SEM UNIDADE');if(Number(p.price||0)<=0)flags.push('SEM PREÇO DE VENDA');if(Number(p.cost_price||0)<=0)flags.push('SEM CUSTO');return {...p,diagnostic_flags:flags.join(' | ')};});
+  const count=key=>diagnosed.filter(p=>p.diagnostic_flags.split(' | ').includes(key)).length;
+  res.json({generated_at:new Date().toISOString(),total:rows.length,duplicate_name_groups:[...names.values()].filter(a=>a.length>1).length,duplicate_ean_groups:[...barcodes.values()].filter(a=>a.length>1).length,without_ean:count('SEM EAN'),invalid_ean:count('EAN FORA DO PADRÃO/INVÁLIDO'),without_brand:count('SEM MARCA'),without_category:count('SEM CATEGORIA'),without_unit:count('SEM UNIDADE'),without_sale_price:count('SEM PREÇO DE VENDA'),without_cost:count('SEM CUSTO'),products:diagnosed});
+ }catch(e){console.error('Diagnóstico de produtos:',e);res.status(500).json({error:'Não foi possível gerar o diagnóstico dos produtos.'});}
+});
+app.get('/api/admin/database/backup',auth,async(req,res)=>{
+ if(isPg)return res.status(400).json({error:'Esta rotina de backup está disponível somente para SQLite.'});
+ const file=path.join(os.tmpdir(),'esp-reinaldo-backup-'+Date.now()+'.sqlite');
+ try{await db.backup(file);res.setHeader('Content-Type','application/vnd.sqlite3');res.setHeader('Content-Disposition','attachment; filename="esp-reinaldo-backup.sqlite"');const stream=fs.createReadStream(file);stream.on('error',err=>{console.error('Leitura do backup:',err);if(!res.headersSent)res.status(500).end('Falha ao transferir backup');});stream.on('close',()=>fs.promises.unlink(file).catch(()=>{}));stream.pipe(res);}catch(e){console.error('Backup SQLite:',e);fs.promises.unlink(file).catch(()=>{});res.status(500).json({error:'Não foi possível gerar o backup do banco SQLite.'});}
+});
+
 app.get('/api/admin/products/barcode/:barcode/lookup',auth,async(req,res)=>{
  try{
   const barcode=String(req.params.barcode||'').replace(/\D/g,'');
