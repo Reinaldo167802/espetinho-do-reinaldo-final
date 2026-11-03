@@ -260,7 +260,7 @@ async function deactivateProductById(id,res){
 app.delete('/api/admin/products/:id',auth,async(req,res)=>deactivateProductById(Number(req.params.id),res));
 
 // Exclusão definitiva restrita aos oito cadastros de teste autorizados pelo responsável.
-const TEST_PRODUCT_CODES=['ER000064','ER000065','ER000066','ER000067','ER000068','ER000069','ER000070','ER000071'];
+const TEST_PRODUCT_CODES=['ER000012','ER000060','ER000064','ER000065','ER000066','ER000067','ER000068','ER000069','ER000070','ER000071'];
 app.delete('/api/admin/products/test-duplicates/:code',auth,async(req,res)=>{
  const code=String(req.params.code||'').toUpperCase();
  if(!TEST_PRODUCT_CODES.includes(code))return res.status(403).json({error:'Este cadastro não está na lista autorizada para exclusão.'});
@@ -272,7 +272,7 @@ app.delete('/api/admin/products/test-duplicates/:code',auth,async(req,res)=>{
     const found=await client.query('SELECT id,internal_code,name,stock,active FROM products WHERE internal_code=$1 FOR UPDATE',[code]);
     if(!found.rows.length){await client.query('ROLLBACK');return res.status(404).json({error:'Produto não encontrado.'});}
     const product=found.rows[0];
-    if(Number(product.stock||0)!==0 || product.active===true){await client.query('ROLLBACK');return res.status(409).json({error:'Só é permitido excluir cadastro de teste inativo e com estoque zero.'});}
+    if(Number(product.stock||0)!==0){await client.query('ROLLBACK');return res.status(409).json({error:'Só é permitido excluir cadastro de teste com estoque zero.'});}
     const id=product.id;
     await client.query('UPDATE order_items SET product_id=NULL WHERE product_id=$1',[id]);
     await client.query('UPDATE command_items SET product_id=NULL WHERE product_id=$1',[id]);
@@ -286,7 +286,7 @@ app.delete('/api/admin/products/test-duplicates/:code',auth,async(req,res)=>{
   }
   const product=db.prepare('SELECT id,internal_code,name,stock,active FROM products WHERE internal_code=?').get(code);
   if(!product)return res.status(404).json({error:'Produto não encontrado.'});
-  if(Number(product.stock||0)!==0 || Number(product.active)!==0)return res.status(409).json({error:'Só é permitido excluir cadastro de teste inativo e com estoque zero.'});
+  if(Number(product.stock||0)!==0)return res.status(409).json({error:'Só é permitido excluir cadastro de teste com estoque zero.'});
   const remove=db.transaction(()=>{
    const id=product.id;
    db.prepare('UPDATE order_items SET product_id=NULL WHERE product_id=?').run(id);
