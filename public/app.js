@@ -216,6 +216,8 @@ function startCapacityRefresh() {
   capacityRefreshTimer = setInterval(refreshSandwichCapacity, 12000);
 }
 
+function saleOptions(product){try{const v=Array.isArray(product.sale_options)?product.sale_options:JSON.parse(product.sale_options||'[]');return Array.isArray(v)?v:[]}catch(_){return []}}
+function updateSalePrice(id){const p=products.find(x=>Number(x.id)===Number(id));const option=saleOptions(p||{}).find(x=>String(x.key)===String($('saleOpt_'+id)?.value));if($('salePrice_'+id)&&option)$('salePrice_'+id).textContent=money(option.price)}
 function renderProducts(category = '') {
   currentCategory = category;
   const box = $('products');
@@ -228,20 +230,21 @@ function renderProducts(category = '') {
       <div class="photo">${product.image ? `<img src="${escAttr(product.image)}" alt="${escAttr(product.name)}" loading="lazy" onerror="this.style.display='none';this.parentElement.textContent='🍢'">` : '🍢'}</div>
       <h3>${esc(product.name)}</h3>
       <small>${esc(product.description || '')}</small>
-      <strong>${money(product.price)}</strong>
-      <button ${(pauseTotal || pausePartial || (sandwichPaused && isSandwichItem(product))) ? 'disabled aria-disabled="true"' : ''} onclick="add(${Number(product.id)})">${(pauseTotal || pausePartial) ? 'Pedidos pausados' : (sandwichPaused && isSandwichItem(product) ? 'Temporariamente indisponível' : 'Adicionar')}</button>
+      ${saleOptions(product).length ? `<select id="saleOpt_${Number(product.id)}" aria-label="Apresentação de ${escAttr(product.name)}" onchange="updateSalePrice(${Number(product.id)})">${saleOptions(product).map(o=>`<option value="${escAttr(o.key)}">${esc(o.label)} — ${money(o.price)}</option>`).join('')}</select><strong id="salePrice_${Number(product.id)}">${money(saleOptions(product)[0].price)}</strong>` : `<strong>${money(product.price)}</strong>`}
+      <button ${(pauseTotal || pausePartial || (sandwichPaused && isSandwichItem(product))) ? 'disabled aria-disabled="true"' : ''} onclick="add(${Number(product.id)},${saleOptions(product).length?`document.getElementById('saleOpt_${Number(product.id)}').value`:"''"})">${(pauseTotal || pausePartial) ? 'Pedidos pausados' : (sandwichPaused && isSandwichItem(product) ? 'Temporariamente indisponível' : 'Adicionar')}</button>
     </article>
   `).join('') || '<p>Nenhum produto disponível nesta categoria.</p>';
 }
 
-function add(id) {
+function add(id, optionKey = '') {
   const product = products.find(item => Number(item.id) === Number(id));
   if (!product) return;
   if (pauseTotal || pausePartial) return toast('O recebimento de pedidos está temporariamente pausado.');
   if (sandwichPaused && isSandwichItem(product)) return toast('Os sanduíches estão temporariamente pausados.');
-  const index = cart.findIndex(item => Number(item.id) === Number(id));
+  const option=saleOptions(product).find(o=>String(o.key)===String(optionKey))||saleOptions(product)[0]||null;
+  const key=option?String(option.key):'';const index = cart.findIndex(item => Number(item.id) === Number(id)&&String(item.sale_option_key||'')===key);
   if (index >= 0) cart[index].qty++;
-  else cart.push({id:Number(product.id), name:product.name, category:product.category, price:Number(product.price), qty:1});
+  else cart.push({id:Number(product.id), name:product.name, category:product.category, price:option?Number(option.price):Number(product.price), sale_option_key:key, sale_label:option?option.label:'', qty:1});
   update();
   toast('Adicionado ao pedido');
 }
@@ -262,8 +265,8 @@ function update() {
   if ($('cartItems')) {
     $('cartItems').innerHTML = cart.length ? cart.map(item => `
       <div class="line">
-        <div><b>${esc(item.name)}</b><small>${money(item.price)} cada</small></div>
-        <div><button onclick="chg(${item.id},-1)">−</button><span>${item.qty}</span><button onclick="chg(${item.id},1)">+</button></div>
+        <div><b>${esc(item.name)}</b><small>${item.sale_label?esc(item.sale_label)+' · ':''}${money(item.price)} cada</small></div>
+        <div><button onclick="chg(${item.id},-1,'${escAttr(item.sale_option_key||'')}')">−</button><span>${item.qty}</span><button onclick="chg(${item.id},1,'${escAttr(item.sale_option_key||'')}')">+</button></div>
       </div>
     `).join('') : '<p>Seu carrinho está vazio.</p>';
   }
@@ -279,11 +282,11 @@ function update() {
   }
 }
 
-function chg(id, amount) {
-  const item = cart.find(entry => Number(entry.id) === Number(id));
+function chg(id, amount, optionKey = '') {
+  const item = cart.find(entry => Number(entry.id) === Number(id)&&String(entry.sale_option_key||'')===String(optionKey||''));
   if (!item) return;
   item.qty += amount;
-  if (item.qty <= 0) cart = cart.filter(entry => Number(entry.id) !== Number(id));
+  if (item.qty <= 0) cart = cart.filter(entry => !(Number(entry.id) === Number(id)&&String(entry.sale_option_key||'')===String(optionKey||'')));
   update();
 }
 function openCart() { $('cart')?.classList.remove('hidden'); update(); }
@@ -306,7 +309,7 @@ async function sendOrder() {
     address,
     payment:$('payment')?.value || '',
     notes:$('notes')?.value || '',
-    items:cart.map(item => ({product_id:item.id, qty:item.qty}))
+    items:cart.map(item => ({product_id:item.id, qty:item.qty, sale_option_key:item.sale_option_key||''}))
   };
 
   try {
