@@ -260,7 +260,21 @@ async function deactivateProductById(id,res){
 app.delete('/api/admin/products/:id',auth,async(req,res)=>deactivateProductById(Number(req.params.id),res));
 
 // Exclusão definitiva restrita aos oito cadastros de teste autorizados pelo responsável.
-const TEST_PRODUCT_CODES=['ER000012','ER000060','ER000064','ER000065','ER000066','ER000067','ER000068','ER000069','ER000070','ER000071'];
+const TEST_PRODUCT_CODES=['ER000003','ER000011','ER000012','ER000060','ER000064','ER000065','ER000066','ER000067','ER000068','ER000069','ER000070','ER000071'];
+// Estes dois bolos são itens internos/insumos e não devem aparecer no cardápio público.
+const INTERNAL_SUPPLY_CODES=['ER000055','ER000056'];
+app.post('/api/admin/products/mark-internal/:code',auth,async(req,res)=>{
+ const code=String(req.params.code||'').toUpperCase();
+ if(!INTERNAL_SUPPLY_CODES.includes(code))return res.status(403).json({error:'Código não autorizado para esta alteração.'});
+ try{
+  const sql=isPg?"UPDATE products SET product_type='insumo', print_site=FALSE WHERE internal_code=$1 RETURNING *":"UPDATE products SET product_type='insumo', print_site=0 WHERE internal_code=?";
+  if(isPg){const r=await db.query(sql,[code]);if(!r.rows.length)return res.status(404).json({error:'Produto não encontrado.'});return res.json({ok:true,product:r.rows[0],message:'Produto marcado como insumo e ocultado da vitrine.'});}
+  const r=await run(sql,[code]);if(!r.changes)return res.status(404).json({error:'Produto não encontrado.'});
+  const product=await one('SELECT * FROM products WHERE internal_code=?',[code]);
+  return res.json({ok:true,product,message:'Produto marcado como insumo e ocultado da vitrine.'});
+ }catch(e){console.error('Marcação de produto interno:',e);return res.status(500).json({error:'Não foi possível ocultar o produto da vitrine.'});}
+});
+
 app.delete('/api/admin/products/test-duplicates/:code',auth,async(req,res)=>{
  const code=String(req.params.code||'').toUpperCase();
  if(!TEST_PRODUCT_CODES.includes(code))return res.status(403).json({error:'Este cadastro não está na lista autorizada para exclusão.'});
