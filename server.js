@@ -120,6 +120,25 @@ async function saveSandwichLimit(value){
  else{await run('INSERT INTO app_settings(setting_key,setting_value) VALUES(?,?) ON CONFLICT(setting_key) DO UPDATE SET setting_value=excluded.setting_value',['sandwich_limit',String(limit)]);}
  return limit;
 }
+async function getAppSetting(key, fallback=''){
+ const row=await one('SELECT setting_value FROM app_settings WHERE setting_key='+(isPg?'$1':'?'),[key]);
+ return row?.setting_value===undefined||row?.setting_value===null?fallback:String(row.setting_value);
+}
+async function setAppSetting(key,value){
+ if(isPg) await db.query('INSERT INTO app_settings(setting_key,setting_value) VALUES($1,$2) ON CONFLICT(setting_key) DO UPDATE SET setting_value=EXCLUDED.setting_value',[key,String(value)]);
+ else await run('INSERT INTO app_settings(setting_key,setting_value) VALUES(?,?) ON CONFLICT(setting_key) DO UPDATE SET setting_value=excluded.setting_value',[key,String(value)]);
+}
+async function getOperationalConfig(){
+ const now=Date.now();
+ const [total,partialUntil,delivery,fee]=await Promise.all([
+  getAppSetting('pause_total','0'),getAppSetting('pause_partial_until','0'),
+  getAppSetting('pause_delivery','0'),getAppSetting('delivery_fee',String(DELIVERY_FEE))
+ ]);
+ const until=Number(partialUntil)||0;
+ const partial=until>now;
+ if(until && !partial) await setAppSetting('pause_partial_until','0');
+ return {pause_total:total==='1',pause_partial:partial,pause_partial_until:partial?new Date(until).toISOString():null,pause_delivery:delivery==='1',delivery_fee:Number(fee)||0};
+}
 function productNumber(v){if(v===undefined||v===null||String(v).trim()==='')return 0;if(typeof v==='number')return Number.isFinite(v)?v:NaN;const s=String(v).trim().replace(/\s/g,'').replace(',','.');return Number(s);}
 
 app.get('/api/health',(req,res)=>res.json({ok:true,version:'4.0.0',database:isPg?'postgres':'sqlite',adminConfigured:Boolean(process.env.SENHA_DE_ADMINISTRADOR||process.env.ADMIN_PASSWORD)}));
@@ -129,24 +148,23 @@ app.get('/api/printer/next',bridgeAuth,async(req,res)=>{try{let job;if(isPg){con
 app.post('/api/printer/:id/ack',bridgeAuth,async(req,res)=>{try{const id=Number(req.params.id),ok=req.body.ok===true,status=ok?'printed':'pending',error=String(req.body.error||'').slice(0,500);if(isPg)await db.query('UPDATE print_jobs SET status=$1,printed_at=CASE WHEN $2 THEN CURRENT_TIMESTAMP ELSE printed_at END,last_error=$3 WHERE id=$4',[status,ok,error,id]);else await run('UPDATE print_jobs SET status=?,printed_at=CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE printed_at END,last_error=? WHERE id=?',[status,ok?1:0,error,id]);res.json({ok:true})}catch(e){res.status(500).json({error:'Falha ao confirmar impressão'})}});
 app.post('/api/admin/print/command/:id',auth,async(req,res)=>{try{const id=Number(req.params.id),c=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[id]);if(!c)return res.status(404).json({error:'Comanda não encontrada'});const items=await q('SELECT * FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[id]);const stage=String(req.body.stage||'conferencia');const key='command-'+(stage==='paga'?'receipt':'bill')+'-'+id+'-'+Date.now();await enqueuePrint(key,stage==='paga'?'receipt':'bill',{title:stage==='paga'?'COMPROVANTE DE VENDA':'CONFERÊNCIA DE CONTA',stage,command:c.number,customer:c.customer||'',items,total:Number(c.total||0),payment:c.payment||'Pendente',created_at:c.closed_at||c.created_at});res.json({ok:true})}catch(e){console.error(e);res.status(500).json({error:'Não foi possível enfileirar a impressão'})}});
 app.post('/api/admin/print/order-receipt/:id',auth,async(req,res)=>{try{const id=Number(req.params.id),o=await one('SELECT * FROM orders WHERE id='+(isPg?'$1':'?'),[id]);if(!o)return res.status(404).json({error:'Pedido não encontrado'});if(!(o.payment_confirmed===true||o.payment_confirmed===1))return res.status(400).json({error:'Confirme o recebimento do pagamento antes de imprimir o comprovante.'});const items=await q('SELECT * FROM order_items WHERE order_id='+(isPg?'$1':'?')+' ORDER BY id',[id]);const subtotal=items.reduce((sum,it)=>sum+Number(it.total||0),0);await enqueuePrint('receipt-order-paid-'+id,'receipt',{title:'COMPROVANTE DE VENDA — PAGAMENTO CONFIRMADO',order:id,customer:o.customer_name,type:o.type,address:o.address,notes:o.notes,items,subtotal,delivery_fee:Math.max(0,Number(o.total||0)-subtotal),total:Number(o.total||0),payment:o.payment||'',created_at:o.created_at});res.json({ok:true})}catch(e){console.error(e);res.status(500).json({error:'Não foi possível enfileirar o comprovante'})}});
-app.get('/api/config',async(req,res)=>{try{const capacity=await getSandwichCapacity();res.set('Cache-Control','no-store');res.json({delivery_fee:DELIVERY_FEE,...capacity,sandwich_message:capacity.sandwich_paused?'Estamos temporariamente sem capacidade para receber novos pedidos de sanduíches. Os demais produtos continuam disponíveis.':''});}catch(e){console.error('Falha ao consultar capacidade de sanduíches:',e);res.status(500).json({error:'Não foi possível consultar a disponibilidade.'})}});
+app.get('/api/config',async(req,res)=>{try{const [capacity,operational]=await Promise.all([getSandwichCapacity(),getOperationalConfig()]);res.set('Cache-Control','no-store');res.json({...operational,...capacity,sandwich_message:capacity.sandwich_paused?'Estamos temporariamente sem capacidade para receber novos pedidos de sanduíches. Os demais produtos continuam disponíveis.':'',pause_message:operational.pause_total?'Estamos temporariamente sem receber pedidos pelo site.':operational.pause_partial?'Estamos em uma pausa temporária de produção. Voltaremos a receber pedidos em breve.':''});}catch(e){console.error('Falha ao consultar disponibilidade:',e);res.status(500).json({error:'Não foi possível consultar a disponibilidade.'})}});
 app.get('/api/admin/sandwich-capacity',auth,async(req,res)=>{try{res.json(await getSandwichCapacity())}catch(e){res.status(500).json({error:'Não foi possível carregar o limite de sanduíches.'})}});
 app.put('/api/admin/sandwich-capacity',auth,async(req,res)=>{try{const limit=await saveSandwichLimit(req.body?.sandwich_limit);res.json({ok:true,...await getSandwichCapacity()})}catch(e){res.status(400).json({error:e.message||'Não foi possível salvar o limite.'})}});
-app.get('/api/products',async(req,res)=>{try{
-  const rows=await q('SELECT * FROM products WHERE active = '+(isPg?'true':'1')+" AND COALESCE(product_type,'venda') <> 'insumo' ORDER BY category,name");
-  // Remove metadados internos da importação XML somente na resposta pública.
-  // A descrição original permanece intacta no banco e no painel administrativo.
-  const publicRows=rows.map(row=>{
-    const description=String(row.description||'')
-      .replace(/Cadastrado\\s+a\\s+partir\\s+de\\s+XML\\s+de\\s+compra\\.?/gi,' ')
-      .replace(/Código\\s+(?:do\\s+)?fornecedor\\s*:\\s*\\d+/gi,' ')
-      .replace(/\\s+/g,' ')
-      .trim();
-    return {...row,description};
-  });
-  res.set('Cache-Control','no-store');
-  res.json(publicRows);
-}catch(e){res.status(500).json({error:e.message})}});
+app.get('/api/admin/settings',auth,async(req,res)=>{try{res.json(await getOperationalConfig())}catch(e){console.error(e);res.status(500).json({error:'Não foi possível carregar as configurações.'})}});
+app.put('/api/admin/settings',auth,async(req,res)=>{try{
+ const body=req.body||{};
+ if(body.delivery_fee!==undefined){const fee=Number(String(body.delivery_fee).replace(',','.'));if(!Number.isFinite(fee)||fee<0||fee>500)return res.status(400).json({error:'Taxa de entrega inválida.'});await setAppSetting('delivery_fee',fee.toFixed(2));}
+ if(body.pause_total!==undefined)await setAppSetting('pause_total',body.pause_total?'1':'0');
+ if(body.pause_delivery!==undefined)await setAppSetting('pause_delivery',body.pause_delivery?'1':'0');
+ if(body.pause_partial!==undefined){
+  if(body.pause_partial){const minutes=Math.max(40,Math.min(1440,Number(body.pause_partial_minutes)||40));await setAppSetting('pause_partial_until',String(Date.now()+minutes*60000));}
+  else await setAppSetting('pause_partial_until','0');
+ }
+ res.set('Cache-Control','no-store');res.json({ok:true,...await getOperationalConfig()});
+ }catch(e){console.error(e);res.status(500).json({error:'Não foi possível salvar as configurações.'})}});
+
+app.get('/api/products',async(req,res)=>{try{const rows=await q('SELECT * FROM products WHERE active = '+(isPg?'true':'1')+" AND COALESCE(product_type,'venda') <> 'insumo' ORDER BY category,name");res.json(rows);}catch(e){res.status(500).json({error:e.message})}});
 app.get('/api/admin/suppliers',auth,async(req,res)=>{try{res.json(await q('SELECT * FROM suppliers ORDER BY name'))}catch(e){console.error(e);res.status(500).json({error:'Não foi possível carregar fornecedores.'})}});
 app.post('/api/admin/suppliers',auth,async(req,res)=>{try{const name=String(req.body.name||'').trim(),cnpj=String(req.body.cnpj||'').replace(/\D/g,'');if(!name||cnpj.length!==14)return res.status(400).json({error:'Informe a razão social e um CNPJ válido com 14 dígitos.'});let row;if(isPg){const r=await db.query('INSERT INTO suppliers(name,cnpj) VALUES($1,$2) ON CONFLICT(cnpj) DO UPDATE SET name=EXCLUDED.name RETURNING *',[name,cnpj]);row=r.rows[0]}else{await run('INSERT INTO suppliers(name,cnpj) VALUES(?,?) ON CONFLICT(cnpj) DO UPDATE SET name=excluded.name',[name,cnpj]);row=await one('SELECT * FROM suppliers WHERE cnpj=?',[cnpj])}res.json({ok:true,supplier:row,message:'Fornecedor cadastrado/atualizado.'})}catch(e){console.error(e);res.status(500).json({error:'Não foi possível cadastrar o fornecedor.'})}});
 app.put('/api/admin/suppliers/:id',auth,async(req,res)=>{try{const id=Number(req.params.id),name=String(req.body.name||'').trim(),cnpj=String(req.body.cnpj||'').replace(/\D/g,'');if(!Number.isInteger(id)||id<1)return res.status(400).json({error:'Fornecedor inválido.'});if(!name||cnpj.length!==14)return res.status(400).json({error:'Informe a razão social e um CNPJ válido com 14 dígitos.'});let result;if(isPg){result=await db.query('UPDATE suppliers SET name=$1,cnpj=$2 WHERE id=$3 RETURNING *',[name,cnpj,id]);if(!result.rows[0])return res.status(404).json({error:'Fornecedor não encontrado.'});res.json({ok:true,supplier:result.rows[0],message:'Fornecedor atualizado com sucesso.'});}else{const existing=await one('SELECT id FROM suppliers WHERE id=?',[id]);if(!existing)return res.status(404).json({error:'Fornecedor não encontrado.'});await run('UPDATE suppliers SET name=?,cnpj=? WHERE id=?',[name,cnpj,id]);res.json({ok:true,supplier:await one('SELECT * FROM suppliers WHERE id=?',[id]),message:'Fornecedor atualizado com sucesso.'});}}catch(e){if(String(e.message||'').toLowerCase().includes('unique')||String(e.message||'').toLowerCase().includes('duplicate'))return res.status(409).json({error:'Já existe outro fornecedor cadastrado com esse CNPJ.'});console.error(e);res.status(500).json({error:'Não foi possível atualizar o fornecedor.'})}});
@@ -289,6 +307,10 @@ app.post('/api/orders',async(req,res)=>{
  await previous;
  try{
   const {customer_name,phone='',type='balcao',address='',payment='',notes='',items=[]}=req.body;
+  const operational=await getOperationalConfig();
+  if(operational.pause_total)return res.status(423).json({error:'O recebimento de pedidos pelo site está temporariamente pausado.',pause_total:true});
+  if(operational.pause_partial)return res.status(423).json({error:'Estamos em uma pausa temporária de produção. Tente novamente mais tarde.',pause_partial:true,pause_partial_until:operational.pause_partial_until});
+  if(type==='entrega'&&operational.pause_delivery)return res.status(423).json({error:'No momento estamos temporariamente sem serviço de entrega. Escolha retirada no balcão.',pause_delivery:true});
   if(!customer_name||!Array.isArray(items)||!items.length)return res.status(400).json({error:'Nome e itens são obrigatórios'});
   let total=0,products=[];
   for(const it of items){
@@ -305,7 +327,7 @@ app.post('/api/orders',async(req,res)=>{
     return res.status(409).json({error:'Atingimos nosso limite de pedidos de sanduíches neste momento. Os sanduíches foram temporariamente pausados. Você pode retirar esses itens do carrinho e pedir os demais produtos.' ,sandwich_paused:true,...capacity});
    }
   }
-  const deliveryFee=type==='entrega'?DELIVERY_FEE:0;
+  const deliveryFee=type==='entrega'?operational.delivery_fee:0;
   total+=deliveryFee;
   let orderId,commandNo=String(req.body.command_no||'');
   if(isPg){
