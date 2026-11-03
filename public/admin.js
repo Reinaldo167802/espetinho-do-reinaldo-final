@@ -298,7 +298,7 @@ function renderPurchaseLines(){
   const box=$('purchaseLines');if(!box||!purchaseDraft)return;
   const products=purchaseDraft.lines[0]?.products||[];
   box.innerHTML='<div class="table"><table><tr><th>Item da NF-e</th><th>Qtd. recebida</th><th>Unidade</th><th>Produto cadastrado</th></tr>'+
-    purchaseDraft.lines.map((l,i)=>`<tr><td>${esc(l.product_name)}<br><small>Cód. ${esc(l.code)} · ${money(l.line_total)}</small></td><td><input type="number" min="0.001" step="0.001" value="${l.stock_qty}" onchange="setPurchaseLine(${i},'stock_qty',this.value);updateXmlCostPreview(${i})"></td><td><input value="${esc(l.stock_unit)}" onchange="setPurchaseLine(${i},'stock_unit',this.value)" style="width:70px"><label style="display:block;font-size:11px">Unid. por caixa/fardo <input id="xmlUnitsPerPack_${i}" type="number" min="1" step="1" value="${Number(l.units_per_pack||1)}" style="width:65px" onchange="setXmlUnitsPerPack(${i},this.value)"></label><small id="xmlUnitCost_${i}">Custo unitário: —</small></td><td><select id="purchaseProduct_${i}" onchange="setPurchaseLine(${i},'product_id',this.value)"><option value="">Selecione o produto...</option>${products.map(p=>`<option value="${p.id}">${esc(p.name)} (${esc(p.barcode||'sem código')})</option>`).join('')}</select><button type="button" onclick="toggleNewXmlProduct(${i})">Cadastrar novo produto</button><div id="newXmlProduct_${i}" style="display:none;min-width:210px;margin-top:8px"><input id="newXmlCategory_${i}" placeholder="Categoria (ex.: Bebidas)" value="Bebidas"><input id="newXmlCost_${i}" type="number" min="0" step="0.0001" value="${Number(l.unit_cost||l.purchase_unit_price||0).toFixed(4)}" placeholder="Custo por unidade (R$)" oninput="this.dataset.touched='1';updateXmlMarkup(${i})"><input id="newXmlPrice_${i}" type="number" min="0" step="0.01" placeholder="Preço de venda (R$)" oninput="updateXmlMarkup(${i})"><small id="newXmlMarkup_${i}">Markup: — · Margem: —</small><button type="button" onclick="createXmlProduct(${i})">Salvar produto</button><button type="button" onclick="closeNewXmlProduct(${i})">Voltar à nota</button><small>Será cadastrado inativo até você definir o preço e liberar no catálogo.</small></div></td></tr>`).join('')+'</table></div>';
+    purchaseDraft.lines.map((l,i)=>`<tr><td>${esc(l.product_name)}<br><small>Cód. ${esc(l.code)} · ${money(l.line_total)}</small></td><td><input type="number" min="0.001" step="0.001" value="${l.stock_qty}" onchange="setPurchaseLine(${i},'stock_qty',this.value);updateXmlCostPreview(${i})"></td><td><input value="${esc(l.stock_unit)}" onchange="setPurchaseLine(${i},'stock_unit',this.value)" style="width:70px"><label style="display:block;font-size:11px">Unid. por caixa/fardo <input id="xmlUnitsPerPack_${i}" type="number" min="1" step="1" value="${Number(l.units_per_pack||1)}" style="width:65px" onchange="setXmlUnitsPerPack(${i},this.value)"></label><small id="xmlUnitCost_${i}">Custo unitário: —</small></td><td><select id="purchaseProduct_${i}" onchange="setPurchaseLine(${i},'product_id',this.value)"><option value="">Selecione o produto...</option>${products.map(p=>`<option value="${p.id}">${esc(p.name)} (${esc(p.barcode||'sem código')})</option>`).join('')}</select><button type="button" onclick="toggleNewXmlProduct(${i})">Cadastrar novo produto</button><div id="newXmlProduct_${i}" style="display:none;min-width:210px;margin-top:8px"><input id="newXmlName_${i}" type="text" value="${esc(l.product_name)}" placeholder="Nome do produto" aria-label="Nome do produto"><input id="newXmlCategory_${i}" placeholder="Categoria (ex.: Bebidas)" value="Bebidas"><input id="newXmlCost_${i}" type="number" min="0" step="0.0001" value="${Number(l.unit_cost||l.purchase_unit_price||0).toFixed(4)}" placeholder="Custo por unidade (R$)" oninput="this.dataset.touched='1';updateXmlMarkup(${i})"><input id="newXmlPrice_${i}" type="number" min="0" step="0.01" placeholder="Preço de venda (R$)" oninput="updateXmlMarkup(${i})"><small id="newXmlMarkup_${i}">Markup: — · Margem: —</small><button type="button" onclick="createXmlProduct(${i})">Salvar produto</button><button type="button" onclick="closeNewXmlProduct(${i})">Voltar à nota</button><small>Será cadastrado inativo até você definir o preço e liberar no catálogo.</small></div></td></tr>`).join('')+'</table></div>';
   purchaseDraft.lines.forEach((l,i)=>updateXmlCostPreview(i));
 }
 function setPurchaseLine(i,k,v){if(purchaseDraft&&purchaseDraft.lines[i])purchaseDraft.lines[i][k]=k==='stock_qty'?Number(v):v;}
@@ -379,11 +379,12 @@ window.addEventListener('popstate',function(){
 });
 async function createXmlProduct(i){
   if(!purchaseDraft||!purchaseDraft.lines[i])return;
-  const line=purchaseDraft.lines[i],category=String($('newXmlCategory_'+i)?.value||'Outros').trim()||'Outros';
+  const line=purchaseDraft.lines[i],name=String($('newXmlName_'+i)?.value||'').trim(),category=String($('newXmlCategory_'+i)?.value||'Outros').trim()||'Outros';
   const price=Number($('newXmlPrice_'+i)?.value||0),costPrice=Number($('newXmlCost_'+i)?.value||0);
+  if(!name)return alert('Digite o nome do produto.');
   if(!Number.isFinite(price)||price<0||!Number.isFinite(costPrice)||costPrice<0)return alert('Informe valores válidos para preço de custo e preço de venda. Use 0 se ainda vai definir depois.');
   const payload={
-    name:line.product_name,
+    name,
     category,
     description:'',
     product_type:'venda',
@@ -403,6 +404,7 @@ async function createXmlProduct(i){
   };
   try{
     const created=await api('/api/admin/products',{method:'POST',body:JSON.stringify(payload)});
+    line.product_name=name;
     line.product_id=String(created.id);
     const products=await api('/api/admin/products?type=all');
     purchaseDraft.lines.forEach(l=>l.products=products);
