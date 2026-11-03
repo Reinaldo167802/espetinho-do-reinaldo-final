@@ -43,6 +43,29 @@ body{background:#f5f3f8;color:#20212a}header{box-shadow:0 2px 14px #211b2910}hea
   color: #fff !important;
 }
 
+
+/* Cadastro de produtos: layout compacto para reduzir rolagem */
+#productFormArea{padding:8px 10px!important;margin-top:4px!important}
+#productFormArea h3{font-size:1rem!important;margin:5px 0 8px!important}
+#productFormArea .toolbar{gap:6px!important;margin:5px 0!important}
+#productFormArea .toolbar>*{padding:6px 9px!important;font-size:.78rem!important}
+#productFormArea .barcodeBox{grid-template-columns:minmax(0,1fr) auto!important;gap:6px!important;margin-bottom:6px}
+#productFormArea .barcodeBox input{padding:7px 9px!important;font-size:14px!important;border-width:1px!important}
+#productFormArea .barcodeBox button{padding:7px 10px!important;font-size:.72rem!important}
+#productFormArea .row3{grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:6px!important;margin-top:5px!important}
+#productFormArea .row3>*{min-width:0;box-sizing:border-box;padding:7px 8px!important;font-size:13px!important;min-height:34px}
+#productFormArea .row3 label{display:flex;flex-direction:column;gap:3px;font-size:11px!important}
+#productFormArea .editBox{padding:8px!important;margin:5px 0!important}
+#productFormArea #xmlProductPackBox .row3{grid-template-columns:repeat(5,minmax(0,1fr))!important}
+#productFormArea #pd{grid-column:span 2;min-height:48px!important;padding:7px!important}
+#productFormArea #pfile{max-width:100%;font-size:11px}
+#productFormArea #photoPreview{font-size:10px}
+#productFormArea .hint{padding:6px 8px!important;margin:5px 0!important;font-size:11px!important}
+#productFormArea label[style*="display:flex"]{font-size:11px!important;gap:5px!important;margin:3px 0!important}
+#productFormArea input[type=checkbox]{transform:scale(.9);margin:0 4px 0 0}
+#productFormArea #saveBtn{padding:9px 12px!important;font-size:.8rem!important}
+@media(max-width:900px){#productFormArea .row3{grid-template-columns:repeat(3,minmax(0,1fr))!important}#productFormArea #xmlProductPackBox .row3{grid-template-columns:repeat(3,minmax(0,1fr))!important}}
+@media(max-width:600px){#productFormArea .row3,#productFormArea #xmlProductPackBox .row3{grid-template-columns:repeat(2,minmax(0,1fr))!important}#productFormArea #pd{grid-column:span 2}}
 </style><link rel="stylesheet" href="/premium.css?v=brasa-premium-20261026"></head><body><header class="admin-header"><div class="brand-lockup"><span class="brand-mark" aria-hidden="true">ER</span><div><b>PAINEL ADMINISTRATIVO</b><small>ESPETINHO DO REINALDO · GESTÃO DA CASA</small></div></div><span class="admin-live"><i></i> ÁREA DE GESTÃO</span></header><div class="admin"><div id="login" class="panel"><h2>Entrar</h2><input id="pw" type="password" placeholder="Senha administrativa" style="padding:12px;width:100%"><button class="primary" style="margin-top:10px" onclick="login()">ENTRAR</button></div><div id="app" style="display:none"><div class="nav"><button onclick="tab('orders')">Pedidos</button><button onclick="tab('products')">Produtos</button><button onclick="tab('purchases')">Entrada de Estoque XML</button><button onclick="tab('suppliers')">Fornecedores</button><button onclick="tab('cash')">Caixa</button><button onclick="tab('commands')">Comandas</button><button onclick="tab('customers')">Clientes</button><button onclick="tab('fiado')">Controle de Fiado</button><button onclick="tab('settings')">Configurações</button></div>
 <section id="orders" class="panel"><h2>Pedidos</h2><div id="ordersList"></div></section>
 <section id="products" class="panel" style="display:none"><h2>Produtos</h2>
