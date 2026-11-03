@@ -108,6 +108,39 @@ body{background:#f5f3f8;color:#20212a}header{box-shadow:0 2px 14px #211b2910}hea
 #productFormArea #saveBtn+button{padding:6px 8px!important;font-size:10px!important}
 @media(max-width:900px){.admin{padding:6px!important}.admin-header{padding:7px 10px!important}.nav{gap:4px!important}.nav button{padding:7px 8px!important;font-size:10px!important}#productFormArea .row3{grid-template-columns:repeat(3,minmax(0,1fr))!important}#productFormArea #xmlProductPackBox .row3{grid-template-columns:repeat(3,minmax(0,1fr))!important}}
 @media(max-width:600px){#productFormArea .row3,#productFormArea #xmlProductPackBox .row3{grid-template-columns:repeat(2,minmax(0,1fr))!important}#productFormArea #pd{grid-column:span 2!important}}
+</style><style>
+/* V9: Caixa compacto, mantendo os cinco meios de pagamento em uma linha */
+.cash-screen{padding:10px 12px!important;margin-bottom:8px!important}
+.cash-screen>h2{font-size:18px!important;margin:0 0 2px!important}
+.cash-screen>p.muted{font-size:10px!important;line-height:1.2!important;margin:2px 0 5px!important}
+.cash-tabs{gap:5px!important;margin:5px 0!important}
+.cash-tabs button{padding:5px 9px!important;font-size:10px!important;border-radius:7px!important}
+.cash-datebar{gap:6px!important;padding:6px 8px!important;border-radius:7px!important;margin:5px 0!important;align-items:center!important;font-size:10px!important}
+.cash-datebar label{gap:2px!important;font-size:10px!important}
+.cash-datebar input{padding:4px 6px!important;font-size:11px!important;height:27px!important}
+.cash-datebar span{font-size:10px!important}
+.cash-summary h3{font-size:13px!important;margin:6px 0 4px!important}
+.cash-kpis{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:6px!important;margin:5px 0!important}
+.cash-card{padding:6px 8px!important;border-radius:7px!important}
+.cash-card span{font-size:9px!important;margin-bottom:2px!important;line-height:1.1!important}
+.cash-card strong{font-size:clamp(13px,1.4vw,17px)!important;line-height:1.1!important}
+.cash-summary h4{font-size:11px!important;margin:6px 0 3px!important}
+.cash-methods{grid-template-columns:repeat(5,minmax(0,1fr))!important;gap:5px!important;margin:4px 0!important}
+.cash-method{padding:5px 6px!important;border-radius:7px!important;min-width:0!important}
+.cash-method span{font-size:9px!important;margin-bottom:2px!important;line-height:1.1!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+.cash-method strong{font-size:12px!important;line-height:1.1!important;overflow-wrap:anywhere!important}
+.cash-summary-note{font-size:9px!important;line-height:1.2!important;margin:4px 0!important}
+.cash-debt{display:none!important}
+.cash-manual{padding:6px 8px!important;margin:6px 0!important;border-radius:7px!important;font-size:10px!important}
+.cash-manual summary{padding:2px!important;font-size:10px!important}
+.cash-manual-fields{margin-top:5px!important;gap:5px!important}
+.cash-manual-fields>*{padding:6px!important;font-size:11px!important;min-height:28px!important}
+.cash-manual button{padding:6px 9px!important;font-size:10px!important;margin-top:4px!important}
+.cash-list-title{font-size:13px!important;margin:7px 0 4px!important}
+.cash-list>div{padding:6px 8px!important;line-height:1.2!important;font-size:10px!important}
+.cash-list small{font-size:9px!important;margin-top:2px!important}
+.cash-empty{padding:8px!important;font-size:10px!important}
+@media(max-width:650px){.cash-methods{grid-template-columns:repeat(3,minmax(0,1fr))!important}.cash-kpis{gap:4px!important}.cash-card{padding:5px!important}}
 </style></head><body><header class="admin-header"><div class="brand-lockup"><span class="brand-mark" aria-hidden="true">ER</span><div><b>PAINEL ADMINISTRATIVO</b><small>ESPETINHO DO REINALDO · GESTÃO DA CASA</small></div></div><span class="admin-live"><i></i> ÁREA DE GESTÃO</span></header><div class="admin"><div id="login" class="panel"><h2>Entrar</h2><input id="pw" type="password" placeholder="Senha administrativa" style="padding:12px;width:100%"><button class="primary" style="margin-top:10px" onclick="login()">ENTRAR</button></div><div id="app" style="display:none"><div class="nav"><button onclick="tab('orders')">Pedidos</button><button onclick="tab('products')">Produtos</button><button onclick="tab('purchases')">Entrada de Estoque XML</button><button onclick="tab('suppliers')">Fornecedores</button><button onclick="tab('cash')">Caixa</button><button onclick="tab('commands')">Comandas</button><button onclick="tab('customers')">Clientes</button><button onclick="tab('fiado')">Controle de Fiado</button><button onclick="tab('settings')">Configurações</button></div>
 <section id="orders" class="panel"><h2>Pedidos</h2><div id="ordersList"></div></section>
 <section id="products" class="panel" style="display:none"><h2>Produtos</h2>
