@@ -298,7 +298,7 @@ function renderPurchaseLines(){
   const box=$('purchaseLines');if(!box||!purchaseDraft)return;
   const products=purchaseDraft.lines[0]?.products||[];
   box.innerHTML='<div class="table"><table><tr><th>Item da NF-e</th><th>Qtd. recebida</th><th>Unidade</th><th>Produto cadastrado</th></tr>'+
-    purchaseDraft.lines.map((l,i)=>`<tr><td>${esc(l.product_name)}<br><small>Cód. ${esc(l.code)} · ${money(l.line_total)}</small></td><td><input type="number" min="0.001" step="0.001" value="${l.stock_qty}" onchange="setPurchaseLine(${i},'stock_qty',this.value)"></td><td><input value="${esc(l.stock_unit)}" onchange="setPurchaseLine(${i},'stock_unit',this.value)" style="width:70px"></td><td><select onchange="setPurchaseLine(${i},'product_id',this.value)"><option value="">Selecione o produto...</option>${products.map(p=>`<option value="${p.id}">${esc(p.name)} (${esc(p.barcode||'sem código')})</option>`).join('')}</select></td></tr>`).join('')+'</table></div>';
+    purchaseDraft.lines.map((l,i)=>`<tr><td>${esc(l.product_name)}<br><small>Cód. ${esc(l.code)} · ${money(l.line_total)}</small></td><td><input type="number" min="0.001" step="0.001" value="${l.stock_qty}" onchange="setPurchaseLine(${i},'stock_qty',this.value)"></td><td><input value="${esc(l.stock_unit)}" onchange="setPurchaseLine(${i},'stock_unit',this.value)" style="width:70px"></td><td><select id="purchaseProduct_${i}" onchange="setPurchaseLine(${i},'product_id',this.value)"><option value="">Selecione o produto...</option>${products.map(p=>`<option value="${p.id}">${esc(p.name)} (${esc(p.barcode||'sem código')})</option>`).join('')}</select><button type="button" onclick="toggleNewXmlProduct(${i})">Cadastrar novo produto</button><div id="newXmlProduct_${i}" style="display:none;min-width:210px;margin-top:8px"><input id="newXmlCategory_${i}" placeholder="Categoria (ex.: Bebidas)" value="Bebidas"><input id="newXmlPrice_${i}" type="number" min="0" step="0.01" placeholder="Preço de venda (R$)"><button type="button" onclick="createXmlProduct(${i})">Salvar produto</button><small>Será cadastrado inativo até você definir o preço e liberar no catálogo.</small></div></td></tr>`).join('')+'</table></div>';
 }
 function setPurchaseLine(i,k,v){if(purchaseDraft&&purchaseDraft.lines[i])purchaseDraft.lines[i][k]=k==='stock_qty'?Number(v):v;}
 async function receivePurchaseXml(){
@@ -315,5 +315,44 @@ async function loadPurchaseHistory(){
     $('purchaseHistory').innerHTML=(invoices||[]).map(x=>`<div class="panel"><b>NF-e ${esc(x.invoice_number||'')}</b> · ${esc(x.supplier_name||'')} · ${money(x.total)}<br><small>${esc(x.issue_date||'')} · Chave ${esc(x.access_key||'')}</small></div>`).join('')||'<p>Nenhuma nota recebida.</p>';
     $('inventoryHistory').innerHTML=(movements||[]).map(x=>`<div class="panel">${esc(x.description||'Entrada de estoque')}<br><b>${esc(x.current_product_name||'Produto')}</b> · ${esc(x.quantity)} ${esc(x.unit||'')}</div>`).join('')||'<p>Nenhuma movimentação registrada.</p>';
   }catch(e){$('purchaseHistory').innerHTML='<p>Erro ao carregar histórico: '+esc(e.message)+'</p>';}
+}
+
+
+function toggleNewXmlProduct(i){
+  const box=$('newXmlProduct_'+i);if(box)box.style.display=box.style.display==='none'?'block':'none';
+}
+async function createXmlProduct(i){
+  if(!purchaseDraft||!purchaseDraft.lines[i])return;
+  const line=purchaseDraft.lines[i],category=String($('newXmlCategory_'+i)?.value||'Outros').trim()||'Outros';
+  const price=Number($('newXmlPrice_'+i)?.value||0);
+  if(!Number.isFinite(price)||price<0)return alert('Informe um preço de venda válido. Use 0 se ainda vai definir depois.');
+  const payload={
+    name:line.product_name,
+    category,
+    description:'',
+    product_type:'venda',
+    price,
+    cost_price:Number(line.purchase_unit_price||0),
+    stock:0,
+    min_stock:0,
+    unit:line.purchase_unit||'un',
+    stock_secondary:0,
+    stock_secondary_unit:'',
+    barcode:'',
+    brand:'',
+    image:'',
+    active:false,
+    print_site:true,
+    print_command:false
+  };
+  try{
+    const created=await api('/api/admin/products',{method:'POST',body:JSON.stringify(payload)});
+    line.product_id=String(created.id);
+    const products=await api('/api/admin/products?type=all');
+    purchaseDraft.lines.forEach(l=>l.products=products);
+    renderPurchaseLines();
+    const select=$('purchaseProduct_'+i);if(select)select.value=String(created.id);
+    alert('Produto cadastrado. Ele ficará inativo no catálogo até você revisar o preço e ativá-lo.');
+  }catch(e){alert('Não foi possível cadastrar o produto: '+e.message);}
 }
 
