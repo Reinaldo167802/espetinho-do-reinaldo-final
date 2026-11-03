@@ -4,7 +4,7 @@ const toNumber=v=>{if(v===undefined||v===null||String(v).trim()==='')return 0;co
 const $=id=>document.getElementById(id);
 const api=async(url,opt={})=>{opt.headers={...(opt.headers||{}),'x-admin-password':pass,'Content-Type':'application/json'};const r=await fetch(url,opt);const raw=await r.text();let d;try{d=JSON.parse(raw)}catch(_){throw Error('O servidor respondeu uma página HTML em vez de JSON. Confira a implantação do sistema.')}if(!r.ok)throw Error(d.error||d.message||'Erro');return d};
 function login(){const pw=$('pw');pass=pw.value.trim();if(!pass){alert('Digite a senha administrativa.');return}api('/api/admin/orders').then(()=>{$('login').style.display='none';$('app').style.display='block';loadAll()}).catch(err=>alert('Erro ao entrar: '+err.message));}
-function tab(id){['orders','products','cash','commands','customers','fiado','settings'].forEach(x=>{if($(x))$(x).style.display=x===id?'block':'none'});if(id==='orders')loadOrders();if(id==='products')loadProducts();if(id==='cash')loadCash();if(id==='commands')loadCommands();if(id==='customers')loadCustomers();if(id==='fiado')loadFiado();if(id==='settings'){loadSettings().catch(()=>{});loadSandwichCapacity();}}
+function tab(id){['orders','products','purchases','suppliers','cash','commands','customers','fiado','settings'].forEach(x=>{if($(x))$(x).style.display=x===id?'block':'none'});if(id==='orders')loadOrders();if(id==='products')loadProducts();if(id==='purchases'){loadPurchaseHistory();}if(id==='suppliers')loadSuppliers();if(id==='cash')loadCash();if(id==='commands')loadCommands();if(id==='customers')loadCustomers();if(id==='fiado')loadFiado();if(id==='settings'){loadSettings().catch(()=>{});loadSandwichCapacity();}}
 async function loadAll(){loadOrders();loadCustomerOptions()}
 function installCompactOrderStyles(){
   if(document.getElementById('compact-order-card-styles')) return;
@@ -223,3 +223,97 @@ async function loadSettings(){const s=await api('/api/admin/settings');$('delive
 async function saveSettings(){const d=await api('/api/admin/settings',{method:'PUT',body:JSON.stringify({delivery_fee:$('deliverySetting').value})});$('settingsMsg').textContent='Taxa de entrega salva: '+money(d.delivery_fee);}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function escAttr(s){return esc(s).replace(/`/g,'&#96;')}
+
+
+// ===== Fornecedores e entrada de estoque por XML =====
+let suppliersCache=[];
+let purchaseDraft=null;
+async function loadSuppliers(){
+  const box=$('suppliersList'); if(box) box.innerHTML='<p>Carregando fornecedores...</p>';
+  try{
+    suppliersCache=await api('/api/admin/suppliers');
+    renderSuppliers(suppliersCache);
+  }catch(e){if(box)box.innerHTML='<p>Erro ao carregar fornecedores: '+esc(e.message)+'</p>';}
+}
+function renderSuppliers(rows){
+  const box=$('suppliersList'); if(!box)return;
+  box.innerHTML='<div class="table"><table><tr><th>Fornecedor</th><th>CNPJ</th><th>Ações</th></tr>'+
+    (rows||[]).map(x=>`<tr><td>${esc(x.name||'')}</td><td>${esc(x.cnpj||'')}</td><td><button type="button" onclick="editSupplier(${Number(x.id)})">Editar</button></td></tr>`).join('')+
+    '</table></div>'||'<p>Nenhum fornecedor cadastrado.</p>';
+  if(!rows||!rows.length)box.innerHTML='<p>Nenhum fornecedor cadastrado.</p>';
+}
+function filterSuppliers(){
+  const q=String($('supplierSearch')?.value||'').toLowerCase().replace(/\D/g,'') ;
+  const term=String($('supplierSearch')?.value||'').toLowerCase().trim();
+  renderSuppliers(suppliersCache.filter(x=>String(x.name||'').toLowerCase().includes(term)||String(x.cnpj||'').replace(/\D/g,'').includes(q)));
+}
+function editSupplier(id){
+  const x=suppliersCache.find(v=>Number(v.id)===Number(id));if(!x)return;
+  $('supplierEditId').value=x.id;$('supplierName').value=x.name||'';$('supplierCnpj').value=x.cnpj||'';
+  $('supplierMsg').textContent='Editando fornecedor. Altere os dados e salve.';
+}
+function clearSupplierForm(){
+  ['supplierEditId','supplierName','supplierCnpj'].forEach(id=>{if($(id))$(id).value='';});
+  if($('supplierMsg'))$('supplierMsg').textContent='';
+}
+async function saveSupplierFromPanel(){
+  const id=$('supplierEditId').value;
+  const body={name:$('supplierName').value.trim(),cnpj:$('supplierCnpj').value.replace(/\D/g,'')};
+  if(!body.name||body.cnpj.length!==14){$('supplierMsg').textContent='Informe a razão social e um CNPJ válido com 14 dígitos.';return;}
+  try{
+    const d=await api(id?'/api/admin/suppliers/'+id:'/api/admin/suppliers',{method:id?'PUT':'POST',body:JSON.stringify(body)});
+    $('supplierMsg').textContent=d.message||'Fornecedor salvo.';
+    clearSupplierForm();await loadSuppliers();
+  }catch(e){$('supplierMsg').textContent=e.message;}
+}
+function xmlText(node,tag){
+  const el=Array.from(node.getElementsByTagName('*')).find(x=>x.localName===tag);
+  return el?String(el.textContent||'').trim():'';
+}
+function parsePurchaseXml(input){
+  const file=input.files&&input.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=async()=>{
+    try{
+      const doc=new DOMParser().parseFromString(reader.result,'text/xml');
+      if(doc.querySelector('parsererror'))throw Error('O arquivo não é um XML válido.');
+      const inf=doc.getElementsByTagName('infNFe')[0];if(!inf)throw Error('Não encontrei os dados de uma NF-e neste XML.');
+      const ide=doc.getElementsByTagName('ide')[0],emit=doc.getElementsByTagName('emit')[0],total=doc.getElementsByTagName('ICMSTot')[0];
+      const key=(inf.getAttribute('Id')||'').replace(/^NFe/,'');
+      if(!/^\d{44}$/.test(key))throw Error('Não encontrei a chave de acesso de 44 dígitos. Use o XML autorizado da NF-e.');
+      const products=await api('/api/admin/products?type=all');
+      const dets=Array.from(doc.getElementsByTagName('det'));
+      purchaseDraft={access_key:key,invoice_number:xmlText(ide,'nNF'),series:xmlText(ide,'serie'),supplier_name:xmlText(emit,'xNome'),supplier_cnpj:xmlText(emit,'CNPJ')||xmlText(emit,'CPF'),issue_date:xmlText(ide,'dhEmi')||xmlText(ide,'dEmi'),total:Number(xmlText(total,'vNF'))||0,lines:[]};
+      purchaseDraft.lines=dets.map((det,i)=>{
+        const prod=det.getElementsByTagName('prod')[0],qty=Number(xmlText(prod,'qCom'))||0,unit=xmlText(prod,'uCom')||'un',unitPrice=Number(xmlText(prod,'vUnCom'))||0,lineTotal=Number(xmlText(prod,'vProd'))||qty*unitPrice;
+        return {index:i,product_name:xmlText(prod,'xProd'),code:xmlText(prod,'cProd'),purchase_qty:qty,purchase_unit:unit,purchase_unit_price:unitPrice,line_total:lineTotal,stock_qty:qty,stock_unit:unit,product_id:'',products};
+      });
+      $('purchaseInvoiceInfo').innerHTML=`<b>NF-e ${esc(purchaseDraft.invoice_number)}</b> · ${esc(purchaseDraft.supplier_name)} · CNPJ: ${esc(purchaseDraft.supplier_cnpj)} · Total: ${money(purchaseDraft.total)}<br>Chave: ${esc(key)}`;
+      renderPurchaseLines();$('receivePurchaseBtn').disabled=!purchaseDraft.lines.length;
+    }catch(e){purchaseDraft=null;$('receivePurchaseBtn').disabled=true;$('purchaseInvoiceInfo').textContent='Erro ao ler XML: '+e.message;alert(e.message);}
+  };
+  reader.readAsText(file);
+}
+function renderPurchaseLines(){
+  const box=$('purchaseLines');if(!box||!purchaseDraft)return;
+  const products=purchaseDraft.lines[0]?.products||[];
+  box.innerHTML='<div class="table"><table><tr><th>Item da NF-e</th><th>Qtd. recebida</th><th>Unidade</th><th>Produto cadastrado</th></tr>'+
+    purchaseDraft.lines.map((l,i)=>`<tr><td>${esc(l.product_name)}<br><small>Cód. ${esc(l.code)} · ${money(l.line_total)}</small></td><td><input type="number" min="0.001" step="0.001" value="${l.stock_qty}" onchange="setPurchaseLine(${i},'stock_qty',this.value)"></td><td><input value="${esc(l.stock_unit)}" onchange="setPurchaseLine(${i},'stock_unit',this.value)" style="width:70px"></td><td><select onchange="setPurchaseLine(${i},'product_id',this.value)"><option value="">Selecione o produto...</option>${products.map(p=>`<option value="${p.id}">${esc(p.name)} (${esc(p.barcode||'sem código')})</option>`).join('')}</select></td></tr>`).join('')+'</table></div>';
+}
+function setPurchaseLine(i,k,v){if(purchaseDraft&&purchaseDraft.lines[i])purchaseDraft.lines[i][k]=k==='stock_qty'?Number(v):v;}
+async function receivePurchaseXml(){
+  if(!purchaseDraft)return alert('Carregue primeiro o XML da NF-e.');
+  if(purchaseDraft.lines.some(l=>!Number(l.product_id)||!(Number(l.stock_qty)>0)||!String(l.stock_unit||'').trim()))return alert('Vincule todos os itens a um produto cadastrado e confira as quantidades.');
+  if(!confirm('Confirma a entrada desta NF-e? O estoque dos produtos vinculados será atualizado.'))return;
+  const payload={...purchaseDraft,lines:purchaseDraft.lines.map(({products,index,...l})=>l)};
+  try{const d=await api('/api/admin/purchases/receive',{method:'POST',body:JSON.stringify(payload)});alert(d.message||'Entrada registrada.');purchaseDraft=null;$('purchaseLines').innerHTML='';$('purchaseInvoiceInfo').textContent='Nota recebida com sucesso.';$('receivePurchaseBtn').disabled=true;await loadPurchaseHistory();await loadProducts();}
+  catch(e){alert(e.message);}
+}
+async function loadPurchaseHistory(){
+  try{
+    const [invoices,movements]=await Promise.all([api('/api/admin/purchases'),api('/api/admin/inventory/movements')]);
+    $('purchaseHistory').innerHTML=(invoices||[]).map(x=>`<div class="panel"><b>NF-e ${esc(x.invoice_number||'')}</b> · ${esc(x.supplier_name||'')} · ${money(x.total)}<br><small>${esc(x.issue_date||'')} · Chave ${esc(x.access_key||'')}</small></div>`).join('')||'<p>Nenhuma nota recebida.</p>';
+    $('inventoryHistory').innerHTML=(movements||[]).map(x=>`<div class="panel">${esc(x.description||'Entrada de estoque')}<br><b>${esc(x.current_product_name||'Produto')}</b> · ${esc(x.quantity)} ${esc(x.unit||'')}</div>`).join('')||'<p>Nenhuma movimentação registrada.</p>';
+  }catch(e){$('purchaseHistory').innerHTML='<p>Erro ao carregar histórico: '+esc(e.message)+'</p>';}
+}
+
