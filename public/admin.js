@@ -298,7 +298,7 @@ function renderPurchaseLines(){
   const box=$('purchaseLines');if(!box||!purchaseDraft)return;
   const products=purchaseDraft.lines[0]?.products||[];
   box.innerHTML='<div class="table"><table><tr><th>Item da NF-e</th><th>Qtd. recebida</th><th>Unidade</th><th>Produto cadastrado</th></tr>'+
-    purchaseDraft.lines.map((l,i)=>`<tr><td>${esc(l.product_name)}<br><small>Cód. ${esc(l.code)} · ${money(l.line_total)}</small></td><td><input type="number" min="0.001" step="0.001" value="${l.stock_qty}" onchange="setPurchaseLine(${i},'stock_qty',this.value)"></td><td><input value="${esc(l.stock_unit)}" onchange="setPurchaseLine(${i},'stock_unit',this.value)" style="width:70px"></td><td><select id="purchaseProduct_${i}" onchange="setPurchaseLine(${i},'product_id',this.value)"><option value="">Selecione o produto...</option>${products.map(p=>`<option value="${p.id}">${esc(p.name)} (${esc(p.barcode||'sem código')})</option>`).join('')}</select><button type="button" onclick="toggleNewXmlProduct(${i})">Cadastrar novo produto</button><div id="newXmlProduct_${i}" style="display:none;min-width:210px;margin-top:8px"><input id="newXmlCategory_${i}" placeholder="Categoria (ex.: Bebidas)" value="Bebidas"><input id="newXmlPrice_${i}" type="number" min="0" step="0.01" placeholder="Preço de venda (R$)"><button type="button" onclick="createXmlProduct(${i})">Salvar produto</button><small>Será cadastrado inativo até você definir o preço e liberar no catálogo.</small></div></td></tr>`).join('')+'</table></div>';
+    purchaseDraft.lines.map((l,i)=>`<tr><td>${esc(l.product_name)}<br><small>Cód. ${esc(l.code)} · ${money(l.line_total)}</small></td><td><input type="number" min="0.001" step="0.001" value="${l.stock_qty}" onchange="setPurchaseLine(${i},'stock_qty',this.value)"></td><td><input value="${esc(l.stock_unit)}" onchange="setPurchaseLine(${i},'stock_unit',this.value)" style="width:70px"></td><td><select id="purchaseProduct_${i}" onchange="setPurchaseLine(${i},'product_id',this.value)"><option value="">Selecione o produto...</option>${products.map(p=>`<option value="${p.id}">${esc(p.name)} (${esc(p.barcode||'sem código')})</option>`).join('')}</select><button type="button" onclick="toggleNewXmlProduct(${i})">Cadastrar novo produto</button><div id="newXmlProduct_${i}" style="display:none;min-width:210px;margin-top:8px"><input id="newXmlCategory_${i}" placeholder="Categoria (ex.: Bebidas)" value="Bebidas"><input id="newXmlCost_${i}" type="number" min="0" step="0.01" value="${Number(l.purchase_unit_price||0).toFixed(2)}" placeholder="Preço de custo (R$)"><input id="newXmlPrice_${i}" type="number" min="0" step="0.01" placeholder="Preço de venda (R$)"><button type="button" onclick="createXmlProduct(${i})">Salvar produto</button><button type="button" onclick="closeNewXmlProduct(${i})">Voltar à nota</button><small>Será cadastrado inativo até você definir o preço e liberar no catálogo.</small></div></td></tr>`).join('')+'</table></div>';
 }
 function setPurchaseLine(i,k,v){if(purchaseDraft&&purchaseDraft.lines[i])purchaseDraft.lines[i][k]=k==='stock_qty'?Number(v):v;}
 async function receivePurchaseXml(){
@@ -319,20 +319,50 @@ async function loadPurchaseHistory(){
 
 
 function toggleNewXmlProduct(i){
-  const box=$('newXmlProduct_'+i);if(box)box.style.display=box.style.display==='none'?'block':'none';
+  const box=$('newXmlProduct_'+i);if(!box)return;
+  const opening=box.style.display==='none';
+  box.style.display=opening?'block':'none';
+  if(opening){
+    // Cria um passo de histórico para que o botão Voltar do navegador
+    // feche somente o cadastro rápido, sem sair do painel/nota XML.
+    if(!box.dataset.historyStep){
+      history.pushState({xmlQuickCreate:Number(i)},'',location.href);
+      box.dataset.historyStep='1';
+    }
+  }else{
+    box.dataset.historyStep='';
+  }
 }
+function closeNewXmlProduct(i,fromPopState=false){
+  const box=$('newXmlProduct_'+i);if(!box)return;
+  box.style.display='none';
+  const hadStep=box.dataset.historyStep==='1';
+  box.dataset.historyStep='';
+  if(hadStep&&!fromPopState){
+    // Volta apenas o passo criado pelo cadastro rápido.
+    history.back();
+  }
+}
+window.addEventListener('popstate',function(){
+  document.querySelectorAll('[id^="newXmlProduct_"]').forEach(box=>{
+    if(box.style.display!=='none'){
+      box.style.display='none';
+      box.dataset.historyStep='';
+    }
+  });
+});
 async function createXmlProduct(i){
   if(!purchaseDraft||!purchaseDraft.lines[i])return;
   const line=purchaseDraft.lines[i],category=String($('newXmlCategory_'+i)?.value||'Outros').trim()||'Outros';
-  const price=Number($('newXmlPrice_'+i)?.value||0);
-  if(!Number.isFinite(price)||price<0)return alert('Informe um preço de venda válido. Use 0 se ainda vai definir depois.');
+  const price=Number($('newXmlPrice_'+i)?.value||0),costPrice=Number($('newXmlCost_'+i)?.value||0);
+  if(!Number.isFinite(price)||price<0||!Number.isFinite(costPrice)||costPrice<0)return alert('Informe valores válidos para preço de custo e preço de venda. Use 0 se ainda vai definir depois.');
   const payload={
     name:line.product_name,
     category,
     description:'',
     product_type:'venda',
     price,
-    cost_price:Number(line.purchase_unit_price||0),
+    cost_price:costPrice,
     stock:0,
     min_stock:0,
     unit:line.purchase_unit||'un',
@@ -352,7 +382,7 @@ async function createXmlProduct(i){
     purchaseDraft.lines.forEach(l=>l.products=products);
     renderPurchaseLines();
     const select=$('purchaseProduct_'+i);if(select)select.value=String(created.id);
-    alert('Produto cadastrado. Ele ficará inativo no catálogo até você revisar o preço e ativá-lo.');
+    closeNewXmlProduct(i);alert('Produto cadastrado. Ele ficará inativo no catálogo até você revisar o preço e ativá-lo.');
   }catch(e){alert('Não foi possível cadastrar o produto: '+e.message);}
 }
 
