@@ -10,6 +10,10 @@ let deliveryFee = 0;
 let sandwichPaused = false;
 let sandwichLimit = 10;
 let sandwichActiveOrders = 0;
+let pauseTotal = false;
+let pausePartial = false;
+let pauseDelivery = false;
+let pausePartialUntil = null;
 let capacityRefreshTimer = null;
 let currentCategory = '';
 let orderPollTimer = null;
@@ -26,16 +30,7 @@ async function load() {
     if (!productsResponse.ok) throw new Error('A API de produtos respondeu HTTP ' + productsResponse.status);
     const productData = await productsResponse.json();
     products = Array.isArray(productData) ? productData : (Array.isArray(productData.products) ? productData.products : []);
-    products = products.map(product => {
-      const originalDescription = String(product.description || '');
-      const customerDescription = originalDescription
-        .replace(/Cadastrado\\s+a\\s+partir\\s+de\\s+XML\\s+de\\s+compra\\.?/ig, ' ')
-        .replace(/Código\\s+(?:do\\s+)?fornecedor\\s*:\\s*\\d+/ig, ' ')
-        .replace(/\\s+/g, ' ')
-        .trim();
-      return {...product, description: customerDescription,
-        category: normalizeCustomerCategory(product.category, product.name, originalDescription)};
-    });
+    products = products.map(product => ({...product, category: normalizeCustomerCategory(product.category, product.name, product.description)}));
 
     // A taxa é opcional: se a configuração falhar, o cardápio continua disponível.
     deliveryFee = 0;
@@ -47,6 +42,10 @@ async function load() {
         sandwichPaused = Boolean(configData.sandwich_paused);
         sandwichLimit = Number(configData.sandwich_limit || 10);
         sandwichActiveOrders = Number(configData.sandwich_active_orders || 0);
+        pauseTotal = Boolean(configData.pause_total);
+        pausePartial = Boolean(configData.pause_partial);
+        pauseDelivery = Boolean(configData.pause_delivery);
+        pausePartialUntil = configData.pause_partial_until || null;
       }
     } catch (configError) {
       console.warn('Não foi possível carregar a taxa de entrega:', configError);
@@ -54,6 +53,7 @@ async function load() {
 
     renderCats();
     renderProducts();
+    showOperationalNotice();
     startCapacityRefresh();
     update();
     resumeOrderTracking();
@@ -149,6 +149,30 @@ function isSandwichItem(item) {
   const name = norm(item?.name || '');
   return /hamburg|sanduich|sanduiche|lanches|lanche/.test(category) || /hamburg|burguer|burger|sanduich|sanduiche|x\s*[- ]?tudo|x\s*[- ]?salada/.test(name);
 }
+function showOperationalNotice() {
+  const anchor = $('products');
+  if (!anchor) return;
+  let notice = $('operationalPauseNotice');
+  if (!notice) {
+    notice = document.createElement('div');
+    notice.id = 'operationalPauseNotice';
+    notice.style.cssText = 'display:none;margin:12px 0;padding:14px 16px;border:1px solid #b45309;border-radius:10px;background:#fff7ed;color:#7c2d12;font-weight:700;line-height:1.5';
+    anchor.parentNode.insertBefore(notice, anchor);
+  }
+  const active = pauseTotal || pausePartial;
+  notice.style.display = active ? 'block' : 'none';
+  notice.textContent = pauseTotal
+    ? '⏸️ Estamos temporariamente sem receber pedidos pelo site. O cardápio continua disponível para consulta.'
+    : pausePartial
+      ? '⏸️ Estamos em uma pausa temporária de produção. Em breve voltaremos a receber pedidos.'
+      : '';
+  const submit = $('sendOrderBtn') || $('sendOrder');
+  if (submit) {
+    submit.disabled = active;
+    submit.setAttribute('aria-disabled', active ? 'true' : 'false');
+    submit.textContent = active ? 'Pedidos temporariamente pausados' : 'ENVIAR PEDIDO';
+  }
+}
 function showSandwichCapacityNotice() {
   const productsBox = $('products');
   if (!productsBox) return;
@@ -170,11 +194,19 @@ async function refreshSandwichCapacity() {
     if (!response.ok) return;
     const data = await response.json();
     const wasPaused = sandwichPaused;
+    const wasTotal = pauseTotal;
+    const wasPartial = pausePartial;
+    const wasDelivery = pauseDelivery;
     sandwichPaused = Boolean(data.sandwich_paused);
     sandwichLimit = Number(data.sandwich_limit || 10);
     sandwichActiveOrders = Number(data.sandwich_active_orders || 0);
+    pauseTotal = Boolean(data.pause_total);
+    pausePartial = Boolean(data.pause_partial);
+    pauseDelivery = Boolean(data.pause_delivery);
+    pausePartialUntil = data.pause_partial_until || null;
+    showOperationalNotice();
     showSandwichCapacityNotice();
-    if (wasPaused !== sandwichPaused) renderProducts(currentCategory);
+    if (wasPaused !== sandwichPaused || wasTotal !== pauseTotal || wasPartial !== pausePartial || wasDelivery !== pauseDelivery) { renderProducts(currentCategory); update(); }
   } catch (error) {
     console.warn('Não foi possível atualizar a capacidade de sanduíches:', error);
   }
@@ -188,6 +220,7 @@ function renderProducts(category = '') {
   currentCategory = category;
   const box = $('products');
   showSandwichCapacityNotice();
+  showOperationalNotice();
   if (!box) return;
   const list = category ? products.filter(product => product.category === category) : products;
   box.innerHTML = list.map(product => `
@@ -196,7 +229,7 @@ function renderProducts(category = '') {
       <h3>${esc(product.name)}</h3>
       <small>${esc(product.description || '')}</small>
       <strong>${money(product.price)}</strong>
-      <button ${sandwichPaused && isSandwichItem(product) ? 'disabled aria-disabled="true"' : ''} onclick="add(${Number(product.id)})">${sandwichPaused && isSandwichItem(product) ? 'Temporariamente indisponível' : 'Adicionar'}</button>
+      <button ${(pauseTotal || pausePartial || (sandwichPaused && isSandwichItem(product))) ? 'disabled aria-disabled="true"' : ''} onclick="add(${Number(product.id)})">${(pauseTotal || pausePartial) ? 'Pedidos pausados' : (sandwichPaused && isSandwichItem(product) ? 'Temporariamente indisponível' : 'Adicionar')}</button>
     </article>
   `).join('') || '<p>Nenhum produto disponível nesta categoria.</p>';
 }
@@ -204,6 +237,7 @@ function renderProducts(category = '') {
 function add(id) {
   const product = products.find(item => Number(item.id) === Number(id));
   if (!product) return;
+  if (pauseTotal || pausePartial) return toast('O recebimento de pedidos está temporariamente pausado.');
   if (sandwichPaused && isSandwichItem(product)) return toast('Os sanduíches estão temporariamente pausados.');
   const index = cart.findIndex(item => Number(item.id) === Number(id));
   if (index >= 0) cart[index].qty++;
@@ -214,6 +248,12 @@ function add(id) {
 
 function update() {
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
+  const typeSelect = $('type');
+  const deliveryOption = typeSelect ? Array.from(typeSelect.options).find(option => option.value === 'entrega') : null;
+  if (deliveryOption) {
+    deliveryOption.disabled = pauseDelivery;
+    if (pauseDelivery && typeSelect.value === 'entrega') typeSelect.value = 'balcao';
+  }
   const type = $('type')?.value || 'balcao';
   const fee = type === 'entrega' ? deliveryFee : 0;
   const total = subtotal + fee;
@@ -250,11 +290,13 @@ function openCart() { $('cart')?.classList.remove('hidden'); update(); }
 function closeCart() { $('cart')?.classList.add('hidden'); }
 
 async function sendOrder() {
+  if (pauseTotal || pausePartial) return toast('O recebimento de pedidos está temporariamente pausado.');
   if (!cart.length) return toast('Adicione algum produto');
   const name = $('name')?.value.trim() || '';
   if (!name) return toast('Informe seu nome');
   const type = $('type')?.value || 'balcao';
   const address = $('address')?.value || '';
+  if (type === 'entrega' && pauseDelivery) return toast('No momento estamos sem serviço de entrega. Escolha retirada no balcão.');
   if (type === 'entrega' && !address.trim()) return toast('Informe o endereço para entrega');
 
   const body = {
@@ -275,6 +317,15 @@ async function sendOrder() {
     });
     const result = await response.json();
     if (!response.ok) {
+      if (response.status === 423) {
+        pauseTotal = Boolean(result.pause_total);
+        pausePartial = Boolean(result.pause_partial);
+        pauseDelivery = Boolean(result.pause_delivery);
+        showOperationalNotice();
+        renderProducts(currentCategory);
+        update();
+        return toast(result.error || 'Pedidos temporariamente indisponíveis.');
+      }
       if (response.status === 409 && result.sandwich_paused) {
         sandwichPaused = true;
         sandwichLimit = Number(result.sandwich_limit || sandwichLimit);
