@@ -1,10 +1,10 @@
-let pass='';let editingId=null;let xmlReturnLine=null;
+let pass='';let editingId=null;let xmlReturnLine=null;let xmlPackContext=null;let xmlProductHistoryStep=false;let returningToXml=false;
 const money=v=>Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const toNumber=v=>{if(v===undefined||v===null||String(v).trim()==='')return 0;const s=String(v).trim().replace(/\s/g,'').replace(/\.(?=\d{3}(?:\D|$))/g,'').replace(',','.');const n=Number(s);return Number.isFinite(n)?n:NaN};
 const $=id=>document.getElementById(id);
 const api=async(url,opt={})=>{opt.headers={...(opt.headers||{}),'x-admin-password':pass,'Content-Type':'application/json'};const r=await fetch(url,opt);const raw=await r.text();let d;try{d=JSON.parse(raw)}catch(_){throw Error('O servidor respondeu uma página HTML em vez de JSON. Confira a implantação do sistema.')}if(!r.ok)throw Error(d.error||d.message||'Erro');return d};
 function login(){const pw=$('pw');pass=pw.value.trim();if(!pass){alert('Digite a senha administrativa.');return}api('/api/admin/orders').then(()=>{$('login').style.display='none';$('app').style.display='block';loadAll()}).catch(err=>alert('Erro ao entrar: '+err.message));}
-function tab(id){['orders','products','purchases','suppliers','cash','commands','customers','fiado','settings'].forEach(x=>{if($(x))$(x).style.display=x===id?'block':'none'});if(id==='orders')loadOrders();if(id==='products')loadProducts();if(id==='purchases'){loadPurchaseHistory();}if(id==='suppliers')loadSuppliers();if(id==='cash')loadCash();if(id==='commands')loadCommands();if(id==='customers')loadCustomers();if(id==='fiado')loadFiado();if(id==='settings'){loadSettings().catch(()=>{});loadSandwichCapacity();}}
+function tab(id){['orders','products','purchases','suppliers','cash','commands','customers','fiado','settings'].forEach(x=>{if($(x))$(x).style.display=x===id?'block':'none'});if(id==='orders')loadOrders();if(id==='products'&&xmlReturnLine===null)loadProducts();if(id==='purchases'){loadPurchaseHistory();}if(id==='suppliers')loadSuppliers();if(id==='cash')loadCash();if(id==='commands')loadCommands();if(id==='customers')loadCustomers();if(id==='fiado')loadFiado();if(id==='settings'){loadSettings().catch(()=>{});loadSandwichCapacity();}}
 async function loadAll(){loadOrders();loadCustomerOptions()}
 function installCompactOrderStyles(){
   if(document.getElementById('compact-order-card-styles')) return;
@@ -53,20 +53,56 @@ async function loadOrders(){
 }
 async function status(id,s){await api('/api/admin/orders/'+id+'/status',{method:'PUT',body:JSON.stringify({status:s})});loadOrders()}
 async function loadProducts(){const a=await api('/api/admin/products?type=all');$('productsList').innerHTML='<div class="table"><table><tr><th>Foto</th><th>Código</th><th>Produto</th><th>Categoria</th><th>Custo</th><th>Venda</th><th>Estoque</th><th>Status</th><th>Ações</th></tr>'+a.map(p=>`<tr><td>${p.image?`<img class="admin-product-thumb" src="${escAttr(p.image)}" alt="${escAttr(p.name)}" loading="lazy" onerror="this.style.display='none'">`:'<span class="admin-product-no-photo">🍢</span>'}</td><td>${esc(p.barcode||'-')}</td><td><b>${esc(p.name)}</b><br><span class="small">${esc(p.brand||'')}</span></td><td>${esc(p.category)}</td><td>${money(p.cost_price)}</td><td>${money(p.price)}</td><td class="${Number(p.stock)<=Number(p.min_stock)&&Number(p.min_stock)>0?'low':''}">${p.stock} ${esc(p.unit||'un')}</td><td>${p.active?'Ativo':'Inativo'}</td><td><button onclick="editProduct(${p.id})">Editar</button> ${p.active?`<button onclick="del(${p.id})">Inativar</button>`:'<span class="muted">Inativo</span>'}</td></tr>`).join('')+'</table></div>';$('productListScreen').style.display='block';$('productFormArea').style.display='none';}
-function newProductForm(){editingId=null;clearForm();$('productListScreen').style.display='none';$('productFormArea').style.display='block';$('productFormTitle').textContent='Cadastrar Produto Novo';}
-function cancelProductForm(){if(xmlReturnLine!==null){tab('purchases');renderPurchaseLines();xmlReturnLine=null;}else{$('productFormArea').style.display='none';$('productListScreen').style.display='block';clearForm();}}
-async function startXmlProductRegistration(i){if(!purchaseDraft||!purchaseDraft.lines[i])return;xmlReturnLine=i;const l=purchaseDraft.lines[i];tab('products');await loadProducts();newProductForm();$('productFormTitle').textContent='Cadastrar Produto — Item da NF-e';$('pn').value=l.product_name||'';$('pb').value='';$('pbrand').value='';$('pc').value='Bebidas';$('pu').value='un';$('pcost').value=Number(l.unit_cost||0).toFixed(4);$('pp').value='0';$('pstock').value='0';$('pmin').value='0';$('pd').value='Importado da NF-e '+(purchaseDraft.invoice_number||'');$('saveBtn').textContent='CADASTRAR E VOLTAR À NOTA';window.scrollTo({top:0,behavior:'smooth'});}
+function newProductForm(){editingId=null;xmlPackContext=null;clearForm();$('pcost').readOnly=false;$('xmlProductPackBox').style.display='none';$('productListScreen').style.display='none';$('productFormArea').style.display='block';$('productFormTitle').textContent='Cadastrar Produto Novo';}
+function cancelProductForm(){
+  if(xmlReturnLine!==null && xmlProductHistoryStep){history.back();return;}
+  if(xmlReturnLine!==null){returnFromXmlProduct();return;}
+  $('productFormArea').style.display='none';$('productListScreen').style.display='block';clearForm();
+}
+async function startXmlProductRegistration(i){
+  if(!purchaseDraft||!purchaseDraft.lines[i])return;
+  xmlReturnLine=i;
+  const l=purchaseDraft.lines[i];
+  tab('products');
+  await loadProducts();
+  newProductForm();
+  $('productFormTitle').textContent='Cadastrar Produto — Item da NF-e';
+  $('pn').value=l.product_name||'';$('pb').value=l.code||'';$('pbrand').value='';$('pc').value='Bebidas';$('pu').value='un';
+  const detected=Number(l.units_per_pack)||detectUnitsPerPack(l.product_name+' '+l.purchase_unit)||1;
+  xmlPackContext={lineIndex:i,packageQty:Number(l.purchase_qty)||1,packageUnit:l.purchase_unit||'un',lineTotal:Number(l.line_total)||0,unitsPerPack:detected};
+  l.units_per_pack=detected;
+  $('xmlPackBoxLabel').textContent=`${xmlPackContext.packageQty} ${xmlPackContext.packageUnit} · Total da linha ${money(xmlPackContext.lineTotal)}`;
+  $('xmlPackQty').value=xmlPackContext.packageQty;$('xmlPackUnit').value=xmlPackContext.packageUnit;$('xmlUnitsPerPackForm').value=detected;$('xmlPackCost').value=xmlPackContext.lineTotal.toFixed(2);$('xmlTotalUnits').value=xmlPackContext.packageQty*detected;
+  $('pcost').value=(xmlPackContext.lineTotal/Math.max(1,xmlPackContext.packageQty*detected)).toFixed(4);$('pcost').readOnly=true;$('pp').value='0';$('pstock').value='0';$('pmin').value='0';$('pd').value='';$('saveBtn').textContent='CADASTRAR E VOLTAR À NOTA';$('xmlProductPackBox').style.display='block';
+  updateProductProfitPreview();
+  if(!xmlProductHistoryStep){history.pushState({screen:'xml-product-form'},'',location.href);xmlProductHistoryStep=true;}
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+function detectUnitsPerPack(text){
+  const s=String(text||'').toUpperCase();
+  let m=s.match(/(?:^|\D)(\d{1,3})\s*(?:UN|UND|UNID|U)\b/);
+  if(!m)m=s.match(/(?:FD|FARDO|CX|CAIXA|PACK|PCT|PACOTE)\s*(?:C\/|COM)?\s*(\d{1,3})\b/);
+  return m?Math.max(1,Number(m[1])):1;
+}
+function returnFromXmlProduct(){
+  $('productFormArea').style.display='none';$('productListScreen').style.display='block';
+  xmlReturnLine=null;xmlPackContext=null;xmlProductHistoryStep=false;returningToXml=false;
+  tab('purchases');renderPurchaseLines();
+}
+function updateXmlProductPack(){if(!xmlPackContext)return;const packs=Math.max(1,Number($('xmlPackQty').value)||1),units=Math.max(1,Math.floor(Number($('xmlUnitsPerPackForm').value)||1)),total=packs*units,cost=xmlPackContext.lineTotal/total;$('xmlTotalUnits').value=total;$('pcost').value=cost.toFixed(4);xmlPackContext.unitsPerPack=units;const l=purchaseDraft?.lines[xmlPackContext.lineIndex];if(l){l.units_per_pack=units;l.stock_qty=total;l.stock_unit='un';l.unit_cost=cost;}updateProductProfitPreview();}
+function updateProductProfitPreview(){const c=toNumber($('pcost').value),p=toNumber($('pp').value),el=$('productProfitPreview');if(!el)return;if(c>0&&p>0)el.textContent=`Markup: ${((p/c-1)*100).toFixed(1)}% · Margem bruta: ${(((p-c)/p)*100).toFixed(1)}%`;else el.textContent='Markup: — · Margem bruta: —';}
 
-function fill(p){editingId=p.id;$('productListScreen').style.display='none';$('productFormArea').style.display='block';$('productFormTitle').textContent='Editar Produto';$('pfile').value='';$('photoPreview').innerHTML=p.image?`<img src="${escAttr(p.image)}" style="width:90px;height:90px;object-fit:cover;border-radius:10px">`:'Sem foto';$('pb').value=p.barcode||'';$('pn').value=p.name||'';$('pbrand').value=p.brand||'';$('pc').value=p.category||'';$('pu').value=p.unit||'un';$('pcost').value=p.cost_price??0;$('pp').value=p.price??0;$('pstock').value=p.stock??0;$('pmin').value=p.min_stock??0;$('pi').value=p.image||'';$('pd').value=p.description||'';$('psite').checked=p.print_site===undefined||p.print_site===null||p.print_site===true||p.print_site===1;$('pcommand').checked=(p.print_command===true||p.print_command===1)||(p.print_command===undefined&&(p.prepare_kitchen===true||p.prepare_kitchen===1));$('saveBtn').textContent='SALVAR ALTERAÇÕES';window.scrollTo({top:0,behavior:'smooth'});}
+function fill(p){editingId=p.id;$('pcost').readOnly=false;$('productListScreen').style.display='none';$('productFormArea').style.display='block';$('productFormTitle').textContent='Editar Produto';$('pfile').value='';$('photoPreview').innerHTML=p.image?`<img src="${escAttr(p.image)}" style="width:90px;height:90px;object-fit:cover;border-radius:10px">`:'Sem foto';$('pb').value=p.barcode||'';$('pn').value=p.name||'';$('pbrand').value=p.brand||'';$('pc').value=p.category||'';$('pu').value=p.unit||'un';$('pcost').value=p.cost_price??0;$('pp').value=p.price??0;$('pstock').value=p.stock??0;$('pmin').value=p.min_stock??0;$('pi').value=p.image||'';$('pd').value=p.description||'';$('psite').checked=p.print_site===undefined||p.print_site===null||p.print_site===true||p.print_site===1;$('pcommand').checked=(p.print_command===true||p.print_command===1)||(p.print_command===undefined&&(p.prepare_kitchen===true||p.prepare_kitchen===1));$('saveBtn').textContent='SALVAR ALTERAÇÕES';window.scrollTo({top:0,behavior:'smooth'});}
 async function editProduct(id){const a=await api('/api/admin/products?type=all');const p=a.find(x=>Number(x.id)===Number(id));if(p)fill(p)}
-function clearForm(){editingId=null;['pb','pn','pbrand','pc','pcost','pp','pstock','pmin','pi','pd','pfile'].forEach(id=>$(id).value='');$('photoPreview').textContent='';if($('psite'))$('psite').checked=true;if($('pcommand'))$('pcommand').checked=false;$('pu').value='un';$('saveBtn').textContent='CADASTRAR PRODUTO';}
+function clearForm(){editingId=null;if($('pcost'))$('pcost').readOnly=false;['pb','pn','pbrand','pc','pcost','pp','pstock','pmin','pi','pd','pfile'].forEach(id=>$(id).value='');$('photoPreview').textContent='';if($('psite'))$('psite').checked=true;if($('pcommand'))$('pcommand').checked=false;$('pu').value='un';$('saveBtn').textContent='CADASTRAR PRODUTO';}
 async function lookupBarcode(){const b=$('pb').value.trim();if(!b)return alert('Passe ou digite o código de barras.');try{const d=await api('/api/admin/products/barcode/'+encodeURIComponent(b)+'/lookup');if(d.found){$('pn').value=d.name||'';$('pbrand').value=d.brand||'';$('pc').value=d.category||'Salgadinhos Chips';$('pu').value=d.unit||'un';$('pd').value=d.description||'';$('pi').value=d.image||'';const preview=$('photoPreview');if(preview)preview.innerHTML=d.image?`<img src="${escAttr(d.image)}" style="width:90px;height:90px;object-fit:cover;border-radius:10px" onerror="this.style.display='none'">`:'Sem foto';}else alert(d.message||'Produto não encontrado.');}catch(e){alert(e.message)}}
 $('pb').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();lookupBarcode()}});
 
 function photoFile(input){const f=input.files&&input.files[0];if(!f)return;const reader=new FileReader();reader.onload=()=>{const img=new Image();img.onload=()=>{const max=700;const scale=Math.min(1,max/Math.max(img.width,img.height));const c=document.createElement('canvas');c.width=Math.max(1,Math.round(img.width*scale));c.height=Math.max(1,Math.round(img.height*scale));c.getContext('2d').drawImage(img,0,0,c.width,c.height);const data=c.toDataURL('image/jpeg',0.78);$('pi').value=data;$('photoPreview').innerHTML=`<img src="${escAttr(data)}" style="width:90px;height:90px;object-fit:cover;border-radius:10px"><br>Foto pronta para salvar`;};img.src=reader.result;};reader.readAsDataURL(f);}
-async function saveProduct(){const body={name:$('pn').value.trim(),barcode:$('pb').value.trim(),brand:$('pbrand').value.trim(),category:$('pc').value.trim()||'Salgadinhos Chips',unit:$('pu').value.trim()||'un',cost_price:toNumber($('pcost').value),price:toNumber($('pp').value),stock:toNumber($('pstock').value),min_stock:toNumber($('pmin').value),image:$('pi').value.trim(),description:$('pd').value.trim(),active:xmlReturnLine===null,print_site:$('psite').checked,print_command:$('pcommand').checked,prepare_kitchen:$('pcommand').checked};if(!body.name)return alert('Informe o nome do produto.');try{let saved;if(editingId)saved=await api('/api/admin/products/'+editingId,{method:'PUT',body:JSON.stringify(body)});else saved=await api('/api/admin/products',{method:'POST',body:JSON.stringify(body)});if(xmlReturnLine!==null&&purchaseDraft&&purchaseDraft.lines[xmlReturnLine]){const i=xmlReturnLine;purchaseDraft.lines[i].product_id=String(saved.id);purchaseDraft.lines[i].product_name=body.name;const products=await api('/api/admin/products?type=all');purchaseDraft.lines.forEach(l=>l.products=products);xmlReturnLine=null;clearForm();tab('purchases');renderPurchaseLines();const sel=$('purchaseProduct_'+i);if(sel)sel.value=String(saved.id);alert('Produto cadastrado e vinculado à nota. Confira os outros itens e depois confirme a entrada.');}else{clearForm();await loadProducts();$('productListScreen').style.display='block';$('productFormArea').style.display='none';alert('Produto salvo.');}}catch(e){alert(e.message)}}
+async function saveProduct(){const body={name:$('pn').value.trim(),barcode:$('pb').value.trim(),brand:$('pbrand').value.trim(),category:$('pc').value.trim()||'Salgadinhos Chips',unit:$('pu').value.trim()||'un',cost_price:toNumber($('pcost').value),price:toNumber($('pp').value),stock:toNumber($('pstock').value),min_stock:toNumber($('pmin').value),image:$('pi').value.trim(),description:$('pd').value.trim(),active:xmlReturnLine===null,print_site:$('psite').checked,print_command:$('pcommand').checked,prepare_kitchen:$('pcommand').checked};if(!body.name)return alert('Informe o nome do produto.');try{let saved;if(editingId)saved=await api('/api/admin/products/'+editingId,{method:'PUT',body:JSON.stringify(body)});else saved=await api('/api/admin/products',{method:'POST',body:JSON.stringify(body)});if(xmlReturnLine!==null&&purchaseDraft&&purchaseDraft.lines[xmlReturnLine]){const i=xmlReturnLine;purchaseDraft.lines[i].product_id=String(saved.id);purchaseDraft.lines[i].product_name=body.name;const products=await api('/api/admin/products?type=all');purchaseDraft.lines.forEach(l=>l.products=products);xmlReturnLine=null;xmlPackContext=null;xmlProductHistoryStep=false;clearForm();tab('purchases');renderPurchaseLines();const sel=$('purchaseProduct_'+i);if(sel)sel.value=String(saved.id);alert('Produto cadastrado e vinculado à nota. Confira os outros itens e depois confirme a entrada.');}else{clearForm();await loadProducts();$('productListScreen').style.display='block';$('productFormArea').style.display='none';alert('Produto salvo.');}}catch(e){alert(e.message)}}
 async function del(id){if(!confirm('Desativar este produto?'))return;await api('/api/admin/products/'+id,{method:'DELETE'});loadProducts()}
 function csvRows(text){const lines=text.replace(/^\uFEFF/,'').split(/\r?\n/).filter(x=>x.trim());if(!lines.length)return[];const parse=l=>{let a=[],cur='',q=false;for(let i=0;i<l.length;i++){const c=l[i];if(c==='"'){if(q&&l[i+1]==='"'){cur+='"';i++;}else q=!q;}else if(c===','&&!q){a.push(cur);cur='';}else cur+=c;}a.push(cur);return a.map(x=>x.trim())};const h=parse(lines[0]).map(x=>x.toLowerCase());return lines.slice(1).map(l=>{const v=parse(l);const o={};h.forEach((k,i)=>o[k]=v[i]||'');return o;});}
+$('pcost')?.addEventListener('input',updateProductProfitPreview);$('pp')?.addEventListener('input',updateProductProfitPreview);
 async function importCsv(){const f=$('csvFile').files[0];if(!f)return alert('Escolha um arquivo CSV.');const rows=csvRows(await f.text());if(!rows.length)return alert('CSV vazio.');let ok=0,fail=[];for(const r of rows){try{await api('/api/admin/products',{method:'POST',body:JSON.stringify({barcode:r.codigo_barras||r.barcode||'',name:r.nome||r.name||'',brand:r.marca||r.brand||'',category:r.categoria||r.category||'Salgadinhos Chips',unit:r.unidade||r.unit||'un',cost_price:r.custo||r.cost_price||0,price:r.venda||r.price||0,stock:r.estoque||r.stock||0,min_stock:r.estoque_minimo||r.min_stock||0,description:r.descricao||r.description||'',image:r.url_foto||r.image||'',print_site:/^(0|nao|não|false)$/i.test(r.imprimir_site||r.print_site||'')?false:true,print_command:/^(1|sim|true|cozinha)$/i.test(r.imprimir_comanda||r.print_command||r.preparar_na_cozinha||r.prepare_kitchen||''),prepare_kitchen:/^(1|sim|true|cozinha)$/i.test(r.imprimir_comanda||r.print_command||r.preparar_na_cozinha||r.prepare_kitchen||''),active:true})});ok++;}catch(e){fail.push((r.codigo_barras||r.nome||'linha')+': '+e.message)}}loadProducts();alert(`Importação concluída. ${ok} produto(s) importado(s).${fail.length?'\nFalhas: '+fail.length+'\n'+fail.slice(0,5).join('\n'):''}`)}
 function cashDateKey(v){if(!v)return '';const m=String(v).match(/^(\d{4}-\d{2}-\d{2})/);if(m)return m[1];const d=new Date(v);if(Number.isNaN(d.getTime()))return '';return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 function localDateKey(d=new Date()){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
@@ -290,19 +326,23 @@ function parsePurchaseXml(input){
       purchaseDraft={access_key:key,invoice_number:xmlText(ide,'nNF'),series:xmlText(ide,'serie'),supplier_name:xmlText(emit,'xNome'),supplier_cnpj:xmlText(emit,'CNPJ')||xmlText(emit,'CPF'),issue_date:xmlText(ide,'dhEmi')||xmlText(ide,'dEmi'),total:Number(xmlText(total,'vNF'))||0,lines:[]};
       purchaseDraft.lines=dets.map((det,i)=>{
         const prod=det.getElementsByTagName('prod')[0],qty=Number(xmlText(prod,'qCom'))||0,unit=xmlText(prod,'uCom')||'un',unitPrice=Number(xmlText(prod,'vUnCom'))||0,lineTotal=Number(xmlText(prod,'vProd'))||qty*unitPrice;
-        return {index:i,product_name:xmlText(prod,'xProd'),code:xmlText(prod,'cProd'),purchase_qty:qty,purchase_unit:unit,purchase_unit_price:unitPrice,line_total:lineTotal,stock_qty:qty,stock_unit:unit,units_per_pack:qty,unit_cost:lineTotal/Math.max(1,qty),product_id:'',products};
+        return {index:i,product_name:xmlText(prod,'xProd'),code:xmlText(prod,'cProd'),purchase_qty:qty,purchase_unit:unit,purchase_unit_price:unitPrice,line_total:lineTotal,stock_qty:qty,stock_unit:unit,units_per_pack:detectUnitsPerPack(xmlText(prod,'xProd')+' '+unit),unit_cost:lineTotal/Math.max(1,qty),product_id:'',products};
       });
-      $('purchaseInvoiceInfo').innerHTML=`<b>NF-e ${esc(purchaseDraft.invoice_number)}</b> · ${esc(purchaseDraft.supplier_name)} · CNPJ: ${esc(purchaseDraft.supplier_cnpj)} · Total: ${money(purchaseDraft.total)}<br>Chave: ${esc(key)}`;
+      $('purchaseInvoiceInfo').innerHTML=`<b>NF-e ${esc(purchaseDraft.invoice_number)}</b> · ${esc(purchaseDraft.supplier_name)} · Total: ${money(purchaseDraft.total)}`;
       renderPurchaseLines();$('receivePurchaseBtn').disabled=!purchaseDraft.lines.length;
     }catch(e){purchaseDraft=null;$('receivePurchaseBtn').disabled=true;$('purchaseInvoiceInfo').textContent='Erro ao ler XML: '+e.message;alert(e.message);}
   };
   reader.readAsText(file);
 }
+function installXmlCompactStyles(){if($('xmlCompactStyles'))return;const s=document.createElement('style');s.id='xmlCompactStyles';s.textContent=`#purchaseInvoiceInfo{padding:8px 10px!important;margin:8px 0!important;font-size:.88rem}#purchaseInvoiceInfo br+*{display:none}.xml-compact-wrap{overflow-x:auto;border:1px solid rgba(255,255,255,.12);border-radius:10px}.xml-compact-table{width:100%;border-collapse:collapse;min-width:850px;font-size:.82rem}.xml-compact-table th,.xml-compact-table td{padding:7px 8px!important;vertical-align:middle;border-bottom:1px solid rgba(255,255,255,.1);white-space:nowrap}.xml-compact-table th{font-size:.72rem;letter-spacing:.03em}.xml-product-desc{white-space:normal!important;min-width:210px;max-width:270px}.xml-product-desc small{display:block;opacity:.72;font-size:.72rem;margin-top:3px}.xml-units-input{width:66px!important;min-width:66px!important;padding:6px!important}.xml-product-select{width:175px!important;min-width:175px!important;padding:6px!important}.xml-register-btn{padding:6px 8px!important;margin-left:4px;font-size:.72rem!important;white-space:nowrap}#purchases>p.muted{display:none}#productFormArea>.hint{display:none}`;document.head.appendChild(s);}
 function renderPurchaseLines(){
+  installXmlCompactStyles();
   const box=$('purchaseLines');if(!box||!purchaseDraft)return;
   const products=purchaseDraft.lines[0]?.products||[];
-  box.innerHTML='<div class="table"><table><tr><th>Item da NF-e</th><th>Qtd. recebida</th><th>Unidade</th><th>Produto cadastrado</th></tr>'+
-    purchaseDraft.lines.map((l,i)=>`<tr><td>${esc(l.product_name)}<br><small>Cód. ${esc(l.code)} · ${money(l.line_total)}</small></td><td><input type="number" min="0.001" step="0.001" value="${l.stock_qty}" onchange="setPurchaseLine(${i},'stock_qty',this.value);updateXmlCostPreview(${i})"></td><td><input value="${esc(l.stock_unit)}" onchange="setPurchaseLine(${i},'stock_unit',this.value)" style="width:70px"><label style="display:block;font-size:11px">Total de unidades recebidas <input id="xmlUnitsPerPack_${i}" type="number" min="1" step="1" value="${Number(l.units_per_pack||l.purchase_qty||1)}" style="width:90px" onchange="setXmlUnitsPerPack(${i},this.value)"></label><small id="xmlUnitCost_${i}">Custo unitário: —</small></td><td><select id="purchaseProduct_${i}" onchange="setPurchaseLine(${i},'product_id',this.value)"><option value="">Selecione o produto...</option>${products.map(p=>`<option value="${p.id}">${esc(p.name)} (${esc(p.barcode||'sem código')})</option>`).join('')}</select><button type="button" onclick="startXmlProductRegistration(${i})">Cadastrar novo produto</button></td></tr>`).join('')+'</table></div>';
+  box.innerHTML='<div class="xml-compact-wrap"><table class="xml-compact-table"><thead><tr><th>Produto da nota</th><th>Qtd. embalagens</th><th>Unid./emb.</th><th>Total un.</th><th>Valor total</th><th>Custo/un.</th><th>Produto cadastrado</th></tr></thead><tbody>'+purchaseDraft.lines.map((l,i)=>{
+    const packs=Math.max(1,Number(l.purchase_qty)||1),units=Math.max(1,Number(l.units_per_pack)||1),total=packs*units,cost=(Number(l.line_total)||0)/total;
+    return `<tr><td class="xml-product-desc"><b>${esc(l.product_name)}</b><small>Cód. ${esc(l.code||'-')} · ${esc(l.purchase_unit||'un')} · ${money(l.purchase_unit_price)} por embalagem</small></td><td>${packs}</td><td><input class="xml-units-input" id="xmlUnitsPerPack_${i}" type="number" min="1" step="1" value="${units}" onchange="setXmlUnitsPerPack(${i},this.value)"></td><td><b id="xmlTotalUnits_${i}">${total}</b></td><td>${money(l.line_total)}</td><td><b id="xmlUnitCost_${i}">${cost.toLocaleString('pt-BR',{minimumFractionDigits:4,maximumFractionDigits:4})}</b></td><td><select class="xml-product-select" id="purchaseProduct_${i}" onchange="setPurchaseLine(${i},'product_id',this.value)"><option value="">Selecione...</option>${products.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select><button type="button" class="xml-register-btn" onclick="startXmlProductRegistration(${i})">+ Cadastrar</button></td></tr>`;
+  }).join('')+'</tbody></table></div>';
   purchaseDraft.lines.forEach((l,i)=>{const sel=$('purchaseProduct_'+i);if(sel)sel.value=String(l.product_id||'');updateXmlCostPreview(i);});
 }
 function setPurchaseLine(i,k,v){if(purchaseDraft&&purchaseDraft.lines[i])purchaseDraft.lines[i][k]=k==='stock_qty'?Number(v):v;}
@@ -314,10 +354,10 @@ function setXmlUnitsPerPack(i,v){
 }
 function updateXmlCostPreview(i){
   if(!purchaseDraft||!purchaseDraft.lines[i])return;
-  const l=purchaseDraft.lines[i],totalUnits=Math.max(1,Number(l.units_per_pack)||1);
-  l.unit_cost=(Number(l.line_total)||0)/totalUnits;
+  const l=purchaseDraft.lines[i],totalUnits=Math.max(1,Number(l.purchase_qty)||1)*Math.max(1,Number(l.units_per_pack)||1);
+  l.stock_qty=totalUnits;l.stock_unit='un';l.unit_cost=(Number(l.line_total)||0)/totalUnits;
   const el=$('xmlUnitCost_'+i);
-  if(el)el.textContent='Custo unitário: '+money(l.unit_cost)+' · Estoque: '+totalUnits+' un.';
+  if(el)el.textContent=Number(l.unit_cost).toLocaleString('pt-BR',{minimumFractionDigits:4,maximumFractionDigits:4});const totalEl=$('xmlTotalUnits_'+i);if(totalEl)totalEl.textContent=totalUnits;
   const cost=$('newXmlCost_'+i);if(cost&&!cost.dataset.touched)cost.value=l.unit_cost.toFixed(4);
   updateXmlMarkup(i);
 }
@@ -334,7 +374,7 @@ async function receivePurchaseXml(){
   if(!purchaseDraft)return alert('Carregue primeiro o XML da NF-e.');
   if(purchaseDraft.lines.some(l=>!Number(l.product_id)||!(Number(l.stock_qty)>0)||!String(l.stock_unit||'').trim()))return alert('Vincule todos os itens a um produto cadastrado e confira as quantidades.');
   if(!confirm('Confirma a entrada desta NF-e? O estoque dos produtos vinculados será atualizado.'))return;
-  const payload={...purchaseDraft,lines:purchaseDraft.lines.map(({products,index,...l})=>({...l,package_qty:Number(l.stock_qty)||0,package_unit:l.stock_unit,total_units:Math.max(1,Number(l.units_per_pack)||1),units_per_pack:Math.max(1,Number(l.units_per_pack)||1),stock_qty:Math.max(1,Number(l.units_per_pack)||1),stock_unit:'un',unit_cost:(Number(l.line_total)||0)/Math.max(1,Number(l.units_per_pack)||1)}))};
+  const payload={...purchaseDraft,lines:purchaseDraft.lines.map(({products,index,...l})=>({...l,package_qty:Number(l.purchase_qty)||0,package_unit:l.purchase_unit,total_units:Math.max(1,Number(l.purchase_qty)||1)*Math.max(1,Number(l.units_per_pack)||1),units_per_pack:Math.max(1,Number(l.units_per_pack)||1),stock_qty:Math.max(1,Number(l.purchase_qty)||1)*Math.max(1,Number(l.units_per_pack)||1),stock_unit:'un',unit_cost:(Number(l.line_total)||0)/(Math.max(1,Number(l.purchase_qty)||1)*Math.max(1,Number(l.units_per_pack)||1))}))};
   try{const d=await api('/api/admin/purchases/receive',{method:'POST',body:JSON.stringify(payload)});alert(d.message||'Entrada registrada.');purchaseDraft=null;$('purchaseLines').innerHTML='';$('purchaseInvoiceInfo').textContent='Nota recebida com sucesso.';$('receivePurchaseBtn').disabled=true;await loadPurchaseHistory();await loadProducts();}
   catch(e){alert(e.message);}
 }
@@ -347,73 +387,8 @@ async function loadPurchaseHistory(){
 }
 
 
-function toggleNewXmlProduct(i){
-  const box=$('newXmlProduct_'+i);if(!box)return;
-  const opening=box.style.display==='none';
-  box.style.display=opening?'block':'none';
-  if(opening){
-    // Cria um passo de histórico para que o botão Voltar do navegador
-    // feche somente o cadastro rápido, sem sair do painel/nota XML.
-    if(!box.dataset.historyStep){
-      history.pushState({xmlQuickCreate:Number(i)},'',location.href);
-      box.dataset.historyStep='1';
-    }
-  }else{
-    box.dataset.historyStep='';
-  }
-}
-function closeNewXmlProduct(i,fromPopState=false){
-  const box=$('newXmlProduct_'+i);if(!box)return;
-  box.style.display='none';
-  const hadStep=box.dataset.historyStep==='1';
-  box.dataset.historyStep='';
-  if(hadStep&&!fromPopState){
-    // Volta apenas o passo criado pelo cadastro rápido.
-    history.back();
-  }
-}
 window.addEventListener('popstate',function(){
-  document.querySelectorAll('[id^="newXmlProduct_"]').forEach(box=>{
-    if(box.style.display!=='none'){
-      box.style.display='none';
-      box.dataset.historyStep='';
-    }
-  });
+  if(xmlReturnLine!==null){returnFromXmlProduct();}
 });
-async function createXmlProduct(i){
-  if(!purchaseDraft||!purchaseDraft.lines[i])return;
-  const line=purchaseDraft.lines[i],name=String($('newXmlName_'+i)?.value||'').trim(),category=String($('newXmlCategory_'+i)?.value||'Outros').trim()||'Outros';
-  const price=Number($('newXmlPrice_'+i)?.value||0),costPrice=Number($('newXmlCost_'+i)?.value||0);
-  if(!name)return alert('Digite o nome do produto.');
-  if(!Number.isFinite(price)||price<0||!Number.isFinite(costPrice)||costPrice<0)return alert('Informe valores válidos para preço de custo e preço de venda. Use 0 se ainda vai definir depois.');
-  const payload={
-    name,
-    category,
-    description:'',
-    product_type:'venda',
-    price,
-    cost_price:costPrice,
-    stock:0,
-    min_stock:0,
-    unit:line.purchase_unit||'un',
-    stock_secondary:0,
-    stock_secondary_unit:'',
-    barcode:'',
-    brand:'',
-    image:'',
-    active:false,
-    print_site:true,
-    print_command:false
-  };
-  try{
-    const created=await api('/api/admin/products',{method:'POST',body:JSON.stringify(payload)});
-    line.product_name=name;
-    line.product_id=String(created.id);
-    const products=await api('/api/admin/products?type=all');
-    purchaseDraft.lines.forEach(l=>l.products=products);
-    renderPurchaseLines();
-    const select=$('purchaseProduct_'+i);if(select)select.value=String(created.id);
-    closeNewXmlProduct(i);alert('Produto cadastrado. Ele ficará inativo no catálogo até você revisar o preço e ativá-lo.');
-  }catch(e){alert('Não foi possível cadastrar o produto: '+e.message);}
-}
+
 
