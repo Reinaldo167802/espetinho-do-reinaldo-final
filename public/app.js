@@ -261,9 +261,9 @@ function update() {
   if ($('cartCount')) $('cartCount').textContent = cart.reduce((sum, item) => sum + item.qty, 0);
   if ($('cartItems')) {
     $('cartItems').innerHTML = cart.length ? cart.map(item => `
-      <div class="line cart-line-item">
+      <div class="line cart-line">
         <div class="cart-line-info"><b>${esc(item.name)}</b><small>${money(item.price)} cada · Total ${money(item.price * item.qty)}</small></div>
-        <div class="cart-line-controls"><button type="button" aria-label="Diminuir quantidade" onclick="chg(${item.id},-1)">−</button><span>${item.qty}</span><button type="button" aria-label="Aumentar quantidade" onclick="chg(${item.id},1)">+</button><button type="button" class="cart-remove" aria-label="Excluir produto" title="Excluir produto" onclick="removeCartItem(${item.id})">🗑️</button></div>
+        <div class="cart-line-actions"><button type="button" aria-label="Diminuir quantidade" onclick="chg(${item.id},-1)">−</button><strong>${item.qty}</strong><button type="button" aria-label="Aumentar quantidade" onclick="chg(${item.id},1)">+</button><button type="button" class="cart-remove" aria-label="Excluir produto" title="Excluir produto" onclick="removeCartItem(${item.id})">🗑️</button></div>
       </div>
     `).join('') : '<p>Seu carrinho está vazio.</p>';
   }
@@ -286,99 +286,70 @@ function chg(id, amount) {
   if (item.qty <= 0) cart = cart.filter(entry => Number(entry.id) !== Number(id));
   update();
 }
-function openCart() { $('cart')?.classList.remove('hidden'); update(); }
-function closeCart() { $('cart')?.classList.add('hidden'); }
-
 function removeCartItem(id) {
   const item = cart.find(entry => Number(entry.id) === Number(id));
   if (!item) return;
-  if (!confirm(`Excluir "${item.name}" do carrinho?`)) return;
+  if (!confirm(`Excluir ${item.name} do seu pedido?`)) return;
   cart = cart.filter(entry => Number(entry.id) !== Number(id));
   update();
-  if (!cart.length) closeOrderReview();
 }
-
-function orderReviewStyles() {
-  if ($('orderReviewStyles')) return;
-  const style = document.createElement('style');
-  style.id = 'orderReviewStyles';
-  style.textContent = `
-    .cart-line-item{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid rgba(212,175,55,.22)}
-    .cart-line-info{min-width:0;display:flex;flex-direction:column;gap:4px}.cart-line-info b{overflow-wrap:anywhere}.cart-line-info small{opacity:.78}
-    .cart-line-controls{display:flex;align-items:center;gap:7px;flex-shrink:0}.cart-line-controls button{min-width:34px;min-height:34px;border-radius:8px}.cart-line-controls .cart-remove{background:#9d3030;color:#fff;border:0}
-    #orderReviewOverlay{position:fixed;inset:0;z-index:10050;background:rgba(5,9,18,.82);display:none;align-items:center;justify-content:center;padding:18px;overflow:auto}
-    #orderReviewOverlay.show{display:flex}.order-review-card{width:min(900px,100%);max-height:94vh;overflow:auto;background:#111827;color:#f8fafc;border:1px solid rgba(212,175,55,.55);border-radius:20px;box-shadow:0 24px 80px rgba(0,0,0,.48);padding:clamp(18px,3vw,30px)}
-    .order-review-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;border-bottom:1px solid rgba(212,175,55,.35);padding-bottom:14px;margin-bottom:16px}.order-review-head h2{margin:0;color:#e7c875;font-size:clamp(1.35rem,3vw,2rem)}.order-review-head p{margin:5px 0 0;color:#cbd5e1}.order-review-close{background:transparent;color:#fff;border:1px solid #64748b;border-radius:9px;padding:8px 12px}
-    .order-review-items{display:grid;gap:8px}.order-review-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;padding:13px;background:#1f2937;border:1px solid #374151;border-radius:12px}.order-review-row strong{display:block;overflow-wrap:anywhere}.order-review-row small{display:block;color:#cbd5e1;margin-top:4px}.order-review-actions{display:flex;align-items:center;gap:7px}.order-review-actions button{min-width:34px;min-height:34px;border-radius:8px}.order-review-actions .remove{background:#9d3030;color:#fff;border:0}
-    .order-review-summary{margin:16px 0;padding:15px;background:#202b3b;border:1px solid rgba(212,175,55,.45);border-radius:12px}.order-review-summary div{display:flex;justify-content:space-between;gap:12px;padding:5px 0}.order-review-summary .grand{font-size:1.35rem;font-weight:900;color:#f1d58a;border-top:1px solid rgba(212,175,55,.35);margin-top:6px;padding-top:12px}
-    .order-review-customer{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:14px 0}.order-review-customer div{background:#1f2937;border-radius:10px;padding:11px;min-width:0}.order-review-customer small{display:block;color:#cbd5e1;margin-bottom:4px}.order-review-customer strong{overflow-wrap:anywhere}.order-review-notes{grid-column:1/-1}
-    .order-review-footer{display:grid;grid-template-columns:1fr 1.3fr;gap:10px;margin-top:18px}.order-review-footer button{padding:14px 12px;border-radius:11px;font-weight:800;min-height:50px}.order-review-back{background:#374151;color:#fff;border:1px solid #64748b}.order-review-confirm{background:linear-gradient(135deg,#b88b35,#e7c875);color:#171717;border:0}
-    @media(max-width:600px){#orderReviewOverlay{padding:0;align-items:stretch}.order-review-card{width:100%;max-height:100vh;border-radius:0;padding:17px}.order-review-customer{grid-template-columns:1fr}.order-review-footer{grid-template-columns:1fr}.order-review-row{grid-template-columns:minmax(0,1fr)}.order-review-actions{justify-content:flex-start}}
-  `;
-  document.head.appendChild(style);
-}
-
-function getOrderReviewOverlay() {
-  orderReviewStyles();
-  let overlay = $('orderReviewOverlay');
-  if (overlay) return overlay;
-  overlay = document.createElement('div');
-  overlay.id = 'orderReviewOverlay';
-  overlay.setAttribute('role','dialog');
-  overlay.setAttribute('aria-modal','true');
-  overlay.setAttribute('aria-labelledby','orderReviewTitle');
-  overlay.innerHTML = `<section class="order-review-card"><div class="order-review-head"><div><h2 id="orderReviewTitle">Confira seu pedido</h2><p>Revise os produtos e os dados antes de enviar.</p></div><button type="button" class="order-review-close" onclick="closeOrderReview()">✕</button></div><div id="orderReviewItems" class="order-review-items"></div><div id="orderReviewSummary" class="order-review-summary"></div><h3>Dados para o atendimento</h3><div id="orderReviewCustomer" class="order-review-customer"></div><div class="order-review-footer"><button type="button" class="order-review-back" onclick="closeOrderReview()">VOLTAR E EDITAR</button><button type="button" class="order-review-confirm" id="confirmOrderReviewBtn" onclick="submitOrderNow()">CONFIRMAR E ENVIAR PEDIDO</button></div></section>`;
-  overlay.addEventListener('click', e => { if (e.target === overlay) closeOrderReview(); });
-  document.body.appendChild(overlay);
-  return overlay;
-}
-
-function renderOrderReview() {
-  if (!cart.length) return closeOrderReview();
-  const overlay = getOrderReviewOverlay();
-  const type = $('type')?.value || 'balcao';
-  const fee = type === 'entrega' ? deliveryFee : 0;
-  const subtotal = cart.reduce((sum,item)=>sum+Number(item.price||0)*Number(item.qty||0),0);
-  const total = subtotal + fee;
-  $('orderReviewItems').innerHTML = cart.map(item => `<article class="order-review-row"><div><strong>${esc(item.name)}</strong><small>${Number(item.qty)} × ${money(item.price)} = <b>${money(item.qty*item.price)}</b></small></div><div class="order-review-actions"><button type="button" aria-label="Diminuir" onclick="changeReviewQty(${Number(item.id)},-1)">−</button><b>${Number(item.qty)}</b><button type="button" aria-label="Aumentar" onclick="changeReviewQty(${Number(item.id)},1)">+</button><button type="button" class="remove" aria-label="Excluir" title="Excluir produto" onclick="removeReviewItem(${Number(item.id)})">🗑️</button></div></article>`).join('');
-  $('orderReviewSummary').innerHTML = `<div><span>Subtotal</span><b>${money(subtotal)}</b></div><div><span>Taxa de entrega</span><b>${money(fee)}</b></div><div class="grand"><span>TOTAL</span><strong>${money(total)}</strong></div>`;
-  const method = $('payment')?.selectedOptions?.[0]?.textContent || 'Não informado';
-  const service = $('type')?.selectedOptions?.[0]?.textContent || 'Não informado';
-  const address = type === 'entrega' ? ($('address')?.value.trim() || 'Não informado') : 'Não se aplica';
-  const notes = $('notes')?.value.trim() || 'Nenhuma';
-  $('orderReviewCustomer').innerHTML = `<div><small>Nome</small><strong>${esc($('name')?.value.trim()||'')}</strong></div><div><small>WhatsApp</small><strong>${esc($('phone')?.value.trim()||'Não informado')}</strong></div><div><small>Atendimento</small><strong>${esc(service)}</strong></div><div><small>Pagamento</small><strong>${esc(method)}</strong></div><div class="order-review-notes"><small>${type==='entrega'?'Endereço de entrega':'Endereço'}</small><strong>${esc(address)}</strong></div><div class="order-review-notes"><small>Observações</small><strong>${esc(notes)}</strong></div>`;
-  overlay.classList.add('show');
-  document.body.style.overflow='hidden';
-}
-
-function changeReviewQty(id, amount) {
-  const item=cart.find(x=>Number(x.id)===Number(id));if(!item)return;
-  item.qty+=amount;if(item.qty<=0)cart=cart.filter(x=>Number(x.id)!==Number(id));
-  update();renderOrderReview();
-}
-function removeReviewItem(id) {
-  const item=cart.find(x=>Number(x.id)===Number(id));if(!item)return;
-  if(!confirm(`Excluir "${item.name}" do pedido?`))return;
-  cart=cart.filter(x=>Number(x.id)!==Number(id));update();renderOrderReview();
-}
-function closeOrderReview() {
-  const overlay=$('orderReviewOverlay');if(overlay)overlay.classList.remove('show');
-  document.body.style.overflow='';
-}
+function openCart() { $('cart')?.classList.remove('hidden'); update(); }
+function closeCart() { $('cart')?.classList.add('hidden'); }
 
 function sendOrder() {
   if (pauseTotal || pausePartial) return toast('O recebimento de pedidos está temporariamente pausado.');
   if (!cart.length) return toast('Adicione algum produto');
-  const name=$('name')?.value.trim()||'';
-  if(!name)return toast('Informe seu nome');
-  const type=$('type')?.value||'balcao';
-  const address=$('address')?.value||'';
-  if(type==='entrega'&&pauseDelivery)return toast('No momento estamos sem serviço de entrega. Escolha retirada no balcão.');
-  if(type==='entrega'&&!address.trim())return toast('Informe o endereço para entrega');
-  renderOrderReview();
+  const name = $('name')?.value.trim() || '';
+  if (!name) return toast('Informe seu nome');
+  const type = $('type')?.value || 'balcao';
+  const address = $('address')?.value || '';
+  if (type === 'entrega' && pauseDelivery) return toast('No momento estamos sem serviço de entrega. Escolha retirada no balcão.');
+  if (type === 'entrega' && !address.trim()) return toast('Informe o endereço para entrega');
+  openOrderReview();
 }
 
-async function submitOrderNow() {
+function ensureOrderReviewStyles() {
+  if ($('orderReviewStyles')) return;
+  const style = document.createElement('style');
+  style.id = 'orderReviewStyles';
+  style.textContent = `
+    .order-review-overlay{position:fixed;inset:0;z-index:10000;background:rgba(5,9,20,.82);display:flex;align-items:center;justify-content:center;padding:18px;backdrop-filter:blur(5px)}
+    .order-review-panel{width:min(100%,980px);max-height:94vh;overflow:auto;background:#101827;color:#f8fafc;border:1px solid rgba(218,181,91,.55);border-radius:22px;box-shadow:0 24px 80px #0009;padding:clamp(18px,3vw,32px)}
+    .order-review-head{display:flex;align-items:center;justify-content:space-between;gap:14px;border-bottom:1px solid #ffffff24;padding-bottom:16px;margin-bottom:18px}
+    .order-review-head h2{margin:0;color:#e7c778;font-size:clamp(1.5rem,3vw,2.1rem)}.order-review-head p{margin:5px 0 0;color:#cbd5e1}
+    .order-review-items{display:grid;gap:10px}.order-review-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:center;background:#1c2b43;border:1px solid #ffffff20;border-radius:14px;padding:15px}
+    .order-review-item-name{font-size:1.12rem;font-weight:800;overflow-wrap:anywhere}.order-review-item-price{color:#d8e1ef;margin-top:5px;font-size:.95rem}
+    .order-review-controls{display:flex;align-items:center;gap:8px}.order-review-controls button{min-width:38px;min-height:38px;border:0;border-radius:9px;font-size:1.1rem;font-weight:800;cursor:pointer}.order-review-controls strong{min-width:22px;text-align:center}.order-review-controls .remove{background:#b91c1c;color:white}
+    .order-review-summary{margin-top:16px;padding:17px;background:#172338;border:1px solid #ffffff26;border-radius:14px}.order-review-summary div{display:flex;justify-content:space-between;gap:16px;padding:5px 0;color:#dbe4f0}.order-review-summary .grand{margin-top:8px;padding-top:12px;border-top:1px solid #ffffff35;color:#f3d58c;font-size:1.35rem;font-weight:900}
+    .order-review-customer{margin-top:17px}.order-review-customer h3{margin:0 0 10px;color:#e7c778}.order-review-data{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.order-review-data div{background:#1c2b43;border-radius:10px;padding:10px 12px;min-width:0;overflow-wrap:anywhere}.order-review-data small{display:block;color:#aebdd0;margin-bottom:4px}.order-review-data b{font-size:.96rem}
+    .order-review-buttons{display:flex;gap:12px;margin-top:20px}.order-review-buttons button{flex:1;min-height:48px;border:0;border-radius:12px;font-weight:900;cursor:pointer;padding:12px}.order-review-back{background:#334155;color:#fff}.order-review-confirm{background:linear-gradient(135deg,#c89d43,#f0d58b);color:#20180a}
+    @media(max-width:600px){.order-review-overlay{padding:7px;align-items:flex-end}.order-review-panel{max-height:96vh;border-radius:18px 18px 12px 12px;padding:15px}.order-review-item{grid-template-columns:1fr}.order-review-controls{justify-content:flex-end}.order-review-data{grid-template-columns:1fr}.order-review-buttons{flex-direction:column}}
+  `;
+  document.head.appendChild(style);
+}
+function openOrderReview() {
+  ensureOrderReviewStyles();
+  let overlay = $('orderReviewOverlay');
+  if (!overlay) { overlay = document.createElement('div'); overlay.id = 'orderReviewOverlay'; overlay.className = 'order-review-overlay'; document.body.appendChild(overlay); }
+  const type = $('type')?.value || 'balcao';
+  const subtotal = cart.reduce((sum,item)=>sum+Number(item.price)*Number(item.qty),0);
+  const fee = type === 'entrega' ? deliveryFee : 0;
+  const paymentLabels = {pix:'Pix',dinheiro:'Dinheiro',debito:'Cartão de débito',credito:'Cartão de crédito',fiado:'Fiado / promissória'};
+  const typeLabels = {balcao:'Retirar no balcão',mesa:'Consumir no local',entrega:'Entrega'};
+  overlay.innerHTML = `<section class="order-review-panel" role="dialog" aria-modal="true" aria-labelledby="orderReviewTitle">
+    <header class="order-review-head"><div><h2 id="orderReviewTitle">Confira seu pedido</h2><p>Revise os produtos e os dados antes de enviar.</p></div><button type="button" aria-label="Fechar" onclick="closeOrderReview()">✕</button></header>
+    <div class="order-review-items">${cart.map(item=>`<article class="order-review-item"><div><div class="order-review-item-name">${esc(item.name)}</div><div class="order-review-item-price">${item.qty} × ${money(item.price)} = <b>${money(item.qty*item.price)}</b></div></div><div class="order-review-controls"><button type="button" onclick="changeReviewQty(${item.id},-1)">−</button><strong>${item.qty}</strong><button type="button" onclick="changeReviewQty(${item.id},1)">+</button><button type="button" class="remove" title="Excluir" onclick="removeReviewItem(${item.id})">🗑️</button></div></article>`).join('')}</div>
+    <section class="order-review-summary"><div><span>Subtotal</span><b>${money(subtotal)}</b></div><div><span>Taxa de entrega</span><b>${money(fee)}</b></div><div class="grand"><span>TOTAL</span><strong>${money(subtotal+fee)}</strong></div></section>
+    <section class="order-review-customer"><h3>Dados para o atendimento</h3><div class="order-review-data"><div><small>Nome</small><b>${esc($('name')?.value||'-')}</b></div><div><small>WhatsApp</small><b>${esc($('phone')?.value||'Não informado')}</b></div><div><small>Atendimento</small><b>${esc(typeLabels[type]||type)}</b></div><div><small>Pagamento</small><b>${esc(paymentLabels[$('payment')?.value]||$('payment')?.value||'-')}</b></div>${type==='entrega'?`<div style="grid-column:1/-1"><small>Endereço</small><b>${esc($('address')?.value||'-')}</b></div>`:''}${$('notes')?.value.trim()?`<div style="grid-column:1/-1"><small>Observações</small><b>${esc($('notes').value)}</b></div>`:''}</div></section>
+    <div class="order-review-buttons"><button type="button" class="order-review-back" onclick="closeOrderReview()">VOLTAR E EDITAR</button><button type="button" class="order-review-confirm" onclick="submitReviewedOrder()">CONFIRMAR E ENVIAR PEDIDO</button></div>
+  </section>`;
+  overlay.style.display='flex';
+}
+function closeOrderReview(){const overlay=$('orderReviewOverlay');if(overlay)overlay.style.display='none';}
+function changeReviewQty(id,delta){chg(id,delta);if(!cart.length){closeOrderReview();toast('Seu carrinho está vazio.');return;}openOrderReview();}
+function removeReviewItem(id){const item=cart.find(x=>Number(x.id)===Number(id));if(!item)return;cart=cart.filter(x=>Number(x.id)!==Number(id));update();if(!cart.length){closeOrderReview();toast('Seu carrinho está vazio.');return;}openOrderReview();}
+async function submitReviewedOrder() {
+  closeOrderReview();
   if (pauseTotal || pausePartial) return toast('O recebimento de pedidos está temporariamente pausado.');
   if (!cart.length) return toast('Adicione algum produto');
   const name = $('name')?.value.trim() || '';
@@ -427,7 +398,6 @@ async function submitOrderNow() {
       return toast(result.error || 'Não foi possível enviar o pedido');
     }
 
-    closeOrderReview();
     cart = [];
     update();
     closeCart();
