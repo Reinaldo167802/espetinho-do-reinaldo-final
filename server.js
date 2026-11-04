@@ -45,7 +45,7 @@ function initSqlite(){
  db.exec('UPDATE products SET print_command=prepare_kitchen WHERE print_command=0 AND prepare_kitchen=1');
  const orderCols=db.prepare('PRAGMA table_info(orders)').all().map(c=>c.name); if(!orderCols.includes('payment_confirmed')) db.exec('ALTER TABLE orders ADD COLUMN payment_confirmed INTEGER NOT NULL DEFAULT 0');
  for(const [col,def] of [['sale_label',"TEXT DEFAULT ''"],['stock_qty','REAL DEFAULT 0'],['stock_unit',"TEXT DEFAULT 'un'"]]){const cols=db.prepare('PRAGMA table_info(order_items)').all().map(c=>c.name);if(!cols.includes(col))db.exec(`ALTER TABLE order_items ADD COLUMN ${col} ${def}`);}
- const commandCols=db.prepare('PRAGMA table_info(command_items)').all().map(c=>c.name);for(const [col,def] of [['sale_label',"TEXT DEFAULT ''"],['stock_qty','REAL DEFAULT 0'],['stock_unit',"TEXT DEFAULT 'un'"]])if(!commandCols.includes(col))db.exec(`ALTER TABLE command_items ADD COLUMN ${col} ${def}`);
+ const commandCols=db.prepare('PRAGMA table_info(command_items)').all().map(c=>c.name);for(const [col,def] of [['sale_label',"TEXT DEFAULT ''"],['stock_qty','REAL DEFAULT 0'],['stock_unit',"TEXT DEFAULT 'un'"],['stock_deducted','INTEGER NOT NULL DEFAULT 0']])if(!commandCols.includes(col))db.exec(`ALTER TABLE command_items ADD COLUMN ${col} ${def}`);
  const orderStockCols=db.prepare('PRAGMA table_info(orders)').all().map(c=>c.name);if(!orderStockCols.includes('stock_deducted'))db.exec('ALTER TABLE orders ADD COLUMN stock_deducted INTEGER NOT NULL DEFAULT 0');
  // Migração segura: bancos antigos podem ter fiado_payments sem a coluna customer.
  const fiadoCols=db.prepare('PRAGMA table_info(fiado_payments)').all().map(c=>c.name);
@@ -101,7 +101,7 @@ async function initPg(){
  // Migração segura para instalações PostgreSQL já existentes.
  await db.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_confirmed BOOLEAN NOT NULL DEFAULT FALSE');
  await db.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS stock_deducted BOOLEAN NOT NULL DEFAULT FALSE');
- for(const t of ['order_items','command_items']){await db.query(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS sale_label TEXT DEFAULT ''`);await db.query(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS stock_qty NUMERIC(12,4) DEFAULT 0`);await db.query(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS stock_unit TEXT DEFAULT 'un'`);}
+ for(const t of ['order_items','command_items']){await db.query(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS sale_label TEXT DEFAULT ''`);await db.query(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS stock_qty NUMERIC(12,4) DEFAULT 0`);await db.query(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS stock_unit TEXT DEFAULT 'un'`);} await db.query('ALTER TABLE command_items ADD COLUMN IF NOT EXISTS stock_deducted BOOLEAN NOT NULL DEFAULT FALSE');
  await db.query("ALTER TABLE fiado_payments ADD COLUMN IF NOT EXISTS customer TEXT NOT NULL DEFAULT ''");
  const c=await db.query('SELECT COUNT(*) c FROM products');
  if(Number(c.rows[0].c)===0){for(const x of [['Espetinho de Carne','Espetinhos','Espetinho tradicional da casa',10],['Espetinho de Frango','Espetinhos','Temperado da casa',9],['X-Tudo','Hambúrgueres','Hambúrguer completo',25],['Super Espetinho Burguer','Hambúrgueres','Especial da casa',30],['Porção de Tilápia','Porções','Tilápia na panela de pedra',35],['Copa Lombo','Porções','Porção de copa lombo',30],['Pastel frito na hora','Salgados','Consulte sabores',7],['Açaí 300 ml','Açaí','Complementos à parte',10],['Açaí 500 ml','Açaí','Complementos à parte',14],['Suco de laranja 300 ml','Bebidas','Natural',8],['Cerveja Brahma Latão','Bebidas','473 ml',8]]) await db.query('INSERT INTO products(name,category,description,price,active) VALUES($1,$2,$3,$4,true)',x);}
@@ -143,7 +143,7 @@ async function saveSandwichLimit(value){
 }
 function productNumber(v){if(v===undefined||v===null||String(v).trim()==='')return 0;if(typeof v==='number')return Number.isFinite(v)?v:NaN;const s=String(v).trim().replace(/\s/g,'').replace(',','.');return Number(s);}
 function parseSaleOptions(product){try{const v=product?.sale_options;const a=Array.isArray(v)?v:JSON.parse(v||'[]');return Array.isArray(a)?a.filter(x=>x&&String(x.key||'').trim()&&Number(x.factor)>0&&Number(x.price)>=0):[]}catch(_){return []}}
-function resolveSale(product,key,qty){const opts=parseSaleOptions(product);if(!opts.length)return {label:'',factor:1,price:Number(product.price||0),qty:Number(qty),stockQty:0,stockUnit:String(product.unit||'un')};const option=opts.find(x=>String(x.key)===String(key))||opts[0];if(!option)throw new Error('Apresentação de venda inválida.');const factor=Number(option.factor),price=Number(option.price);if(!(factor>0)||!(price>=0)||!Number.isFinite(factor)||!Number.isFinite(price))throw new Error('Configuração de venda inválida para '+product.name+'.');return {label:String(option.label||'Unidade'),factor,price,qty:Number(qty),stockQty:factor*Number(qty),stockUnit:String(product.unit||'un')}}
+function resolveSale(product,key,qty){const opts=parseSaleOptions(product);if(!opts.length)return {label:'',factor:1,price:Number(product.price||0),qty:Number(qty),stockQty:Number(qty),stockUnit:String(product.unit||'un')};const option=opts.find(x=>String(x.key)===String(key))||opts[0];if(!option)throw new Error('Apresentação de venda inválida.');const factor=Number(option.factor),price=Number(option.price);if(!(factor>0)||!(price>=0)||!Number.isFinite(factor)||!Number.isFinite(price))throw new Error('Configuração de venda inválida para '+product.name+'.');return {label:String(option.label||'Unidade'),factor,price,qty:Number(qty),stockQty:factor*Number(qty),stockUnit:String(product.unit||'un')}}
 async function ensureStockAvailable(items){const totals=new Map();for(const x of items){const n=Number(x.sale?.stockQty??x.stock_qty??0);if(n>0)totals.set(Number(x.p?.id??x.product_id),(totals.get(Number(x.p?.id??x.product_id))||0)+n)}for(const [id,n] of totals){const p=await one('SELECT * FROM products WHERE id='+(isPg?'$1':'?'),[id]);if(!p||Number(p.stock||0)+0.0001<n)throw new Error('Estoque insuficiente para '+(p?.name||('produto '+id))+'. Disponível: '+Number(p?.stock||0)+' '+(p?.unit||'un')+'. Necessário: '+n+' '+(p?.unit||'un')+'.');}}
 async function changeStock(productId,amount,unit,description){const p=await one('SELECT * FROM products WHERE id='+(isPg?'$1':'?'),[productId]);if(!p)throw new Error('Produto não encontrado no estoque.');const current=Number(p.stock||0),delta=Number(amount);if(current+delta < -0.0001)throw new Error('Estoque insuficiente para '+p.name+'. Disponível: '+current+' '+(p.unit||'un')+'.');await run('UPDATE products SET stock='+(isPg?'$1':'?')+' WHERE id='+(isPg?'$2':'?'),[Math.max(0,current+delta),productId]);await run('INSERT INTO inventory_movements(product_id,quantity,unit,cost_total,description) VALUES('+(isPg?'$1,$2,$3,$4,$5':'?,?,?,?,?')+')',[productId,delta,unit||p.unit||'un',0,description]);}
 
@@ -524,55 +524,73 @@ app.post('/api/admin/commands',auth,async(req,res)=>{
 });
 
 app.post('/api/admin/commands/:id/items',auth,async(req,res)=>{
+ let deductedProductId=null,deductedQty=0,deductedUnit='un';
  try{
   const commandId=Number(req.params.id);
   const command=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[commandId]);
   if(!command)return res.status(404).json({error:'Comanda não encontrada'});
   if(command.status!=='aberta')return res.status(400).json({error:'Esta comanda não está aberta'});
-  const productId=Number(req.body.product_id);
-  const qty=Number(req.body.qty);
+  const productId=Number(req.body.product_id),qty=Number(req.body.qty);
   if(!Number.isInteger(productId)||productId<=0||!Number.isFinite(qty)||qty<=0)return res.status(400).json({error:'Produto e quantidade válidos são obrigatórios'});
   const product=await one('SELECT * FROM products WHERE id='+(isPg?'$1':'?'),[productId]);
   if(!product||!(product.active===true||product.active===1))return res.status(400).json({error:'Produto indisponível'});
+  if(String(product.product_type||'venda')==='insumo')return res.status(400).json({error:'Este cadastro é um insumo e não pode ser vendido.'});
   let sale;try{sale=resolveSale(product,req.body.sale_option_key,qty)}catch(e){return res.status(400).json({error:e.message})}
   const line=sale.price*qty;
+  if(sale.stockQty>0){
+   await ensureStockAvailable([{product_id:product.id,stock_qty:sale.stockQty}]);
+   await changeStock(product.id,-sale.stockQty,sale.stockUnit,'Venda comanda '+command.number+' — '+(sale.label||product.name));
+   deductedProductId=product.id;deductedQty=sale.stockQty;deductedUnit=sale.stockUnit;
+  }
+  let itemId;
   if(isPg){
-   await db.query('INSERT INTO command_items(command_id,product_id,name,qty,unit_price,total,sale_label,stock_qty,stock_unit) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[commandId,product.id,product.name+(sale.label?' — '+sale.label:''),qty,sale.price,line,sale.label,sale.stockQty,sale.stockUnit]);
+   const r=await db.query('INSERT INTO command_items(command_id,product_id,name,qty,unit_price,total,sale_label,stock_qty,stock_unit,stock_deducted) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id',[commandId,product.id,product.name+(sale.label?' — '+sale.label:''),qty,sale.price,line,sale.label,sale.stockQty,sale.stockUnit,sale.stockQty>0]);
+   itemId=r.rows[0].id;
    await db.query('UPDATE commands SET total=COALESCE(total,0)+$1 WHERE id=$2',[line,commandId]);
   }else{
-   await run('INSERT INTO command_items(command_id,product_id,name,qty,unit_price,total,sale_label,stock_qty,stock_unit) VALUES(?,?,?,?,?,?,?,?,?)',[commandId,product.id,product.name+(sale.label?' — '+sale.label:''),qty,sale.price,line,sale.label,sale.stockQty,sale.stockUnit]);
+   const r=await run('INSERT INTO command_items(command_id,product_id,name,qty,unit_price,total,sale_label,stock_qty,stock_unit,stock_deducted) VALUES(?,?,?,?,?,?,?,?,?,?)',[commandId,product.id,product.name+(sale.label?' — '+sale.label:''),qty,sale.price,line,sale.label,sale.stockQty,sale.stockUnit,sale.stockQty>0?1:0]);
+   itemId=r.lastID;
    await run('UPDATE commands SET total=COALESCE(total,0)+? WHERE id=?',[line,commandId]);
   }
-  if(product.print_command===true||product.print_command===1||((product.print_command===undefined||product.print_command===null)&&(product.prepare_kitchen===true||product.prepare_kitchen===1))){const last=await one('SELECT * FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id DESC LIMIT 1',[commandId]);if(last)await enqueuePrint('kitchen-command-item-'+last.id,'kitchen',{title:'COMANDA — COZINHA',command:command.number,customer:command.customer||'',items:[{name:product.name,qty,total:line}],created_at:new Date().toISOString()});}
+  deductedProductId=null;
+  if(product.print_command===true||product.print_command===1||((product.print_command===undefined||product.print_command===null)&&(product.prepare_kitchen===true||product.prepare_kitchen===1))){
+   const last=await one('SELECT * FROM command_items WHERE id='+(isPg?'$1':'?'),[itemId]);
+   if(last)await enqueuePrint('kitchen-command-item-'+last.id,'kitchen',{title:'COMANDA — COZINHA',command:command.number,customer:command.customer||'',items:[{name:product.name+(sale.label?' — '+sale.label:''),qty,total:line}],created_at:new Date().toISOString()});
+  }
   const updated=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[commandId]);
   const items=await q('SELECT * FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[commandId]);
   res.json({ok:true,command:updated,items});
- }catch(e){res.status(500).json({error:e.message||'Erro ao lançar produto na comanda'})}
+ }catch(e){
+  if(deductedProductId!==null){try{await changeStock(deductedProductId,deductedQty,deductedUnit,'Estorno automático de falha no lançamento da comanda')}catch(restoreError){console.error('Falha ao estornar estoque após erro:',restoreError)}}
+  res.status(500).json({error:e.message||'Erro ao lançar produto na comanda'})
+ }
 });
 
 
-// Remove um produto somente de uma comanda que ainda está aberta.
+// Remove um produto somente de uma comanda que ainda está aberta e devolve o estoque já baixado.
 app.delete('/api/admin/commands/:id/items/:itemId',auth,async(req,res)=>{
  try{
-  const commandId=Number(req.params.id);
-  const itemId=Number(req.params.itemId);
-  if(!Number.isInteger(commandId)||commandId<=0||!Number.isInteger(itemId)||itemId<=0)
-   return res.status(400).json({error:'Comanda ou item inválido.'});
+  const commandId=Number(req.params.id),itemId=Number(req.params.itemId);
+  if(!Number.isInteger(commandId)||commandId<=0||!Number.isInteger(itemId)||itemId<=0)return res.status(400).json({error:'Comanda ou item inválido.'});
   const command=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[commandId]);
   if(!command)return res.status(404).json({error:'Comanda não encontrada.'});
   if(command.status!=='aberta')return res.status(400).json({error:'Só é possível excluir produtos de comandas abertas.'});
   const item=await one('SELECT * FROM command_items WHERE id='+(isPg?'$1':'?')+' AND command_id='+(isPg?'$2':'?'),[itemId,commandId]);
   if(!item)return res.status(404).json({error:'Este produto não pertence a esta comanda ou já foi excluído.'});
+  if(item.stock_deducted===true||item.stock_deducted===1){
+   const quantity=Number(item.stock_qty||0);
+   if(quantity>0)await changeStock(Number(item.product_id),quantity,item.stock_unit||'un','Devolução por exclusão do item da comanda '+command.number);
+  }
   await run('DELETE FROM command_items WHERE id='+(isPg?'$1':'?')+' AND command_id='+(isPg?'$2':'?'),[itemId,commandId]);
   const sumRows=await q('SELECT COALESCE(SUM(total),0) AS total FROM command_items WHERE command_id='+(isPg?'$1':'?'),[commandId]);
   const total=Math.round(Number(sumRows[0]?.total||0)*100)/100;
   await run('UPDATE commands SET total='+(isPg?'$1':'?')+' WHERE id='+(isPg?'$2':'?'),[total,commandId]);
   const updated=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[commandId]);
   const items=await q('SELECT * FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[commandId]);
-  res.json({ok:true,message:'Produto excluído e total recalculado.',command:updated,items});
+  res.json({ok:true,message:'Produto excluído, estoque devolvido e total recalculado.',command:updated,items});
  }catch(e){
   console.error('Erro ao excluir item da comanda:',e);
-  res.status(500).json({error:'Não foi possível excluir o produto da comanda.'});
+  res.status(500).json({error:e.message||'Não foi possível excluir o produto da comanda.'});
  }
 });
 
@@ -659,8 +677,14 @@ app.put('/api/admin/commands/:id/close',auth,async(req,res)=>{
    if(Number(c.total)>available+0.001)return res.status(400).json({error:'Limite de fiado insuficiente. Limite: '+Number(customer.credit_limit||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})+'; utilizado: '+used.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})+'; disponível: '+Math.max(0,available).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})+'.'});
   }
   const commandItems=await q('SELECT * FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[id]);
-  try{await ensureStockAvailable(commandItems.map(item=>({product_id:item.product_id,stock_qty:item.stock_qty})))}catch(e){return res.status(409).json({error:e.message})}
-  for(const item of commandItems){const stockQty=Number(item.stock_qty||0);if(stockQty>0)await changeStock(Number(item.product_id),-stockQty,item.stock_unit||'un','Venda comanda '+c.number+' — '+(item.sale_label||item.name));}
+  // Itens novos já tiveram baixa no lançamento. Só baixa aqui itens antigos ainda não processados.
+  const pendingStockItems=commandItems.filter(item=>!(item.stock_deducted===true||item.stock_deducted===1));
+  try{await ensureStockAvailable(pendingStockItems.map(item=>({product_id:item.product_id,stock_qty:item.stock_qty})))}catch(e){return res.status(409).json({error:e.message})}
+  for(const item of pendingStockItems){
+   const stockQty=Number(item.stock_qty||0);
+   if(stockQty>0)await changeStock(Number(item.product_id),-stockQty,item.stock_unit||'un','Venda comanda '+c.number+' — '+(item.sale_label||item.name));
+   await run('UPDATE command_items SET stock_deducted='+(isPg?'TRUE':'1')+' WHERE id='+(isPg?'$1':'?'),[item.id]);
+  }
   await run('UPDATE commands SET status='+(isPg?'$1':'?')+',payment='+(isPg?'$2':'?')+',closed_at=CURRENT_TIMESTAMP WHERE id='+(isPg?'$3':'?'),['fechada',payment,id]);
   const description=payment==='fiado'?'Comanda '+c.number+' - Fiado':'Comanda '+c.number;
   // Conta pendente não é entrada de caixa. Fiado segue registrado como valor a receber.
