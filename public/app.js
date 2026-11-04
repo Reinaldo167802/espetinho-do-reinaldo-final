@@ -216,8 +216,6 @@ function startCapacityRefresh() {
   capacityRefreshTimer = setInterval(refreshSandwichCapacity, 12000);
 }
 
-function saleOptions(product){try{const v=Array.isArray(product.sale_options)?product.sale_options:JSON.parse(product.sale_options||'[]');return Array.isArray(v)?v:[]}catch(_){return []}}
-function updateSalePrice(id){const p=products.find(x=>Number(x.id)===Number(id));const option=saleOptions(p||{}).find(x=>String(x.key)===String($('saleOpt_'+id)?.value));if($('salePrice_'+id)&&option)$('salePrice_'+id).textContent=money(option.price)}
 function renderProducts(category = '') {
   currentCategory = category;
   const box = $('products');
@@ -230,21 +228,20 @@ function renderProducts(category = '') {
       <div class="photo">${product.image ? `<img src="${escAttr(product.image)}" alt="${escAttr(product.name)}" loading="lazy" onerror="this.style.display='none';this.parentElement.textContent='🍢'">` : '🍢'}</div>
       <h3>${esc(product.name)}</h3>
       <small>${esc(product.description || '')}</small>
-      ${saleOptions(product).length ? `<select id="saleOpt_${Number(product.id)}" aria-label="Apresentação de ${escAttr(product.name)}" onchange="updateSalePrice(${Number(product.id)})">${saleOptions(product).map(o=>`<option value="${escAttr(o.key)}">${esc(o.label)} — ${money(o.price)}</option>`).join('')}</select><strong id="salePrice_${Number(product.id)}">${money(saleOptions(product)[0].price)}</strong>` : `<strong>${money(product.price)}</strong>`}
-      <button ${(pauseTotal || pausePartial || (sandwichPaused && isSandwichItem(product))) ? 'disabled aria-disabled="true"' : ''} onclick="add(${Number(product.id)},${saleOptions(product).length?`document.getElementById('saleOpt_${Number(product.id)}').value`:"''"})">${(pauseTotal || pausePartial) ? 'Pedidos pausados' : (sandwichPaused && isSandwichItem(product) ? 'Temporariamente indisponível' : 'Adicionar')}</button>
+      <strong>${money(product.price)}</strong>
+      <button ${(pauseTotal || pausePartial || (sandwichPaused && isSandwichItem(product))) ? 'disabled aria-disabled="true"' : ''} onclick="add(${Number(product.id)})">${(pauseTotal || pausePartial) ? 'Pedidos pausados' : (sandwichPaused && isSandwichItem(product) ? 'Temporariamente indisponível' : 'Adicionar')}</button>
     </article>
   `).join('') || '<p>Nenhum produto disponível nesta categoria.</p>';
 }
 
-function add(id, optionKey = '') {
+function add(id) {
   const product = products.find(item => Number(item.id) === Number(id));
   if (!product) return;
   if (pauseTotal || pausePartial) return toast('O recebimento de pedidos está temporariamente pausado.');
   if (sandwichPaused && isSandwichItem(product)) return toast('Os sanduíches estão temporariamente pausados.');
-  const option=saleOptions(product).find(o=>String(o.key)===String(optionKey))||saleOptions(product)[0]||null;
-  const key=option?String(option.key):'';const index = cart.findIndex(item => Number(item.id) === Number(id)&&String(item.sale_option_key||'')===key);
+  const index = cart.findIndex(item => Number(item.id) === Number(id));
   if (index >= 0) cart[index].qty++;
-  else cart.push({id:Number(product.id), name:product.name, category:product.category, price:option?Number(option.price):Number(product.price), sale_option_key:key, sale_label:option?option.label:'', qty:1});
+  else cart.push({id:Number(product.id), name:product.name, category:product.category, price:Number(product.price), qty:1});
   update();
   toast('Adicionado ao pedido');
 }
@@ -264,9 +261,9 @@ function update() {
   if ($('cartCount')) $('cartCount').textContent = cart.reduce((sum, item) => sum + item.qty, 0);
   if ($('cartItems')) {
     $('cartItems').innerHTML = cart.length ? cart.map(item => `
-      <div class="line">
-        <div><b>${esc(item.name)}</b><small>${item.sale_label?esc(item.sale_label)+' · ':''}${money(item.price)} cada</small></div>
-        <div><button onclick="chg(${item.id},-1,'${escAttr(item.sale_option_key||'')}')">−</button><span>${item.qty}</span><button onclick="chg(${item.id},1,'${escAttr(item.sale_option_key||'')}')">+</button></div>
+      <div class="line cart-line-item">
+        <div class="cart-line-info"><b>${esc(item.name)}</b><small>${money(item.price)} cada · Total ${money(item.price * item.qty)}</small></div>
+        <div class="cart-line-controls"><button type="button" aria-label="Diminuir quantidade" onclick="chg(${item.id},-1)">−</button><span>${item.qty}</span><button type="button" aria-label="Aumentar quantidade" onclick="chg(${item.id},1)">+</button><button type="button" class="cart-remove" aria-label="Excluir produto" title="Excluir produto" onclick="removeCartItem(${item.id})">🗑️</button></div>
       </div>
     `).join('') : '<p>Seu carrinho está vazio.</p>';
   }
@@ -282,17 +279,106 @@ function update() {
   }
 }
 
-function chg(id, amount, optionKey = '') {
-  const item = cart.find(entry => Number(entry.id) === Number(id)&&String(entry.sale_option_key||'')===String(optionKey||''));
+function chg(id, amount) {
+  const item = cart.find(entry => Number(entry.id) === Number(id));
   if (!item) return;
   item.qty += amount;
-  if (item.qty <= 0) cart = cart.filter(entry => !(Number(entry.id) === Number(id)&&String(entry.sale_option_key||'')===String(optionKey||'')));
+  if (item.qty <= 0) cart = cart.filter(entry => Number(entry.id) !== Number(id));
   update();
 }
 function openCart() { $('cart')?.classList.remove('hidden'); update(); }
 function closeCart() { $('cart')?.classList.add('hidden'); }
 
-async function sendOrder() {
+function removeCartItem(id) {
+  const item = cart.find(entry => Number(entry.id) === Number(id));
+  if (!item) return;
+  if (!confirm(`Excluir "${item.name}" do carrinho?`)) return;
+  cart = cart.filter(entry => Number(entry.id) !== Number(id));
+  update();
+  if (!cart.length) closeOrderReview();
+}
+
+function orderReviewStyles() {
+  if ($('orderReviewStyles')) return;
+  const style = document.createElement('style');
+  style.id = 'orderReviewStyles';
+  style.textContent = `
+    .cart-line-item{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid rgba(212,175,55,.22)}
+    .cart-line-info{min-width:0;display:flex;flex-direction:column;gap:4px}.cart-line-info b{overflow-wrap:anywhere}.cart-line-info small{opacity:.78}
+    .cart-line-controls{display:flex;align-items:center;gap:7px;flex-shrink:0}.cart-line-controls button{min-width:34px;min-height:34px;border-radius:8px}.cart-line-controls .cart-remove{background:#9d3030;color:#fff;border:0}
+    #orderReviewOverlay{position:fixed;inset:0;z-index:10050;background:rgba(5,9,18,.82);display:none;align-items:center;justify-content:center;padding:18px;overflow:auto}
+    #orderReviewOverlay.show{display:flex}.order-review-card{width:min(900px,100%);max-height:94vh;overflow:auto;background:#111827;color:#f8fafc;border:1px solid rgba(212,175,55,.55);border-radius:20px;box-shadow:0 24px 80px rgba(0,0,0,.48);padding:clamp(18px,3vw,30px)}
+    .order-review-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;border-bottom:1px solid rgba(212,175,55,.35);padding-bottom:14px;margin-bottom:16px}.order-review-head h2{margin:0;color:#e7c875;font-size:clamp(1.35rem,3vw,2rem)}.order-review-head p{margin:5px 0 0;color:#cbd5e1}.order-review-close{background:transparent;color:#fff;border:1px solid #64748b;border-radius:9px;padding:8px 12px}
+    .order-review-items{display:grid;gap:8px}.order-review-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;padding:13px;background:#1f2937;border:1px solid #374151;border-radius:12px}.order-review-row strong{display:block;overflow-wrap:anywhere}.order-review-row small{display:block;color:#cbd5e1;margin-top:4px}.order-review-actions{display:flex;align-items:center;gap:7px}.order-review-actions button{min-width:34px;min-height:34px;border-radius:8px}.order-review-actions .remove{background:#9d3030;color:#fff;border:0}
+    .order-review-summary{margin:16px 0;padding:15px;background:#202b3b;border:1px solid rgba(212,175,55,.45);border-radius:12px}.order-review-summary div{display:flex;justify-content:space-between;gap:12px;padding:5px 0}.order-review-summary .grand{font-size:1.35rem;font-weight:900;color:#f1d58a;border-top:1px solid rgba(212,175,55,.35);margin-top:6px;padding-top:12px}
+    .order-review-customer{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:14px 0}.order-review-customer div{background:#1f2937;border-radius:10px;padding:11px;min-width:0}.order-review-customer small{display:block;color:#cbd5e1;margin-bottom:4px}.order-review-customer strong{overflow-wrap:anywhere}.order-review-notes{grid-column:1/-1}
+    .order-review-footer{display:grid;grid-template-columns:1fr 1.3fr;gap:10px;margin-top:18px}.order-review-footer button{padding:14px 12px;border-radius:11px;font-weight:800;min-height:50px}.order-review-back{background:#374151;color:#fff;border:1px solid #64748b}.order-review-confirm{background:linear-gradient(135deg,#b88b35,#e7c875);color:#171717;border:0}
+    @media(max-width:600px){#orderReviewOverlay{padding:0;align-items:stretch}.order-review-card{width:100%;max-height:100vh;border-radius:0;padding:17px}.order-review-customer{grid-template-columns:1fr}.order-review-footer{grid-template-columns:1fr}.order-review-row{grid-template-columns:minmax(0,1fr)}.order-review-actions{justify-content:flex-start}}
+  `;
+  document.head.appendChild(style);
+}
+
+function getOrderReviewOverlay() {
+  orderReviewStyles();
+  let overlay = $('orderReviewOverlay');
+  if (overlay) return overlay;
+  overlay = document.createElement('div');
+  overlay.id = 'orderReviewOverlay';
+  overlay.setAttribute('role','dialog');
+  overlay.setAttribute('aria-modal','true');
+  overlay.setAttribute('aria-labelledby','orderReviewTitle');
+  overlay.innerHTML = `<section class="order-review-card"><div class="order-review-head"><div><h2 id="orderReviewTitle">Confira seu pedido</h2><p>Revise os produtos e os dados antes de enviar.</p></div><button type="button" class="order-review-close" onclick="closeOrderReview()">✕</button></div><div id="orderReviewItems" class="order-review-items"></div><div id="orderReviewSummary" class="order-review-summary"></div><h3>Dados para o atendimento</h3><div id="orderReviewCustomer" class="order-review-customer"></div><div class="order-review-footer"><button type="button" class="order-review-back" onclick="closeOrderReview()">VOLTAR E EDITAR</button><button type="button" class="order-review-confirm" id="confirmOrderReviewBtn" onclick="submitOrderNow()">CONFIRMAR E ENVIAR PEDIDO</button></div></section>`;
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeOrderReview(); });
+  document.body.appendChild(overlay);
+  return overlay;
+}
+
+function renderOrderReview() {
+  if (!cart.length) return closeOrderReview();
+  const overlay = getOrderReviewOverlay();
+  const type = $('type')?.value || 'balcao';
+  const fee = type === 'entrega' ? deliveryFee : 0;
+  const subtotal = cart.reduce((sum,item)=>sum+Number(item.price||0)*Number(item.qty||0),0);
+  const total = subtotal + fee;
+  $('orderReviewItems').innerHTML = cart.map(item => `<article class="order-review-row"><div><strong>${esc(item.name)}</strong><small>${Number(item.qty)} × ${money(item.price)} = <b>${money(item.qty*item.price)}</b></small></div><div class="order-review-actions"><button type="button" aria-label="Diminuir" onclick="changeReviewQty(${Number(item.id)},-1)">−</button><b>${Number(item.qty)}</b><button type="button" aria-label="Aumentar" onclick="changeReviewQty(${Number(item.id)},1)">+</button><button type="button" class="remove" aria-label="Excluir" title="Excluir produto" onclick="removeReviewItem(${Number(item.id)})">🗑️</button></div></article>`).join('');
+  $('orderReviewSummary').innerHTML = `<div><span>Subtotal</span><b>${money(subtotal)}</b></div><div><span>Taxa de entrega</span><b>${money(fee)}</b></div><div class="grand"><span>TOTAL</span><strong>${money(total)}</strong></div>`;
+  const method = $('payment')?.selectedOptions?.[0]?.textContent || 'Não informado';
+  const service = $('type')?.selectedOptions?.[0]?.textContent || 'Não informado';
+  const address = type === 'entrega' ? ($('address')?.value.trim() || 'Não informado') : 'Não se aplica';
+  const notes = $('notes')?.value.trim() || 'Nenhuma';
+  $('orderReviewCustomer').innerHTML = `<div><small>Nome</small><strong>${esc($('name')?.value.trim()||'')}</strong></div><div><small>WhatsApp</small><strong>${esc($('phone')?.value.trim()||'Não informado')}</strong></div><div><small>Atendimento</small><strong>${esc(service)}</strong></div><div><small>Pagamento</small><strong>${esc(method)}</strong></div><div class="order-review-notes"><small>${type==='entrega'?'Endereço de entrega':'Endereço'}</small><strong>${esc(address)}</strong></div><div class="order-review-notes"><small>Observações</small><strong>${esc(notes)}</strong></div>`;
+  overlay.classList.add('show');
+  document.body.style.overflow='hidden';
+}
+
+function changeReviewQty(id, amount) {
+  const item=cart.find(x=>Number(x.id)===Number(id));if(!item)return;
+  item.qty+=amount;if(item.qty<=0)cart=cart.filter(x=>Number(x.id)!==Number(id));
+  update();renderOrderReview();
+}
+function removeReviewItem(id) {
+  const item=cart.find(x=>Number(x.id)===Number(id));if(!item)return;
+  if(!confirm(`Excluir "${item.name}" do pedido?`))return;
+  cart=cart.filter(x=>Number(x.id)!==Number(id));update();renderOrderReview();
+}
+function closeOrderReview() {
+  const overlay=$('orderReviewOverlay');if(overlay)overlay.classList.remove('show');
+  document.body.style.overflow='';
+}
+
+function sendOrder() {
+  if (pauseTotal || pausePartial) return toast('O recebimento de pedidos está temporariamente pausado.');
+  if (!cart.length) return toast('Adicione algum produto');
+  const name=$('name')?.value.trim()||'';
+  if(!name)return toast('Informe seu nome');
+  const type=$('type')?.value||'balcao';
+  const address=$('address')?.value||'';
+  if(type==='entrega'&&pauseDelivery)return toast('No momento estamos sem serviço de entrega. Escolha retirada no balcão.');
+  if(type==='entrega'&&!address.trim())return toast('Informe o endereço para entrega');
+  renderOrderReview();
+}
+
+async function submitOrderNow() {
   if (pauseTotal || pausePartial) return toast('O recebimento de pedidos está temporariamente pausado.');
   if (!cart.length) return toast('Adicione algum produto');
   const name = $('name')?.value.trim() || '';
@@ -309,7 +395,7 @@ async function sendOrder() {
     address,
     payment:$('payment')?.value || '',
     notes:$('notes')?.value || '',
-    items:cart.map(item => ({product_id:item.id, qty:item.qty, sale_option_key:item.sale_option_key||''}))
+    items:cart.map(item => ({product_id:item.id, qty:item.qty}))
   };
 
   try {
@@ -341,6 +427,7 @@ async function sendOrder() {
       return toast(result.error || 'Não foi possível enviar o pedido');
     }
 
+    closeOrderReview();
     cart = [];
     update();
     closeCart();
