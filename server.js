@@ -163,6 +163,51 @@ app.get('/api/admin/suppliers',auth,async(req,res)=>{try{res.json(await q('SELEC
 app.post('/api/admin/suppliers',auth,async(req,res)=>{try{const name=String(req.body.name||'').trim(),cnpj=String(req.body.cnpj||'').replace(/\D/g,'');if(!name||cnpj.length!==14)return res.status(400).json({error:'Informe a razão social e um CNPJ válido com 14 dígitos.'});let row;if(isPg){const r=await db.query('INSERT INTO suppliers(name,cnpj) VALUES($1,$2) ON CONFLICT(cnpj) DO UPDATE SET name=EXCLUDED.name RETURNING *',[name,cnpj]);row=r.rows[0]}else{await run('INSERT INTO suppliers(name,cnpj) VALUES(?,?) ON CONFLICT(cnpj) DO UPDATE SET name=excluded.name',[name,cnpj]);row=await one('SELECT * FROM suppliers WHERE cnpj=?',[cnpj])}res.json({ok:true,supplier:row,message:'Fornecedor cadastrado/atualizado.'})}catch(e){console.error(e);res.status(500).json({error:'Não foi possível cadastrar o fornecedor.'})}});
 app.put('/api/admin/suppliers/:id',auth,async(req,res)=>{try{const id=Number(req.params.id),name=String(req.body.name||'').trim(),cnpj=String(req.body.cnpj||'').replace(/\D/g,'');if(!Number.isInteger(id)||id<1)return res.status(400).json({error:'Fornecedor inválido.'});if(!name||cnpj.length!==14)return res.status(400).json({error:'Informe a razão social e um CNPJ válido com 14 dígitos.'});let result;if(isPg){result=await db.query('UPDATE suppliers SET name=$1,cnpj=$2 WHERE id=$3 RETURNING *',[name,cnpj,id]);if(!result.rows[0])return res.status(404).json({error:'Fornecedor não encontrado.'});res.json({ok:true,supplier:result.rows[0],message:'Fornecedor atualizado com sucesso.'});}else{const existing=await one('SELECT id FROM suppliers WHERE id=?',[id]);if(!existing)return res.status(404).json({error:'Fornecedor não encontrado.'});await run('UPDATE suppliers SET name=?,cnpj=? WHERE id=?',[name,cnpj,id]);res.json({ok:true,supplier:await one('SELECT * FROM suppliers WHERE id=?',[id]),message:'Fornecedor atualizado com sucesso.'});}}catch(e){if(String(e.message||'').toLowerCase().includes('unique')||String(e.message||'').toLowerCase().includes('duplicate'))return res.status(409).json({error:'Já existe outro fornecedor cadastrado com esse CNPJ.'});console.error(e);res.status(500).json({error:'Não foi possível atualizar o fornecedor.'})}});
 app.get('/api/admin/purchases',auth,async(req,res)=>{try{res.json(await q('SELECT * FROM purchase_invoices ORDER BY id DESC LIMIT 100'))}catch(e){console.error(e);res.status(500).json({error:'Não foi possível carregar as notas de compra.'})}});
+// Exclusão controlada do lançamento de teste da NF-e 2776027.
+// Preserva cadastro de produtos e vínculos fornecedor/produto; estorna apenas as quantidades desta nota.
+app.delete('/api/admin/purchases/test-reset/2776027',auth,async(req,res)=>{
+ const accessKey='31261061186888001599550010027760271090332535';
+ try{
+  if(isPg){
+   const client=await db.connect();
+   try{
+    await client.query('BEGIN');
+    const found=await client.query('SELECT * FROM purchase_invoices WHERE access_key=$1 FOR UPDATE',[accessKey]);
+    if(!found.rows[0]){await client.query('ROLLBACK');return res.status(404).json({error:'O lançamento de teste da NF-e 2776027 não foi encontrado. Nenhuma alteração foi feita.'});}
+    const inv=found.rows[0];
+    if(String(inv.invoice_number||'').trim()!=='2776027'){await client.query('ROLLBACK');return res.status(409).json({error:'A chave encontrada não corresponde à NF-e 2776027. Nenhuma alteração foi feita.'});}
+    const lr=await client.query('SELECT * FROM purchase_invoice_lines WHERE invoice_id=$1 ORDER BY id FOR UPDATE',[inv.id]);
+    const totals=new Map();
+    for(const l of lr.rows){const id=Number(l.product_id);if(!id)throw new Error('Há item da nota sem produto vinculado; estorno interrompido.');const t=totals.get(id)||{qty:0,secondary:0};t.qty+=Number(l.stock_qty||0);t.secondary+=Number(l.secondary_qty||0);totals.set(id,t);}
+    for(const [id,t] of totals){const pr=await client.query('SELECT id,name,stock,stock_secondary FROM products WHERE id=$1 FOR UPDATE',[id]);if(!pr.rows[0])throw new Error('Produto '+id+' não encontrado; estorno interrompido.');if(Number(pr.rows[0].stock||0)+0.0001<t.qty||Number(pr.rows[0].stock_secondary||0)+0.0001<t.secondary)throw new Error('O estoque atual de '+pr.rows[0].name+' está abaixo da quantidade recebida no teste. Não foi feita nenhuma alteração.');}
+    for(const [id,t] of totals)await client.query('UPDATE products SET stock=GREATEST(0,COALESCE(stock,0)-$1),stock_secondary=GREATEST(0,COALESCE(stock_secondary,0)-$2) WHERE id=$3',[t.qty,t.secondary,id]);
+    await client.query('DELETE FROM inventory_movements WHERE invoice_id=$1',[inv.id]);
+    await client.query('DELETE FROM purchase_invoice_lines WHERE invoice_id=$1',[inv.id]);
+    await client.query('DELETE FROM purchase_invoices WHERE id=$1',[inv.id]);
+    await client.query('COMMIT');
+    return res.json({ok:true,message:'Lançamento de teste da NF-e 2776027 excluído e estoque estornado.',products_reversed:totals.size});
+   }catch(e){try{await client.query('ROLLBACK')}catch(_){}throw e}finally{client.release()}
+  }
+  const perform=db.transaction(()=>{
+   const inv=db.prepare('SELECT * FROM purchase_invoices WHERE access_key=?').get(accessKey);
+   if(!inv)return {error:'O lançamento de teste da NF-e 2776027 não foi encontrado. Nenhuma alteração foi feita.',status:404};
+   if(String(inv.invoice_number||'').trim()!=='2776027')return {error:'A chave encontrada não corresponde à NF-e 2776027. Nenhuma alteração foi feita.',status:409};
+   const lines=db.prepare('SELECT * FROM purchase_invoice_lines WHERE invoice_id=? ORDER BY id').all(inv.id),totals=new Map();
+   for(const l of lines){const id=Number(l.product_id);if(!id)throw new Error('Há item da nota sem produto vinculado; estorno interrompido.');const t=totals.get(id)||{qty:0,secondary:0};t.qty+=Number(l.stock_qty||0);t.secondary+=Number(l.secondary_qty||0);totals.set(id,t);}
+   for(const [id,t] of totals){const pr=db.prepare('SELECT id,name,stock,stock_secondary FROM products WHERE id=?').get(id);if(!pr)throw new Error('Produto '+id+' não encontrado; estorno interrompido.');if(Number(pr.stock||0)+0.0001<t.qty||Number(pr.stock_secondary||0)+0.0001<t.secondary)throw new Error('O estoque atual de '+pr.name+' está abaixo da quantidade recebida no teste. Não foi feita nenhuma alteração.');}
+   const upd=db.prepare('UPDATE products SET stock=MAX(0,COALESCE(stock,0)-?),stock_secondary=MAX(0,COALESCE(stock_secondary,0)-?) WHERE id=?');
+   for(const [id,t] of totals)upd.run(t.qty,t.secondary,id);
+   db.prepare('DELETE FROM inventory_movements WHERE invoice_id=?').run(inv.id);
+   db.prepare('DELETE FROM purchase_invoice_lines WHERE invoice_id=?').run(inv.id);
+   db.prepare('DELETE FROM purchase_invoices WHERE id=?').run(inv.id);
+   return {ok:true,products_reversed:totals.size};
+  });
+  const result=perform();
+  if(result.error)return res.status(result.status).json({error:result.error});
+  return res.json({...result,message:'Lançamento de teste da NF-e 2776027 excluído e estoque estornado.'});
+ }catch(e){console.error('Estorno teste NF-e 2776027:',e);return res.status(409).json({error:e.message||'Não foi possível estornar o lançamento de teste.'});}
+});
+
 app.get('/api/admin/purchases/:id',auth,async(req,res)=>{try{
  const id=Number(req.params.id);if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Nota inválida.'});
  const invoice=await one('SELECT * FROM purchase_invoices WHERE id='+(isPg?'$1':'?'),[id]);
