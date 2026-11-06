@@ -172,6 +172,60 @@ app.get('/api/admin/purchases/:id',auth,async(req,res)=>{try{
 }catch(e){console.error(e);res.status(500).json({error:'Não foi possível abrir os detalhes desta nota.'})}});
 
 app.get('/api/admin/inventory/movements',auth,async(req,res)=>{try{res.json(await q('SELECT m.*,p.name AS current_product_name FROM inventory_movements m LEFT JOIN products p ON p.id=m.product_id ORDER BY m.id DESC LIMIT 200'))}catch(e){console.error(e);res.status(500).json({error:'Não foi possível carregar o histórico do estoque.'})}});
+// Exclusão controlada do lançamento de teste da NF-e 2776027.
+// Reverte somente as quantidades efetivamente lançadas por essa nota; preserva produtos,
+// fornecedores e vínculos de códigos do fornecedor.
+app.delete('/api/admin/purchases/test-reset/2776027',auth,async(req,res)=>{
+ const invoiceNumber='2776027';
+ let client=null;
+ try{
+  if(isPg){
+   client=await db.connect();
+   await client.query('BEGIN');
+   const found=await client.query("SELECT * FROM purchase_invoices WHERE TRIM(invoice_number)=$1 FOR UPDATE",[invoiceNumber]);
+   if(found.rows.length===0){await client.query('ROLLBACK');return res.status(404).json({error:'A NF-e de teste 2776027 não foi encontrada no histórico.'});}
+   if(found.rows.length!==1){await client.query('ROLLBACK');return res.status(409).json({error:'Há mais de um lançamento com esse número. Nenhum dado foi alterado.'});}
+   const invoice=found.rows[0];
+   const lines=(await client.query('SELECT * FROM purchase_invoice_lines WHERE invoice_id=$1 ORDER BY id FOR UPDATE',[invoice.id])).rows;
+   if(!lines.length){await client.query('ROLLBACK');return res.status(409).json({error:'A nota não possui itens vinculados para estornar. Nenhum dado foi alterado.'});}
+   const totals=new Map();
+   for(const l of lines){const id=Number(l.product_id);if(!id)continue;const t=totals.get(id)||{stock:0,secondary:0};t.stock+=Number(l.stock_qty||0);t.secondary+=Number(l.secondary_qty||0);totals.set(id,t);}
+   for(const [id,t] of totals){
+    const pr=(await client.query('SELECT id,name,stock,stock_secondary FROM products WHERE id=$1 FOR UPDATE',[id])).rows[0];
+    if(!pr)throw new Error('Produto vinculado à nota não encontrado (ID '+id+').');
+    if(Number(pr.stock||0)+0.0001<t.stock)throw new Error('Estoque insuficiente para estornar '+pr.name+'. Atual: '+Number(pr.stock||0)+'; quantidade recebida nesta nota: '+t.stock+'. Nenhum dado foi alterado.');
+    if(Number(pr.stock_secondary||0)+0.0001<t.secondary)throw new Error('Estoque secundário insuficiente para estornar '+pr.name+'. Nenhum dado foi alterado.');
+   }
+   for(const [id,t] of totals)await client.query('UPDATE products SET stock=GREATEST(0,COALESCE(stock,0)-$1),stock_secondary=GREATEST(0,COALESCE(stock_secondary,0)-$2) WHERE id=$3',[t.stock,t.secondary,id]);
+   await client.query('DELETE FROM inventory_movements WHERE invoice_id=$1',[invoice.id]);
+   await client.query('DELETE FROM purchase_invoice_lines WHERE invoice_id=$1',[invoice.id]);
+   await client.query('DELETE FROM purchase_invoices WHERE id=$1',[invoice.id]);
+   await client.query('COMMIT');
+   return res.json({ok:true,message:'Lançamento de teste da NF-e 2776027 excluído e estoque estornado. Produtos, fornecedores e vínculos foram preservados.'});
+  }
+  const perform=db.transaction(()=>{
+   const found=db.prepare("SELECT * FROM purchase_invoices WHERE TRIM(invoice_number)=?").all(invoiceNumber);
+   if(found.length===0)throw Object.assign(new Error('A NF-e de teste 2776027 não foi encontrada no histórico.'),{status:404});
+   if(found.length!==1)throw Object.assign(new Error('Há mais de um lançamento com esse número. Nenhum dado foi alterado.'),{status:409});
+   const invoice=found[0],lines=db.prepare('SELECT * FROM purchase_invoice_lines WHERE invoice_id=? ORDER BY id').all(invoice.id);
+   if(!lines.length)throw Object.assign(new Error('A nota não possui itens vinculados para estornar. Nenhum dado foi alterado.'),{status:409});
+   const totals=new Map();
+   for(const l of lines){const id=Number(l.product_id);if(!id)continue;const t=totals.get(id)||{stock:0,secondary:0};t.stock+=Number(l.stock_qty||0);t.secondary+=Number(l.secondary_qty||0);totals.set(id,t);}
+   for(const [id,t] of totals){const pr=db.prepare('SELECT id,name,stock,stock_secondary FROM products WHERE id=?').get(id);if(!pr)throw new Error('Produto vinculado à nota não encontrado (ID '+id+').');if(Number(pr.stock||0)+0.0001<t.stock)throw new Error('Estoque insuficiente para estornar '+pr.name+'. Atual: '+Number(pr.stock||0)+'; quantidade recebida nesta nota: '+t.stock+'. Nenhum dado foi alterado.');if(Number(pr.stock_secondary||0)+0.0001<t.secondary)throw new Error('Estoque secundário insuficiente para estornar '+pr.name+'. Nenhum dado foi alterado.');}
+   for(const [id,t] of totals)db.prepare('UPDATE products SET stock=MAX(0,COALESCE(stock,0)-?),stock_secondary=MAX(0,COALESCE(stock_secondary,0)-?) WHERE id=?').run(t.stock,t.secondary,id);
+   db.prepare('DELETE FROM inventory_movements WHERE invoice_id=?').run(invoice.id);
+   db.prepare('DELETE FROM purchase_invoice_lines WHERE invoice_id=?').run(invoice.id);
+   db.prepare('DELETE FROM purchase_invoices WHERE id=?').run(invoice.id);
+  });
+  perform();
+  return res.json({ok:true,message:'Lançamento de teste da NF-e 2776027 excluído e estoque estornado. Produtos, fornecedores e vínculos foram preservados.'});
+ }catch(e){
+  if(isPg&&client){try{await client.query('ROLLBACK')}catch(_){}}
+  console.error('Exclusão controlada da NF-e de teste 2776027:',e);
+  return res.status(e.status||409).json({error:e.message||'Não foi possível excluir o lançamento de teste. Nenhum dado foi alterado.'});
+ }finally{if(client)client.release();}
+});
+
 app.post('/api/admin/purchases/receive',auth,async(req,res)=>{try{
  const b=req.body||{}, key=String(b.access_key||'').trim(), lines=Array.isArray(b.lines)?b.lines:[];
  if(!key||!/^\d{44}$/.test(key))return res.status(400).json({error:'A chave de acesso da NF-e deve conter 44 dígitos.'});
