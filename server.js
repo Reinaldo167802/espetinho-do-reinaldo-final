@@ -562,6 +562,24 @@ app.get('/api/admin/cash',auth,async(req,res)=>{
 });
 app.post('/api/admin/cash',auth,async(req,res)=>{const {type='entrada',description,value,payment=''}=req.body;if(!description||!value)return res.status(400).json({error:'Descrição e valor obrigatórios'});await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4)':'?,?,?,?)'),[type,description,Number(value),payment]);res.json({ok:true});});
 
+// Exclusão manual de uma comanda antiga que já esteja vazia (sem itens e total zero).
+app.delete('/api/admin/commands/:id/empty',auth,async(req,res)=>{
+ try{
+  const commandId=Number(req.params.id);
+  if(!Number.isInteger(commandId)||commandId<=0)return res.status(400).json({error:'Comanda inválida.'});
+  const command=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[commandId]);
+  if(!command)return res.status(404).json({error:'Comanda não encontrada.'});
+  if(command.status!=='aberta')return res.status(400).json({error:'Só é possível excluir comandas ainda abertas.'});
+  const items=await q('SELECT id FROM command_items WHERE command_id='+(isPg?'$1':'?'),[commandId]);
+  if(items.length>0 || Number(command.total||0)>0.001)return res.status(409).json({error:'Esta comanda ainda possui produtos ou valor. Exclua os produtos individualmente primeiro.'});
+  await run('DELETE FROM commands WHERE id='+(isPg?'$1':'?')+' AND status=\'aberta\'',[commandId]);
+  return res.json({ok:true,message:'Comanda vazia excluída.',commandDeleted:true});
+ }catch(e){
+  console.error('Erro ao excluir comanda vazia:',e);
+  return res.status(500).json({error:'Não foi possível excluir a comanda vazia.'});
+ }
+});
+
 app.get('/api/admin/commands',auth,async(req,res)=>{const rows=await q('SELECT * FROM commands ORDER BY id DESC');for(const c of rows)c.items=await q('SELECT * FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[c.id]);res.json(rows);});
 app.post('/api/admin/commands',auth,async(req,res)=>{
  try{
