@@ -28,7 +28,7 @@ function initSqlite(){
  CREATE TABLE IF NOT EXISTS command_items(id INTEGER PRIMARY KEY AUTOINCREMENT,command_id INTEGER NOT NULL,product_id INTEGER,name TEXT NOT NULL,qty REAL NOT NULL,unit_price REAL NOT NULL,total REAL NOT NULL);
  CREATE TABLE IF NOT EXISTS customers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,phone TEXT DEFAULT '',address TEXT DEFAULT '',credit_limit REAL NOT NULL DEFAULT 0,fiado_authorized INTEGER NOT NULL DEFAULT 0,active INTEGER NOT NULL DEFAULT 1,notes TEXT DEFAULT '',created_at TEXT DEFAULT CURRENT_TIMESTAMP);
  CREATE TABLE IF NOT EXISTS fiado_payments(id INTEGER PRIMARY KEY AUTOINCREMENT,command_id INTEGER NOT NULL,customer TEXT NOT NULL,amount REAL NOT NULL,payment TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
- CREATE TABLE IF NOT EXISTS command_payments(id INTEGER PRIMARY KEY AUTOINCREMENT,command_id INTEGER NOT NULL,payment TEXT NOT NULL,amount REAL NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+ CREATE TABLE IF NOT EXISTS command_payments(id INTEGER PRIMARY KEY AUTOINCREMENT,command_id INTEGER NOT NULL,payment TEXT NOT NULL,amount REAL NOT NULL,customer TEXT DEFAULT '',created_at TEXT DEFAULT CURRENT_TIMESTAMP);
  CREATE TABLE IF NOT EXISTS print_jobs(id INTEGER PRIMARY KEY AUTOINCREMENT,job_key TEXT UNIQUE NOT NULL,kind TEXT NOT NULL,payload TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',attempts INTEGER NOT NULL DEFAULT 0,created_at TEXT DEFAULT CURRENT_TIMESTAMP,claimed_at TEXT,printed_at TEXT,last_error TEXT);
  CREATE TABLE IF NOT EXISTS suppliers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,cnpj TEXT UNIQUE NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
  CREATE TABLE IF NOT EXISTS purchase_invoices(id INTEGER PRIMARY KEY AUTOINCREMENT,access_key TEXT UNIQUE NOT NULL,invoice_number TEXT DEFAULT '',series TEXT DEFAULT '',supplier_name TEXT DEFAULT '',supplier_cnpj TEXT DEFAULT '',issue_date TEXT DEFAULT '',total REAL NOT NULL DEFAULT 0,xml_content TEXT DEFAULT '',created_at TEXT DEFAULT CURRENT_TIMESTAMP);
@@ -51,6 +51,7 @@ function initSqlite(){
  // Migração segura: bancos antigos podem ter fiado_payments sem a coluna customer.
  const fiadoCols=db.prepare('PRAGMA table_info(fiado_payments)').all().map(c=>c.name);
  if(!fiadoCols.includes('customer')) db.exec("ALTER TABLE fiado_payments ADD COLUMN customer TEXT NOT NULL DEFAULT ''");
+ const commandPaymentCols=db.prepare('PRAGMA table_info(command_payments)').all().map(c=>c.name); if(!commandPaymentCols.includes('customer')) db.exec("ALTER TABLE command_payments ADD COLUMN customer TEXT DEFAULT ''");
  if(q('SELECT COUNT(*) c FROM products').get().c===0){
   const ins=q('INSERT INTO products(name,category,description,price,active) VALUES(?,?,?,?,1)');
   [['Espetinho de Carne','Espetinhos','Espetinho tradicional da casa',10],['Espetinho de Frango','Espetinhos','Temperado da casa',9],['X-Tudo','Hambúrgueres','Hambúrguer completo',25],['Super Espetinho Burguer','Hambúrgueres','Especial da casa',30],['Porção de Tilápia','Porções','Tilápia na panela de pedra',35],['Copa Lombo','Porções','Porção de copa lombo',30],['Pastel frito na hora','Salgados','Consulte sabores',7],['Açaí 300 ml','Açaí','Complementos à parte',10],['Açaí 500 ml','Açaí','Complementos à parte',14],['Suco de laranja 300 ml','Bebidas','Natural',8],['Cerveja Brahma Latão','Bebidas','473 ml',8]].forEach(x=>ins.run(...x));
@@ -68,10 +69,11 @@ async function initPg(){
  CREATE TABLE IF NOT EXISTS command_items(id SERIAL PRIMARY KEY,command_id INTEGER NOT NULL,product_id INTEGER,name TEXT NOT NULL,qty NUMERIC(12,2) NOT NULL,unit_price NUMERIC(12,2) NOT NULL,total NUMERIC(12,2) NOT NULL);
  CREATE TABLE IF NOT EXISTS customers(id SERIAL PRIMARY KEY,name TEXT NOT NULL,phone TEXT DEFAULT '',address TEXT DEFAULT '',credit_limit NUMERIC(12,2) NOT NULL DEFAULT 0,fiado_authorized BOOLEAN NOT NULL DEFAULT FALSE,active BOOLEAN NOT NULL DEFAULT TRUE,notes TEXT DEFAULT '',created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
  CREATE TABLE IF NOT EXISTS fiado_payments(id SERIAL PRIMARY KEY,command_id INTEGER NOT NULL,customer TEXT NOT NULL,amount NUMERIC(12,2) NOT NULL,payment TEXT NOT NULL,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
- CREATE TABLE IF NOT EXISTS command_payments(id SERIAL PRIMARY KEY,command_id INTEGER NOT NULL,payment TEXT NOT NULL,amount NUMERIC(12,2) NOT NULL,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`);
+ CREATE TABLE IF NOT EXISTS command_payments(id SERIAL PRIMARY KEY,command_id INTEGER NOT NULL,payment TEXT NOT NULL,amount NUMERIC(12,2) NOT NULL,customer TEXT DEFAULT '',created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`);
  await db.query("CREATE TABLE IF NOT EXISTS print_jobs(id SERIAL PRIMARY KEY,job_key TEXT UNIQUE NOT NULL,kind TEXT NOT NULL,payload TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',attempts INTEGER NOT NULL DEFAULT 0,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,claimed_at TIMESTAMP,printed_at TIMESTAMP,last_error TEXT)");
  await db.query("CREATE TABLE IF NOT EXISTS suppliers(id SERIAL PRIMARY KEY,name TEXT NOT NULL,cnpj TEXT UNIQUE NOT NULL,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
  await db.query("CREATE TABLE IF NOT EXISTS purchase_invoices(id SERIAL PRIMARY KEY,access_key TEXT UNIQUE NOT NULL,invoice_number TEXT DEFAULT '',series TEXT DEFAULT '',supplier_name TEXT DEFAULT '',supplier_cnpj TEXT DEFAULT '',issue_date TEXT DEFAULT '',total NUMERIC(12,2) NOT NULL DEFAULT 0,xml_content TEXT DEFAULT '',created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+ await db.query("ALTER TABLE command_payments ADD COLUMN IF NOT EXISTS customer TEXT DEFAULT ''");
  await db.query("ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS xml_content TEXT DEFAULT ''");
  await db.query("CREATE TABLE IF NOT EXISTS purchase_invoice_lines(id SERIAL PRIMARY KEY,invoice_id INTEGER NOT NULL,product_id INTEGER,product_name TEXT NOT NULL,code TEXT DEFAULT '',purchase_qty NUMERIC(12,4) DEFAULT 0,purchase_unit TEXT DEFAULT '',purchase_unit_price NUMERIC(12,4) DEFAULT 0,line_total NUMERIC(12,2) DEFAULT 0,stock_qty NUMERIC(12,4) DEFAULT 0,stock_unit TEXT DEFAULT 'un',secondary_qty NUMERIC(12,4) DEFAULT 0,secondary_unit TEXT DEFAULT '',created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
  await db.query("CREATE TABLE IF NOT EXISTS inventory_movements(id SERIAL PRIMARY KEY,product_id INTEGER NOT NULL,invoice_id INTEGER,quantity NUMERIC(12,4) NOT NULL,unit TEXT DEFAULT 'un',secondary_quantity NUMERIC(12,4) DEFAULT 0,secondary_unit TEXT DEFAULT '',cost_total NUMERIC(12,2) DEFAULT 0,description TEXT DEFAULT '',created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
@@ -115,16 +117,20 @@ async function q(sql,args=[]){if(isPg)return normRows(await db.query(sql,args));
 async function one(sql,args=[]){if(isPg){const r=await db.query(sql,args);return r.rows[0];}return db.prepare(sql).get(...args);}
 async function run(sql,args=[]){if(isPg){const r=await db.query(sql,args.map(v=>v===undefined?null:v));return {lastID:r.rows[0]?.id,changes:r.rowCount};}const safeArgs=args.map(v=>v===undefined?null:(typeof v==='boolean'?(v?1:0):(typeof v==='number'&&!Number.isFinite(v)?null:v)));const r=db.prepare(sql).run(...safeArgs);return {lastID:r.lastInsertRowid,changes:r.changes};}
 function placeholders(n,start=1){return Array.from({length:n},(_,i)=>'$'+(i+start)).join(',');}
-async function commandFiadoBalance(command){
+async function commandFiadoBalance(command, customerName=''){
+ const legacy=String(command.payment||'').toLowerCase()==='fiado';
+ const mixed=String(command.payment||'').toLowerCase()==='misto';
+ const target=String(customerName||command.customer||'').trim();
  let original=0;
- if(String(command.payment||'').toLowerCase()==='fiado') original=Number(command.total||0);
- else if(String(command.payment||'').toLowerCase()==='misto'){
-  const parts=await q('SELECT amount FROM command_payments WHERE command_id='+(isPg?'$1':'?')+" AND LOWER(payment)='fiado'",[command.id]);
-  original=parts.reduce((sum,row)=>sum+Number(row.amount||0),0);
+ if(legacy){ if(!target || normText(target)===normText(command.customer||'')) original=Number(command.total||0); }
+ else if(mixed){
+  const parts=await q('SELECT amount,customer FROM command_payments WHERE command_id='+(isPg?'$1':'?')+" AND LOWER(payment)='fiado'",[command.id]);
+  original=parts.filter(row=>!target || normText(row.customer||command.customer||'')===normText(target)).reduce((sum,row)=>sum+Number(row.amount||0),0);
  }
  if(original<=0)return 0;
- const received=await q('SELECT amount FROM fiado_payments WHERE command_id='+(isPg?'$1':'?'),[command.id]);
- return Math.max(0,Math.round((original-received.reduce((sum,row)=>sum+Number(row.amount||0),0))*100)/100);
+ const received=await q('SELECT amount,customer FROM fiado_payments WHERE command_id='+(isPg?'$1':'?'),[command.id]);
+ const receivedForCustomer=received.filter(row=>!target || normText(row.customer||command.customer||'')===normText(target)).reduce((sum,row)=>sum+Number(row.amount||0),0);
+ return Math.max(0,Math.round((original-receivedForCustomer)*100)/100);
 }
 function normText(value){return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();}
 function isSandwichProduct(product){
@@ -166,7 +172,7 @@ async function enqueuePrint(jobKey,kind,payload){try{const key=String(jobKey),pr
 function bridgeAuth(req,res,next){if(!PRINTER_BRIDGE_TOKEN)return res.status(503).json({error:'PRINTER_BRIDGE_TOKEN não configurado no servidor'});if(String(req.headers['x-printer-token']||'')!==PRINTER_BRIDGE_TOKEN)return res.status(401).json({error:'Token da impressora inválido'});next()}
 app.get('/api/printer/next',bridgeAuth,async(req,res)=>{try{let job;if(isPg){const r=await db.query("UPDATE print_jobs SET status='printing',attempts=attempts+1,claimed_at=CURRENT_TIMESTAMP WHERE id=(SELECT id FROM print_jobs WHERE status='pending' ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING *");job=r.rows[0]}else{const candidate=await one("SELECT * FROM print_jobs WHERE status='pending' ORDER BY id LIMIT 1");if(candidate){await run("UPDATE print_jobs SET status='printing',attempts=attempts+1,claimed_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'",[candidate.id]);job=await one("SELECT * FROM print_jobs WHERE id=? AND status='printing'",[candidate.id])}}if(!job)return res.status(204).end();res.json({...job,payload:JSON.parse(job.payload)})}catch(e){console.error('Fila de impressão:',e);res.status(500).json({error:'Falha ao consultar fila'})}});
 app.post('/api/printer/:id/ack',bridgeAuth,async(req,res)=>{try{const id=Number(req.params.id),ok=req.body.ok===true,status=ok?'printed':'pending',error=String(req.body.error||'').slice(0,500);if(isPg)await db.query('UPDATE print_jobs SET status=$1,printed_at=CASE WHEN $2 THEN CURRENT_TIMESTAMP ELSE printed_at END,last_error=$3 WHERE id=$4',[status,ok,error,id]);else await run('UPDATE print_jobs SET status=?,printed_at=CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE printed_at END,last_error=? WHERE id=?',[status,ok?1:0,error,id]);res.json({ok:true})}catch(e){res.status(500).json({error:'Falha ao confirmar impressão'})}});
-app.post('/api/admin/print/command/:id',auth,async(req,res)=>{try{const id=Number(req.params.id),c=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[id]);if(!c)return res.status(404).json({error:'Comanda não encontrada'});const items=await q('SELECT * FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[id]);let payments=await q('SELECT payment,amount FROM command_payments WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[id]);if(!payments.length&&c.payment)payments=[{payment:c.payment,amount:Number(c.total||0)}];const stage=String(req.body.stage||'conferencia');const key='command-'+(stage==='paga'?'receipt':'bill')+'-'+id+'-'+Date.now();await enqueuePrint(key,stage==='paga'?'receipt':'bill',{title:stage==='paga'?'COMPROVANTE DE VENDA':'CONFERÊNCIA DE CONTA',stage,command:c.number,customer:c.customer||'',items,total:Number(c.total||0),payment:c.payment||'Pendente',payments,created_at:c.closed_at||c.created_at});res.json({ok:true})}catch(e){console.error(e);res.status(500).json({error:'Não foi possível enfileirar a impressão'})}});
+app.post('/api/admin/print/command/:id',auth,async(req,res)=>{try{const id=Number(req.params.id),c=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[id]);if(!c)return res.status(404).json({error:'Comanda não encontrada'});const items=await q('SELECT * FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[id]);let payments=await q('SELECT payment,amount,customer FROM command_payments WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[id]);if(!payments.length&&c.payment)payments=[{payment:c.payment,amount:Number(c.total||0)}];const stage=String(req.body.stage||'conferencia');const key='command-'+(stage==='paga'?'receipt':'bill')+'-'+id+'-'+Date.now();await enqueuePrint(key,stage==='paga'?'receipt':'bill',{title:stage==='paga'?'COMPROVANTE DE VENDA':'CONFERÊNCIA DE CONTA',stage,command:c.number,customer:c.customer||'',items,total:Number(c.total||0),payment:c.payment||'Pendente',payments,created_at:c.closed_at||c.created_at});res.json({ok:true})}catch(e){console.error(e);res.status(500).json({error:'Não foi possível enfileirar a impressão'})}});
 app.post('/api/admin/print/order-receipt/:id',auth,async(req,res)=>{try{const id=Number(req.params.id),o=await one('SELECT * FROM orders WHERE id='+(isPg?'$1':'?'),[id]);if(!o)return res.status(404).json({error:'Pedido não encontrado'});if(!(o.payment_confirmed===true||o.payment_confirmed===1))return res.status(400).json({error:'Confirme o recebimento do pagamento antes de imprimir o comprovante.'});const items=await q('SELECT * FROM order_items WHERE order_id='+(isPg?'$1':'?')+' ORDER BY id',[id]);const subtotal=items.reduce((sum,it)=>sum+Number(it.total||0),0);await enqueuePrint('receipt-order-paid-'+id,'receipt',{title:'COMPROVANTE DE VENDA — PAGAMENTO CONFIRMADO',order:id,customer:o.customer_name,type:o.type,address:o.address,notes:o.notes,items,subtotal,delivery_fee:Math.max(0,Number(o.total||0)-subtotal),total:Number(o.total||0),payment:o.payment||'',created_at:o.created_at});res.json({ok:true})}catch(e){console.error(e);res.status(500).json({error:'Não foi possível enfileirar o comprovante'})}});
 app.get('/api/config',async(req,res)=>{try{const capacity=await getSandwichCapacity();res.set('Cache-Control','no-store');res.json({delivery_fee:DELIVERY_FEE,...capacity,sandwich_message:capacity.sandwich_paused?'Estamos temporariamente sem capacidade para receber novos pedidos de sanduíches. Os demais produtos continuam disponíveis.':''});}catch(e){console.error('Falha ao consultar capacidade de sanduíches:',e);res.status(500).json({error:'Não foi possível consultar a disponibilidade.'})}});
 app.get('/api/admin/sandwich-capacity',auth,async(req,res)=>{try{res.json(await getSandwichCapacity())}catch(e){res.status(500).json({error:'Não foi possível carregar o limite de sanduíches.'})}});
@@ -401,7 +407,7 @@ app.get('/api/admin/customers',auth,async(req,res)=>{
   for(const customer of rows){
    let used=0;
    for(const debt of debts){
-    if(String(debt.customer||'').trim().toLocaleLowerCase('pt-BR')===String(customer.name||'').trim().toLocaleLowerCase('pt-BR')) used+=await commandFiadoBalance(debt);
+    used+=await commandFiadoBalance(debt,customer.name);
    }
    customer.credit_used=Math.round(used*100)/100;
    customer.credit_available=Math.max(0,Math.round((Number(customer.credit_limit||0)-used)*100)/100);
@@ -590,7 +596,7 @@ app.delete('/api/admin/commands/:id/empty',auth,async(req,res)=>{
  }
 });
 
-app.get('/api/admin/commands',auth,async(req,res)=>{const rows=await q('SELECT * FROM commands ORDER BY id DESC');for(const c of rows){c.items=await q('SELECT * FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[c.id]);c.payment_details=await q('SELECT payment,amount,created_at FROM command_payments WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[c.id]);if(!c.payment_details.length&&['pix','dinheiro','debito','credito','fiado'].includes(String(c.payment||'').toLowerCase()))c.payment_details=[{payment:c.payment,amount:Number(c.total||0)}];}res.json(rows);});
+app.get('/api/admin/commands',auth,async(req,res)=>{const rows=await q('SELECT * FROM commands ORDER BY id DESC');for(const c of rows){c.items=await q('SELECT * FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[c.id]);c.payment_details=await q('SELECT payment,amount,customer,created_at FROM command_payments WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[c.id]);if(!c.payment_details.length&&['pix','dinheiro','debito','credito','fiado'].includes(String(c.payment||'').toLowerCase()))c.payment_details=[{payment:c.payment,amount:Number(c.total||0)}];}res.json(rows);});
 app.post('/api/admin/commands',auth,async(req,res)=>{
  try{
   const customer=String(req.body.customer||'').trim();
@@ -687,10 +693,14 @@ async function fiadoCommandRows(){
  const commands=await q("SELECT * FROM commands WHERE status='fechada' AND LOWER(payment) IN ('fiado','misto') ORDER BY id DESC");
  const out=[];
  for(const c of commands){
-  const original=String(c.payment||'').toLowerCase()==='fiado'?Number(c.total||0):(await q('SELECT amount FROM command_payments WHERE command_id='+(isPg?'$1':'?')+" AND LOWER(payment)='fiado'",[c.id])).reduce((sum,row)=>sum+Number(row.amount||0),0);
-  const remaining=await commandFiadoBalance(c);
-  const paid=Math.max(0,Math.round((original-remaining)*100)/100);
-  if(remaining>0.001)out.push({...c,fiado_total:original,paid,remaining});
+  let customers=[];
+  if(String(c.payment||'').toLowerCase()==='fiado') customers=[String(c.customer||'').trim()];
+  else { const parts=await q("SELECT DISTINCT customer FROM command_payments WHERE command_id="+(isPg?'$1':'?')+" AND LOWER(payment)='fiado'",[c.id]); customers=parts.map(x=>String(x.customer||c.customer||'').trim()).filter(Boolean); }
+  for(const customer of [...new Set(customers)]){
+   const original=String(c.payment||'').toLowerCase()==='fiado'?Number(c.total||0):(await q("SELECT amount,customer FROM command_payments WHERE command_id="+(isPg?'$1':'?')+" AND LOWER(payment)='fiado'",[c.id])).filter(x=>normText(x.customer||c.customer||'')===normText(customer)).reduce((sum,row)=>sum+Number(row.amount||0),0);
+   const remaining=await commandFiadoBalance(c,customer); const paid=Math.max(0,Math.round((original-remaining)*100)/100);
+   if(remaining>0.001)out.push({...c,customer,fiado_total:original,paid,remaining,fiado_customer:customer});
+  }
  }
  return out;
 }
@@ -713,29 +723,27 @@ app.post('/api/admin/fiado/payments',auth,async(req,res)=>{
   const allocations=Array.isArray(req.body.allocations)?req.body.allocations:[];
   if(!['pix','dinheiro','debito','credito'].includes(payment))return res.status(400).json({error:'Escolha uma forma de recebimento válida.'});
   if(!allocations.length)return res.status(400).json({error:'Marque pelo menos uma comanda e informe o valor recebido.'});
-  const prepared=[];
-  let customerKey='';
+  const prepared=[];let customerKey='';
   for(const a of allocations){
-   const commandId=Number(a.command_id), amount=Math.round(Number(a.amount)*100)/100;
+   const commandId=Number(a.command_id),amount=Math.round(Number(a.amount)*100)/100;
    if(!Number.isInteger(commandId)||commandId<=0||!Number.isFinite(amount)||amount<=0)return res.status(400).json({error:'Informe um valor maior que zero para cada comanda marcada.'});
    const c=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[commandId]);
    if(!c||c.status!=='fechada'||!['fiado','misto'].includes(String(c.payment||'').toLowerCase()))return res.status(400).json({error:'Uma das comandas selecionadas não está pendente no fiado.'});
-   const key=String(c.customer||'').trim().toLocaleLowerCase('pt-BR');
-   if(!key)return res.status(400).json({error:'A comanda '+c.number+' não tem cliente cadastrado vinculado.'});
-   if(customerKey&&customerKey!==key)return res.status(400).json({error:'Para registrar um recebimento conjunto, selecione comandas do mesmo cliente.'});
-   customerKey=key;
-   const remaining=await commandFiadoBalance(c);
+   const customer=String(a.customer||c.customer||'').trim();const key=normText(customer);
+   if(!key)return res.status(400).json({error:'Selecione o cliente responsável por este fiado.'});
+   if(customerKey&&customerKey!==key)return res.status(400).json({error:'Para registrar um recebimento conjunto, selecione comandas do mesmo cliente.'});customerKey=key;
+   const remaining=await commandFiadoBalance(c,customer);
    if(amount>remaining+0.001)return res.status(400).json({error:'O valor destinado à comanda '+c.number+' é maior que o saldo pendente ('+remaining.toFixed(2)+').'});
-   prepared.push({c,amount,remaining});
+   prepared.push({c,customer,amount,remaining});
   }
-  const total=prepared.reduce((s,x)=>s+x.amount,0);
+  const total=prepared.reduce((sum,x)=>sum+x.amount,0);
   for(const x of prepared){
-   await run('INSERT INTO fiado_payments(command_id,customer,amount,payment) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?')+')',[x.c.id,String(x.c.customer||'').trim(),x.amount,payment]);
+   await run('INSERT INTO fiado_payments(command_id,customer,amount,payment) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?')+')',[x.c.id,x.customer,x.amount,payment]);
    const left=Math.max(0,Math.round((x.remaining-x.amount)*100)/100);
-   const description='Recebimento fiado - Cliente: '+String(x.c.customer||'').trim()+' - Comanda '+x.c.number+(left<=0.001?' - Quitada':' - Parcial');
+   const description='Recebimento fiado - Cliente: '+x.customer+' - Comanda '+x.c.number+(left<=0.001?' - Quitada':' - Parcial');
    await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?')+')',['entrada',description,x.amount,payment]);
   }
-  res.json({ok:true,total,commands:prepared.map(x=>({number:x.c.number,amount:x.amount}))});
+  res.json({ok:true,total,commands:prepared.map(x=>({number:x.c.number,customer:x.customer,amount:x.amount}))});
  }catch(e){console.error('Erro ao registrar recebimento de fiado:',e);res.status(500).json({error:'Não foi possível registrar o recebimento.'})}
 });
 
@@ -757,25 +765,28 @@ app.put('/api/admin/commands/:id/close',auth,async(req,res)=>{
    const cents=Math.round(Number(row?.amount)*100);
    if(!methods.includes(method))return res.status(400).json({error:'Escolha uma forma de pagamento válida em cada lançamento.'});
    if(!Number.isFinite(cents)||cents<=0)return res.status(400).json({error:'Informe um valor maior que zero para cada forma de pagamento.'});
-   normalized.push({payment:method,amount:cents/100,cents});
+   const customer=method==='fiado'?String(row?.customer||'').trim():'';
+   if(method==='fiado'&&!customer)return res.status(400).json({error:'Selecione um cliente para cada lançamento de fiado.'});
+   normalized.push({payment:method,amount:cents/100,cents,customer});
   }
   const paidCents=normalized.reduce((sum,row)=>sum+row.cents,0);
   if(normalized.length&&paidCents!==totalCents)return res.status(400).json({error:'A soma dos pagamentos ('+(paidCents/100).toFixed(2)+') precisa ser exatamente igual ao total da comanda ('+(totalCents/100).toFixed(2)+').'});
   if(!normalized.length&&!pendingOnly)return res.status(400).json({error:'Informe pelo menos uma forma de pagamento.'});
-  const fiadoCents=normalized.filter(x=>x.payment==='fiado').reduce((sum,x)=>sum+x.cents,0);
-  if(fiadoCents>0){
-   const customerName=String(c.customer||'').trim();
-   if(!customerName)return res.status(400).json({error:'Selecione um cliente cadastrado para vender no fiado.'});
-   const customerRows=await q('SELECT * FROM customers ORDER BY id');
-   const customer=customerRows.find(x=>String(x.name||'').trim().toLocaleLowerCase('pt-BR')===customerName.toLocaleLowerCase('pt-BR'));
-   if(!customer)return res.status(400).json({error:'Este cliente não está cadastrado. Cadastre ou selecione um cliente antes de vender no fiado.'});
-   const yes=v=>v===true||v===1||String(v).toLowerCase()==='true';
-   if(!yes(customer.active))return res.status(400).json({error:'Este cliente está inativo e não pode comprar no fiado.'});
-   if(!yes(customer.fiado_authorized))return res.status(400).json({error:'Este cliente não está autorizado a comprar no fiado.'});
-   const debts=await q("SELECT * FROM commands WHERE status='fechada' AND LOWER(payment) IN ('fiado','misto')");let used=0;
-   for(const debt of debts){if(String(debt.customer||'').trim().toLocaleLowerCase('pt-BR')===customerName.toLocaleLowerCase('pt-BR'))used+=await commandFiadoBalance(debt);}
-   const available=Math.round((Number(customer.credit_limit||0)-used)*100)/100;
-   if(fiadoCents/100>available+0.001)return res.status(400).json({error:'Limite de fiado insuficiente. Limite: '+Number(customer.credit_limit||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})+'; utilizado: '+used.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})+'; disponível: '+Math.max(0,available).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})+'.'});
+  const fiadoParts=normalized.filter(x=>x.payment==='fiado');
+  const selectedFiadoCustomers=fiadoParts.map(x=>normText(x.customer));
+  if(new Set(selectedFiadoCustomers).size!==selectedFiadoCustomers.length)return res.status(400).json({error:'Cada lançamento de fiado deve ser destinado a um cliente diferente.'});
+  if(fiadoParts.length){
+   const customerRows=await q('SELECT * FROM customers ORDER BY id'); const yes=v=>v===true||v===1||String(v).toLowerCase()==='true';
+   const debts=await q("SELECT * FROM commands WHERE status='fechada' AND LOWER(payment) IN ('fiado','misto')");
+   for(const part of fiadoParts){
+    const customer=customerRows.find(x=>normText(x.name)===normText(part.customer));
+    if(!customer)return res.status(400).json({error:'O cliente '+part.customer+' não está cadastrado.'});
+    if(!yes(customer.active))return res.status(400).json({error:'O cliente '+part.customer+' está inativo e não pode comprar no fiado.'});
+    if(!yes(customer.fiado_authorized))return res.status(400).json({error:'O cliente '+part.customer+' não está autorizado a comprar no fiado.'});
+    let used=0; for(const debt of debts)used+=await commandFiadoBalance(debt,customer.name);
+    const available=Math.round((Number(customer.credit_limit||0)-used)*100)/100;
+    if(part.amount>available+0.001)return res.status(400).json({error:'Limite de fiado insuficiente para '+customer.name+'. Disponível: '+Math.max(0,available).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})+'.'});
+   }
   }
   const commandItems=await q('SELECT * FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[id]);
   const pendingStockItems=commandItems.filter(item=>!(item.stock_deducted===true||item.stock_deducted===1));
@@ -785,8 +796,8 @@ app.put('/api/admin/commands/:id/close',auth,async(req,res)=>{
   const changed=await run('UPDATE commands SET status='+(isPg?'$1':'?')+',payment='+(isPg?'$2':'?')+',closed_at=CURRENT_TIMESTAMP WHERE id='+(isPg?'$3':'?')+" AND status='aberta'",['fechada',summary,id]);
   if(!changed.changes)return res.status(409).json({error:'Esta comanda já foi finalizada. Atualize a tela.'});
   for(const part of normalized){
-   await run('INSERT INTO command_payments(command_id,payment,amount) VALUES('+(isPg?'$1,$2,$3':'?,?,?')+')',[id,part.payment,part.amount]);
-   const description=part.payment==='fiado'?'Comanda '+c.number+' - Fiado':'Comanda '+c.number+' - Pagamento '+part.payment;
+   await run('INSERT INTO command_payments(command_id,payment,amount,customer) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?')+')',[id,part.payment,part.amount,part.customer||'']);
+   const description=part.payment==='fiado'?'Comanda '+c.number+' - Fiado - Cliente: '+part.customer:'Comanda '+c.number+' - Pagamento '+part.payment;
    await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?)'),[part.payment==='fiado'?'fiado':'entrada',description,part.amount,part.payment]);
   }
   const updated=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[id]);
