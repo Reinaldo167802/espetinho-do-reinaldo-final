@@ -636,12 +636,18 @@ app.delete('/api/admin/commands/:id/items/:itemId',auth,async(req,res)=>{
    if(quantity>0)await changeStock(Number(item.product_id),quantity,item.stock_unit||'un','Devolução por exclusão do item da comanda '+command.number);
   }
   await run('DELETE FROM command_items WHERE id='+(isPg?'$1':'?')+' AND command_id='+(isPg?'$2':'?'),[itemId,commandId]);
+  const remaining=await q('SELECT id FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[commandId]);
+  if(remaining.length===0){
+   // A comanda ainda está aberta e ficou sem produtos: remove o registro vazio automaticamente.
+   await run('DELETE FROM commands WHERE id='+(isPg?'$1':'?')+' AND status=\'aberta\'',[commandId]);
+   return res.json({ok:true,message:'Último produto excluído. A comanda vazia foi removida automaticamente.',command:null,items:[],commandDeleted:true});
+  }
   const sumRows=await q('SELECT COALESCE(SUM(total),0) AS total FROM command_items WHERE command_id='+(isPg?'$1':'?'),[commandId]);
   const total=Math.round(Number(sumRows[0]?.total||0)*100)/100;
   await run('UPDATE commands SET total='+(isPg?'$1':'?')+' WHERE id='+(isPg?'$2':'?'),[total,commandId]);
   const updated=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[commandId]);
   const items=await q('SELECT * FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[commandId]);
-  res.json({ok:true,message:'Produto excluído, estoque devolvido e total recalculado.',command:updated,items});
+  res.json({ok:true,message:'Produto excluído, estoque devolvido e total recalculado.',command:updated,items,commandDeleted:false});
  }catch(e){
   console.error('Erro ao excluir item da comanda:',e);
   res.status(500).json({error:e.message||'Não foi possível excluir o produto da comanda.'});
