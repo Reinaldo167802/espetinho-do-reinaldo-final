@@ -187,14 +187,37 @@ function renderCommandDetails(c,activeProducts){
  view.innerHTML=`<div class="command-detail-head"><div><h2>Comanda ${esc(c.number)}</h2><b>${esc(c.customer||'Consumidor não identificado')}</b></div><button class="command-save" onclick="closeCommandDetails()">← VOLTAR</button></div><div class="command-detail-total"><span>Total acumulado</span><strong>${money(c.total)}</strong></div><h3>Produtos</h3>${itemHtml}<h3>Adicionar produto</h3><div class="command-search-wrap"><input id="cmdProductSearch" class="command-product-search" type="search" placeholder="🔎 Digite o nome, marca ou código..." oninput="filterCommandProducts()" onkeydown="commandSearchKeydown(event)" autocomplete="off" aria-label="Pesquisar produtos"><div id="cmdProductSuggestions" class="command-product-suggestions" role="listbox" hidden></div></div><div class="row command-product-controls" style="margin-top:0"><select id="cmdProductCurrent" aria-label="Produto selecionado" onchange="updateCommandSaleOptions()">${activeProducts.map(p=>`<option value="${p.id}">${esc(p.name)} — ${money(p.price)}</option>`).join('')}</select><select id="cmdSaleOption" aria-label="Apresentação de venda" style="min-width:150px"></select><label class="command-qty-label" for="cmdQtyCurrent">Qtd.<input id="cmdQtyCurrent" type="number" min="0.01" step="0.01" value="1" aria-label="Quantidade" placeholder="Qtd."></label></div><button class="primary" style="width:100%;margin-top:7px;padding:10px" onclick="addCurrentCommandItem(${c.id})">＋ LANÇAR PRODUTO</button><div class="command-detail-actions"><button class="command-save" onclick="closeCommandDetails()">GUARDAR E VOLTAR</button><button type="button" onclick="openCommandDocument(${c.id},'a4')">COMANDA A4 / PDF</button><button class="command-finalize" type="button" onclick="showCommandPayment()">FINALIZAR E PAGAR</button></div><div id="commandPaymentBox" class="command-payment-box" data-total="${Number(c.total||0).toFixed(2)}"><b>Formas de pagamento</b><p style="margin:4px 0 10px;color:#e8d9b8">Total da comanda: <strong>${money(c.total)}</strong></p><div id="cmdPaymentRows"></div><button type="button" class="command-save" style="width:100%;margin:7px 0" onclick="addCommandPaymentRow()">＋ ADICIONAR OUTRA FORMA</button><div id="cmdPaymentSummary" style="padding:9px;border-radius:8px;background:#211e1a;margin:7px 0;font-weight:700"></div><button class="command-finalize" style="width:100%" onclick="finalizeCommand(${c.id})">CONFIRMAR FINALIZAÇÃO</button></div>`;updateCommandSaleOptions();
  addCommandPaymentRow(Number(c.total||0));
 }
+async function loadFiadoPaymentCustomers(){
+ if(Array.isArray(window.commandFiadoCustomers))return window.commandFiadoCustomers;
+ const rows=await api('/api/admin/customers');
+ window.commandFiadoCustomers=rows.filter(c=>(c.active===true||c.active===1)&&(c.fiado_authorized===true||c.fiado_authorized===1));
+ return window.commandFiadoCustomers;
+}
 function addCommandPaymentRow(defaultAmount=''){
  const box=$('cmdPaymentRows');if(!box)return;
  const row=document.createElement('div');row.className='cmd-payment-row';row.style.cssText='display:grid;grid-template-columns:minmax(0,1fr) minmax(105px,.8fr) auto;gap:7px;align-items:center;margin:7px 0';
  row.innerHTML='<select class="cmdPayMethod" aria-label="Forma de pagamento"><option value="pix">Pix</option><option value="dinheiro">Dinheiro</option><option value="debito">Cartão de débito</option><option value="credito">Cartão de crédito</option><option value="fiado">Fiado / promissória</option></select><input class="cmdPayAmount" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="Valor (R$)" aria-label="Valor do pagamento"><button type="button" class="danger cmdPayRemove" style="padding:8px 10px" aria-label="Remover forma de pagamento">✕</button>';
  const amount=row.querySelector('.cmdPayAmount');if(defaultAmount!==''&&defaultAmount!==null)amount.value=Number(defaultAmount).toFixed(2);
  row.querySelector('.cmdPayRemove').addEventListener('click',()=>{row.remove();updateCommandPaymentTotal()});
- row.querySelector('.cmdPayMethod').addEventListener('change',updateCommandPaymentTotal);amount.addEventListener('input',updateCommandPaymentTotal);
+ row.querySelector('.cmdPayMethod').addEventListener('change',()=>handleCommandPaymentMethod(row));amount.addEventListener('input',updateCommandPaymentTotal);
  box.appendChild(row);updateCommandPaymentTotal();
+}
+async function handleCommandPaymentMethod(row){
+ const method=row.querySelector('.cmdPayMethod').value;let customerBox=row.querySelector('.cmdFiadoCustomer');
+ if(method!=='fiado'){customerBox?.remove();updateCommandPaymentTotal();return;}
+ if(customerBox)return;
+ try{
+  const customers=await loadFiadoPaymentCustomers();
+  if(!customers.length){row.querySelector('.cmdPayMethod').value='pix';return alert('Não há clientes ativos e autorizados para comprar no fiado. Cadastre ou autorize um cliente primeiro.');}
+  customerBox=document.createElement('div');customerBox.className='cmdFiadoCustomer';customerBox.style.cssText='grid-column:1 / -1';
+  customerBox.innerHTML='<label style="display:block;font-size:.9rem;margin-bottom:4px">Cliente responsável pelo fiado</label><select class="cmdFiadoClient" style="width:100%"><option value="">Selecione o cliente</option>'+customers.map(c=>'<option value="'+escAttr(c.name)+'">'+esc(c.name)+' — disponível '+money(c.credit_available||0)+'</option>').join('')+'</select>';
+  row.appendChild(customerBox);customerBox.querySelector('select').addEventListener('change',()=>{
+   const selected=customerBox.querySelector('select').value;
+   if(selected&&[...document.querySelectorAll('.cmdFiadoClient')].filter(el=>el!==customerBox.querySelector('select')).some(el=>el.value===selected)){customerBox.querySelector('select').value='';alert('Este cliente já está selecionado em outro lançamento de fiado. Escolha outro cliente.');}
+   updateCommandPaymentTotal();
+  });
+ }catch(e){row.querySelector('.cmdPayMethod').value='pix';alert('Não foi possível carregar os clientes: '+e.message)}
+ updateCommandPaymentTotal();
 }
 function updateCommandPaymentTotal(){
  const box=$('commandPaymentBox');if(!box)return;
@@ -219,11 +242,13 @@ async function addCurrentCommandItem(id){const product_id=Number($('cmdProductCu
 async function deleteCommandItem(commandId,itemId){if(!confirm('Confirma excluir este produto da comanda aberta? Se for o último produto, a comanda também será removida automaticamente.'))return;try{const result=await api('/api/admin/commands/'+commandId+'/items/'+itemId,{method:'DELETE'});if(result.commandDeleted){currentCommandId=null;$('commandDetailView').style.display='none';$('commandDetailView').innerHTML='';$('commandsBoardView').style.display='block';await loadCommands();alert('Último produto excluído. A comanda vazia foi removida automaticamente.');return;}const [rows,products]=await Promise.all([api('/api/admin/commands'),api('/api/admin/products')]);const c=rows.find(x=>Number(x.id)===Number(commandId));if(!c){currentCommandId=null;$('commandDetailView').style.display='none';$('commandDetailView').innerHTML='';$('commandsBoardView').style.display='block';await loadCommands();return;}renderCommandDetails(c,products.filter(p=>p.active===true||p.active===1));}catch(e){alert(e.message)}}
 async function finalizeCommand(id){
  const box=$('commandPaymentBox');
- const payments=[...box.querySelectorAll('.cmd-payment-row')].map(row=>({payment:row.querySelector('.cmdPayMethod').value,amount:Number(row.querySelector('.cmdPayAmount').value)}));
+ const payments=[...box.querySelectorAll('.cmd-payment-row')].map(row=>({payment:row.querySelector('.cmdPayMethod').value,amount:Number(row.querySelector('.cmdPayAmount').value),customer:row.querySelector('.cmdFiadoClient')?.value||''}));
  if(!payments.length||payments.some(p=>!Number.isFinite(p.amount)||p.amount<=0))return alert('Informe um valor maior que zero em cada forma de pagamento.');
+ if(payments.some(p=>p.payment==='fiado'&&!p.customer))return alert('Selecione um cliente para cada lançamento de fiado.');
+ const fiadoNames=payments.filter(p=>p.payment==='fiado').map(p=>commandSearchNormalize(p.customer));if(new Set(fiadoNames).size!==fiadoNames.length)return alert('Cada lançamento de fiado deve ser para um cliente diferente.');
  const expected=Math.round(Number(box.dataset.total||0)*100),sum=payments.reduce((n,p)=>n+Math.round(p.amount*100),0);
  if(sum!==expected)return alert('A soma dos pagamentos precisa ser exatamente igual ao total da comanda.');
- const summary=payments.map(p=>p.payment+': '+money(p.amount)).join(' + ');
+ const summary=payments.map(p=>(p.payment==='fiado'?'Fiado ('+p.customer+')':p.payment)+': '+money(p.amount)).join(' + ');
  if(!confirm('Confirma finalizar a comanda com: '+summary+'?'))return;
  try{await api('/api/admin/commands/'+id+'/close',{method:'PUT',body:JSON.stringify({payments})});currentCommandId=null;$('commandDetailView').style.display='none';$('commandDetailView').innerHTML='';$('commandsBoardView').style.display='block';await loadCommands();if($('cash').style.display!=='none')await loadCash();printCommand(id,'paga');const hasFiado=payments.some(p=>p.payment==='fiado');alert(hasFiado?'Venda finalizada. Os recebimentos foram lançados no caixa e a parcela fiada foi registrada para o cliente.':'Venda finalizada e recebimentos registrados no caixa.');}catch(e){alert(e.message)}
 }
@@ -268,14 +293,14 @@ async function saveCustomer(){
 async function loadFiado(){
  try{
   const [rows,history]=await Promise.all([api('/api/admin/fiado'),api('/api/admin/fiado/history')]);
-  $('fiadoList').innerHTML=rows.length?'<div class="table"><table><tr><th>Marcar</th><th>Cliente</th><th>Comanda</th><th>Total original</th><th>Já pago</th><th>Saldo pendente</th><th>Valor deste recebimento (R$)</th></tr>'+rows.map(c=>`<tr><td><input type="checkbox" class="fiadoCheck" data-id="${c.id}" style="width:auto"></td><td>${esc(c.customer||'Cliente não identificado')}</td><td>${esc(c.number)}</td><td>${money(c.total)}</td><td>${money(c.paid)}</td><td><b>${money(c.remaining)}</b></td><td><input type="number" min="0.01" max="${Number(c.remaining).toFixed(2)}" step="0.01" id="fiadoAmount${c.id}" value="${Number(c.remaining).toFixed(2)}" style="width:125px"></td></tr>`).join('')+'</table></div>':'<p>Nenhuma comanda com fiado pendente.</p>';
+  $('fiadoList').innerHTML=rows.length?'<div class="table"><table><tr><th>Marcar</th><th>Cliente</th><th>Comanda</th><th>Total original</th><th>Já pago</th><th>Saldo pendente</th><th>Valor deste recebimento (R$)</th></tr>'+rows.map((c,i)=>`<tr><td><input type="checkbox" class="fiadoCheck" data-id="${c.id}" data-customer="${escAttr(c.customer||'')}" data-row="${i}" style="width:auto"></td><td>${esc(c.customer||'Cliente não identificado')}</td><td>${esc(c.number)}</td><td>${money(c.fiado_total||c.total)}</td><td>${money(c.paid)}</td><td><b>${money(c.remaining)}</b></td><td><input type="number" min="0.01" max="${Number(c.remaining).toFixed(2)}" step="0.01" id="fiadoAmount${i}" value="${Number(c.remaining).toFixed(2)}" style="width:125px"></td></tr>`).join('')+'</table></div>':'<p>Nenhuma comanda com fiado pendente.</p>';
   $('fiadoHistory').innerHTML=history.length?'<div class="table"><table><tr><th>Data</th><th>Cliente</th><th>Comanda</th><th>Valor recebido</th><th>Forma</th></tr>'+history.map(h=>`<tr><td>${esc(h.created_at||'-')}</td><td>${esc(h.customer||'-')}</td><td>${esc(h.command_number||h.command_id)}</td><td>${money(h.amount)}</td><td>${esc(h.payment||'-')}</td></tr>`).join('')+'</table></div>':'<p>Nenhum recebimento de fiado registrado ainda.</p>';
  }catch(e){$('fiadoList').innerHTML='<p>Erro ao carregar fiado: '+esc(e.message)+'</p>'}
 }
 async function receiveFiado(){
  const marked=[...document.querySelectorAll('.fiadoCheck:checked')];
  if(!marked.length)return alert('Marque pelo menos uma comanda pendente.');
- const allocations=marked.map(box=>({command_id:Number(box.dataset.id),amount:Number($('fiadoAmount'+box.dataset.id).value)}));
+ const allocations=marked.map(box=>({command_id:Number(box.dataset.id),customer:box.dataset.customer,amount:Number($('fiadoAmount'+box.dataset.row).value)}));
  if(allocations.some(a=>!Number.isFinite(a.amount)||a.amount<=0))return alert('Informe um valor maior que zero para cada comanda marcada.');
  if(!confirm('Confirma registrar o recebimento parcial ou total destas comandas?'))return;
  try{
