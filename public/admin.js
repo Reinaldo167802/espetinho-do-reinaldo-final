@@ -3,8 +3,9 @@ const money=v=>Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'B
 const toNumber=v=>{if(v===undefined||v===null||String(v).trim()==='')return 0;const s=String(v).trim().replace(/\s/g,'').replace(/\.(?=\d{3}(?:\D|$))/g,'').replace(',','.');const n=Number(s);return Number.isFinite(n)?n:NaN};
 const $=id=>document.getElementById(id);
 const api=async(url,opt={})=>{opt.headers={...(opt.headers||{}),'x-admin-password':pass,'Content-Type':'application/json'};const r=await fetch(url,opt);const raw=await r.text();let d;try{d=JSON.parse(raw)}catch(_){throw Error('O servidor respondeu uma página HTML em vez de JSON. Confira a implantação do sistema.')}if(!r.ok)throw Error(d.error||d.message||'Erro');return d};
-function login(){const pw=$('pw');pass=pw.value.trim();if(!pass){alert('Digite a senha administrativa.');return}api('/api/admin/orders').then(()=>{$('login').style.display='none';$('app').style.display='block';loadAll()}).catch(err=>alert('Erro ao entrar: '+err.message));}
-function tab(id){['orders','products','purchases','suppliers','cash','commands','customers','fiado','settings'].forEach(x=>{if($(x))$(x).style.display=x===id?'block':'none'});if(id==='orders')loadOrders();if(id==='products'&&xmlReturnLine===null)loadProducts();if(id==='purchases'){loadPurchaseHistory();}if(id==='suppliers')loadSuppliers();if(id==='cash')loadCash();if(id==='commands')loadCommands();if(id==='customers')loadCustomers();if(id==='fiado')loadFiado();if(id==='settings'){loadSettings().catch(()=>{});loadSandwichCapacity();}}
+function login(){const pw=$('pw');pass=pw.value.trim();if(!pass){alert('Digite a senha administrativa.');return}api('/api/admin/orders').then(()=>{$('login').style.display='none';$('app').style.display='block';history.replaceState({adminPanel:true,tab:'orders'},'',location.href);history.pushState({adminPanel:true,tab:'orders'},'',location.href);activeAdminTab='orders';loadAll()}).catch(err=>alert('Erro ao entrar: '+err.message));}
+let activeAdminTab='orders',restoringAdminHistory=false;
+function tab(id){if(!restoringAdminHistory&&pass&&id!==activeAdminTab){history.pushState({adminPanel:true,tab:id},'',location.href);}activeAdminTab=id;['orders','products','purchases','suppliers','cash','commands','customers','fiado','settings'].forEach(x=>{if($(x))$(x).style.display=x===id?'block':'none'});if(id==='orders')loadOrders();if(id==='products'&&xmlReturnLine===null)loadProducts();if(id==='purchases'){loadPurchaseHistory();}if(id==='suppliers')loadSuppliers();if(id==='cash')loadCash();if(id==='commands')loadCommands();if(id==='customers')loadCustomers();if(id==='fiado')loadFiado();if(id==='settings'){loadSettings().catch(()=>{});loadSandwichCapacity();}}
 async function loadAll(){loadOrders();loadCustomerOptions()}
 function installCompactOrderStyles(){
   if(document.getElementById('compact-order-card-styles')) return;
@@ -500,8 +501,12 @@ function installPurchaseHistoryStyles(){
 }
 
 
-window.addEventListener('popstate',function(){
-  if(xmlReturnLine!==null){returnFromXmlProduct();}
+window.addEventListener('popstate',function(event){
+  if(xmlReturnLine!==null){returnFromXmlProduct();return;}
+  const state=event.state||{};
+  if(state.adminPanel&&state.tab){restoringAdminHistory=true;try{tab(state.tab);}finally{restoringAdminHistory=false;}return;}
+  /* Mantém o painel como destino seguro: a seta do navegador não deve encerrar a sessão administrativa. */
+  if(pass&&$('app')&&$('app').style.display!=='none'){history.pushState({adminPanel:true,tab:activeAdminTab},'',location.href);}
 });
 
 
