@@ -188,6 +188,19 @@ app.get('/api/printer/next',bridgeAuth,async(req,res)=>{try{let job;if(isPg){con
 app.post('/api/printer/:id/ack',bridgeAuth,async(req,res)=>{try{const id=Number(req.params.id),ok=req.body.ok===true,status=ok?'printed':'pending',error=String(req.body.error||'').slice(0,500);if(isPg)await db.query('UPDATE print_jobs SET status=$1,printed_at=CASE WHEN $2 THEN CURRENT_TIMESTAMP ELSE printed_at END,last_error=$3 WHERE id=$4',[status,ok,error,id]);else await run('UPDATE print_jobs SET status=?,printed_at=CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE printed_at END,last_error=? WHERE id=?',[status,ok?1:0,error,id]);res.json({ok:true})}catch(e){res.status(500).json({error:'Falha ao confirmar impressão'})}});
 app.get('/api/admin/customers/:id/receipts',auth,async(req,res)=>{try{const id=Number(req.params.id);const customer=await one('SELECT * FROM customers WHERE id='+(isPg?'$1':'?'),[id]);if(!customer)return res.status(404).json({error:'Cliente não encontrado.'});const rows=await q('SELECT id,command_id,customer_name,fiado_amount,payload,created_at FROM command_receipts WHERE customer_id='+(isPg?'$1':'?')+' ORDER BY id DESC',[id]);res.json(rows.map(r=>({...r,payload:JSON.parse(r.payload)})));}catch(e){console.error(e);res.status(500).json({error:'Não foi possível carregar os comprovantes do cliente.'})}});
 app.post('/api/admin/customers/:id/receipts/:receiptId/print',auth,async(req,res)=>{try{const customerId=Number(req.params.id),receiptId=Number(req.params.receiptId);const row=await one('SELECT * FROM command_receipts WHERE id='+(isPg?'$1':'?')+' AND customer_id='+(isPg?'$2':'?'),[receiptId,customerId]);if(!row)return res.status(404).json({error:'Comprovante não encontrado.'});const payload=JSON.parse(row.payload);await enqueuePrint('reprint-customer-receipt-'+row.id+'-'+Date.now(),'receipt',payload);res.json({ok:true});}catch(e){console.error(e);res.status(500).json({error:'Não foi possível reimprimir o comprovante.'})}});
+function groupCommandItems(items){
+ const groups=new Map();
+ for(const item of items||[]){
+  const name=String(item.name||'Produto');
+  const unit=Number(item.unit_price||0);
+  const notes=String(item.notes||'').trim();
+  const key=JSON.stringify([Number(item.product_id||0),name,unit.toFixed(4),notes]);
+  const found=groups.get(key);
+  if(found){found.qty=Number((Number(found.qty||0)+Number(item.qty||0)).toFixed(3));found.total=Number((Number(found.total||0)+Number(item.total||0)).toFixed(2));}
+  else groups.set(key,{...item,qty:Number(item.qty||0),unit_price:unit,total:Number(item.total||0)});
+ }
+ return [...groups.values()];
+}
 app.post('/api/admin/print/command/:id',auth,async(req,res)=>{try{
  const id=Number(req.params.id),c=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[id]);
  if(!c)return res.status(404).json({error:'Comanda não encontrada'});
@@ -195,7 +208,8 @@ app.post('/api/admin/print/command/:id',auth,async(req,res)=>{try{
  let payments=await q('SELECT payment,amount,customer FROM command_payments WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[id]);
  if(!payments.length&&c.payment)payments=[{payment:c.payment,amount:Number(c.total||0),customer:c.customer||''}];
  const stage=String(req.body.stage||'conferencia');
- const basePayload={title:stage==='paga'?'COMPROVANTE DE VENDA':'CONFERÊNCIA DE CONTA',stage,command:c.number,customer:c.customer||'',items,total:Number(c.total||0),payment:c.payment||'Pendente',payments,created_at:c.closed_at||c.created_at};
+ const printableItems=groupCommandItems(items);
+ const basePayload={title:stage==='paga'?'COMPROVANTE DE VENDA':'CONFERÊNCIA DE CONTA',stage,command:c.number,customer:c.customer||'',items:printableItems,total:Number(c.total||0),payment:c.payment||'Pendente',payments,created_at:c.closed_at||c.created_at};
  const key='command-'+(stage==='paga'?'receipt':'bill')+'-'+id+'-'+Date.now();
  await enqueuePrint(key,stage==='paga'?'receipt':'bill',basePayload);
  let individualCount=0;
