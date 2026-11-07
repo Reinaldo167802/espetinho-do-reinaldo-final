@@ -256,6 +256,17 @@ async function finalizeCommand(id){
 async function payClosedCommand(id){const payment=prompt('Forma de pagamento: pix, dinheiro, debito ou credito','pix');if(!payment)return;const normalized=payment.toLowerCase().trim();if(!['pix','dinheiro','debito','credito'].includes(normalized))return alert('Informe pix, dinheiro, debito ou credito.');try{await api('/api/admin/commands/'+id+'/pay',{method:'PUT',body:JSON.stringify({payment:normalized})});await loadCommands();if($('cash').style.display!=='none')await loadCash();printCommand(id,'paga');}catch(e){alert(e.message)}}
 async function closeCommand(id){return finalizeCommand(id)}
 async function payCommand(id){return payClosedCommand(id)}
+function groupCommandItemsForDocument(items){
+ const groups=new Map();
+ for(const item of items){
+  const name=String(item.name||'Produto'),unit=Number(item.unit_price||0),notes=String(item.notes||'').trim();
+  const key=JSON.stringify([Number(item.product_id||0),name,unit.toFixed(4),notes]);
+  const existing=groups.get(key);
+  if(existing){existing.qty=Number((existing.qty+Number(item.qty||0)).toFixed(3));existing.total=Number((existing.total+Number(item.total||0)).toFixed(2));}
+  else groups.set(key,{name,qty:Number(item.qty||1),unit_price:unit,total:Number(item.total||0)});
+ }
+ return [...groups.values()];
+}
 async function openCommandDocument(id,mode='a4'){
  let win=null;
  try{
@@ -264,7 +275,7 @@ async function openCommandDocument(id,mode='a4'){
   const rows=await api('/api/admin/commands');
   const c=rows.find(x=>Number(x.id)===Number(id));
   if(!c)throw Error('Comanda não encontrada.');
-  const data={number:c.number,command:c.number,customer:c.customer||'',payment:c.payment||'Pendente',payment_details:Array.isArray(c.payment_details)?c.payment_details:[],status:c.status||'',created_at:c.closed_at||c.created_at||new Date().toISOString(),items:(c.items||[]).map(i=>({name:i.name,qty:Number(i.qty||1),unit_price:Number(i.unit_price||0),total:Number(i.total||0)})),total:Number(c.total||0),notes:c.notes||''};
+  const data={number:c.number,command:c.number,customer:c.customer||'',payment:c.payment||'Pendente',payment_details:Array.isArray(c.payment_details)?c.payment_details:[],status:c.status||'',created_at:c.closed_at||c.created_at||new Date().toISOString(),items:groupCommandItemsForDocument(c.items||[]),total:Number(c.total||0),notes:c.notes||''};
   const key='esp-reinaldo-command-'+Date.now()+'-'+Math.random().toString(36).slice(2,8);
   localStorage.setItem(key,JSON.stringify(data));
   win.location.href='/comanda-fiado.html?key='+encodeURIComponent(key)+'&mode='+encodeURIComponent(mode);
