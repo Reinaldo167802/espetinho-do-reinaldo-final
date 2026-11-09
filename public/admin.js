@@ -430,21 +430,36 @@ function renderXmlReadOnly(data){
  const moneyCell=(label,value)=>kv(label,xmlMoney(value));
  const totalLabels={vProd:'Produtos',vFrete:'Frete',vSeg:'Seguro',vDesc:'Descontos',vII:'II',vIPI:'IPI',vIPIDevol:'IPI devolvido',vPIS:'PIS',vCOFINS:'COFINS',vOutro:'Outras despesas',vBC:'Base ICMS',vICMS:'ICMS',vICMSDeson:'ICMS desonerado',vFCP:'FCP',vBCST:'Base ICMS-ST',vST:'ICMS-ST',vFCPST:'FCP-ST',vFCPSTRet:'FCP-ST retido',vTotTrib:'Tributos aproximados',vNF:'TOTAL NF-e'};
  const panel=(title,content)=>`<section class="xml-invoice-panel"><h3>${title}</h3><div class="xml-invoice-grid">${content}</div></section>`;
- const rows=data.lines.map(l=>`<tr>
+ // Rateia somente a diferença entre o total efetivo da NF-e e a soma dos itens.
+ // Não soma ICMS, ICMS-ST, PIS ou COFINS novamente: esses valores já compõem os totais fiscais.
+ const invoiceTotal=Number(data.totals.find(t=>t.key==='vNF')?.value)||0;
+ const itemTotal=data.lines.reduce((sum,l)=>sum+(Number(l.productTotal)||0),0);
+ const extraCents=Math.round((invoiceTotal-itemTotal)*100);
+ let allocatedCents=0;
+ const costByLine=data.lines.map((l,i)=>{
+   const lineCents=Math.round((Number(l.productTotal)||0)*100);
+   const shareCents=i===data.lines.length-1?extraCents-allocatedCents:(itemTotal>0?Math.round(extraCents*((Number(l.productTotal)||0)/itemTotal)):0);
+   allocatedCents+=shareCents;
+   const finalCents=lineCents+shareCents;
+   const qty=Number(l.commercialQty)||0;
+   return {extra:shareCents/100,total:finalCents/100,unit:qty>0?(finalCents/100)/qty:0};
+ });
+ const rows=data.lines.map((l,i)=>{const c=costByLine[i];return `<tr>
  <td class="xml-center">${l.index}</td><td><b>${esc(l.code)}</b><div>${esc(l.name)}</div></td>
  <td>${esc(l.ncm||'—')}</td><td>${esc(l.cest||'—')}</td><td>${esc(l.cfop||'—')}</td>
  <td class="xml-number">${esc(l.commercialQty??'—')}</td><td>${esc(l.commercialUnit||'—')}</td>
- <td class="xml-number">${xmlMoney(l.commercialUnitPrice)}</td><td class="xml-number">${xmlMoney(l.productTotal)}</td><td>${esc(l.ean||l.tributaryEan||'—')}</td>
- </tr><tr class="xml-detail-row"><td colspan="10"><details><summary>Detalhamento fiscal, tributário e lote — ${esc(l.name)}</summary>
+ <td class="xml-number">${xmlMoney(l.commercialUnitPrice)}</td><td class="xml-number">${xmlMoney(l.productTotal)}</td>
+ <td class="xml-number">${xmlMoney(c.extra)}</td><td class="xml-number"><b>${xmlMoney(c.unit)}</b></td><td class="xml-number"><b>${xmlMoney(c.total)}</b></td><td>${esc(l.ean||l.tributaryEan||'—')}</td>
+ </tr><tr class="xml-detail-row"><td colspan="13"><details><summary>Detalhamento fiscal, tributário e lote — ${esc(l.name)}</summary>
  <div class="xml-invoice-grid xml-invoice-grid-4">${kv('EAN tributável',l.tributaryEan)}${kv('Unidade tributável',l.tributaryUnit)}${kv('Quantidade tributável',l.tributaryQty)}${moneyCell('Valor unitário tributável',l.tributaryUnitPrice)}${moneyCell('Desconto',l.discount)}${moneyCell('Frete',l.freight)}${moneyCell('Seguro',l.insurance)}${moneyCell('Outras despesas',l.other)}${moneyCell('Tributos aproximados',l.taxTotal)}${kv('Pedido do fornecedor',l.order)}${kv('Informação adicional',l.additionalInfo)}</div>
  <h4>Grupos tributários</h4>${l.taxGroups.length?`<div class="xml-tax-groups">${l.taxGroups.map(g=>`<div><b>${esc(g.name)}</b><span>${g.values.map(esc).join(' · ')}</span></div>`).join('')}</div>`:'<p>Não informado no XML.</p>'}
  <h4>Lotes e validade</h4>${l.lots.length?`<div class="xml-invoice-grid xml-invoice-grid-4">${l.lots.map(x=>kv('Lote / Quantidade / Fabricação / Validade',`${x.number||'—'} · ${x.quantity||'—'} · ${x.made||'—'} · ${x.expires||'—'}`)).join('')}</div>`:'<p>Não informado no XML.</p>'}
- </details></td></tr>`).join('');
+ </details></td></tr>`;}).join('');
  return `<div class="xml-readonly xml-invoice">
  <div class="xml-invoice-title"><div><strong>ESPELHO DA NF-e</strong><small>Leitura do arquivo XML — somente conferência</small></div><div class="xml-invoice-number"><span>NOTA FISCAL ELETRÔNICA</span><b>Nº ${esc(data.ide.number||'—')} · Série ${esc(data.ide.series||'—')}</b><small>Emissão: ${esc(data.ide.issued||'—')}</small></div></div>
  ${panel('IDENTIFICAÇÃO DA NOTA FISCAL',`${kv('Natureza da operação',data.ide.operation)}${kv('Tipo',data.ide.type==='0'?'Entrada':data.ide.type==='1'?'Saída':data.ide.type)}${kv('Ambiente',data.ide.environment==='1'?'Produção':data.ide.environment==='2'?'Homologação':data.ide.environment)}${kv('Finalidade',data.ide.purpose)}${kv('Protocolo',data.ide.protocol)}`)}
  <div class="xml-invoice-two">${panel('EMITENTE / FORNECEDOR',`${kv('Razão social',data.emit.name)}${kv('Nome fantasia',data.emit.tradeName)}${kv('CNPJ/CPF',data.emit.cnpj)}${kv('Inscrição estadual',data.emit.stateRegistration)}${kv('Telefone',data.emit.phone)}${kv('Endereço',data.emit.address)}`)}${panel('DESTINATÁRIO',`${kv('Nome',data.dest.name)}${kv('CNPJ/CPF',data.dest.document)}${kv('Inscrição estadual',data.dest.stateRegistration)}${kv('Endereço',data.dest.address)}`)}</div>
- <section class="xml-invoice-panel"><h3>PRODUTOS E SERVIÇOS (${data.lines.length})</h3><div class="xml-read-table-wrap"><table class="xml-read-table"><thead><tr><th>#</th><th>Código / Descrição</th><th>NCM</th><th>CEST</th><th>CFOP</th><th>Quantidade</th><th>Un.</th><th>Valor unitário</th><th>Valor total</th><th>EAN</th></tr></thead><tbody>${rows}</tbody></table></div></section>
+ <section class="xml-invoice-panel"><h3>PRODUTOS E SERVIÇOS (${data.lines.length})</h3><p class="xml-cost-rule">O custo final é calculado pelo rateio proporcional da diferença entre o total da NF-e e a soma dos produtos. Os impostos não são somados novamente individualmente.</p><div class="xml-read-table-wrap"><table class="xml-read-table"><thead><tr><th>#</th><th>Código / Descrição</th><th>NCM</th><th>CEST</th><th>CFOP</th><th>Quantidade</th><th>Un.</th><th>Preço unit. original</th><th>Total original</th><th>Rateio impostos/acréscimos</th><th>Custo final unitário</th><th>Total final</th><th>EAN</th></tr></thead><tbody>${rows}</tbody></table></div></section>
  ${panel('TOTAIS E IMPOSTOS DA NOTA',data.totals.map(t=>moneyCell(totalLabels[t.key]||t.key,t.value)).join(''))}
  <div class="xml-invoice-two">${panel('FATURA E PAGAMENTO',`${moneyCell('Valor original',data.billing.invoiceValue)}${moneyCell('Desconto da fatura',data.billing.discount)}${moneyCell('Valor líquido',data.billing.netValue)}${data.payments.map((p,i)=>kv('Pagamento '+(i+1),`${p.method||'—'} · ${p.description||'forma não descrita'} · ${xmlMoney(p.amount)}`)).join('')}${data.billing.installments.map((x,i)=>kv('Parcela '+(i+1),`${x.number||''} · Vencimento ${x.due||'—'} · ${xmlMoney(x.amount)}`)).join('')}`)}${panel('TRANSPORTE',`${kv('Transportador',data.transport.carrier)}${kv('CNPJ/CPF',data.transport.document)}${kv('Modalidade do frete',data.transport.freightMode)}${kv('Veículo',data.transport.vehicle)}${kv('Volumes',data.transport.volume)}${kv('Peso bruto',data.transport.grossWeight)}${kv('Peso líquido',data.transport.netWeight)}`)}</div>
  ${data.additionalInfo?panel('INFORMAÇÕES COMPLEMENTARES',kv('Observações',data.additionalInfo)):''}
@@ -480,7 +495,7 @@ function installXmlCompactStyles(){if($('xmlCompactStyles'))return;const s=docum
 .xml-read-table th{background:rgba(255,255,255,.1);font-size:.7rem;white-space:nowrap}
 .xml-read-table td div{margin-top:3px;white-space:normal;min-width:180px}
 .xml-read-table .xml-number{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.xml-read-table .xml-center{text-align:center}
-.xml-read-table .xml-detail-row td{padding:5px 8px;background:rgba(0,0,0,.12)}
+.xml-read-table .xml-detail-row td{padding:5px 8px;background:rgba(0,0,0,.12)}.xml-cost-rule{font-size:.76rem;opacity:.82;margin:0 0 8px}.xml-read-table th:nth-child(10),.xml-read-table th:nth-child(11),.xml-read-table th:nth-child(12){background:rgba(47,125,83,.22)}
 .xml-read-table details{white-space:normal}.xml-read-table summary{cursor:pointer;font-weight:700;padding:4px}
 .xml-read-table h4{margin:10px 0 5px;font-size:.76rem}.xml-tax-groups{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.xml-tax-groups>div{padding:6px;border:1px solid rgba(255,255,255,.12);border-radius:4px}.xml-tax-groups b,.xml-tax-groups span{display:block}.xml-tax-groups span{font-size:.74rem;margin-top:3px}
 .xml-read-note{margin-top:12px;padding:10px;border:1px solid #b88d32;border-radius:6px;color:#f4d58a;background:rgba(184,141,50,.08);font-weight:700}
