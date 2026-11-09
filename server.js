@@ -40,7 +40,9 @@ function initSqlite(){
  CREATE TABLE IF NOT EXISTS purchase_invoice_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,invoice_id INTEGER NOT NULL,product_id INTEGER,product_name TEXT NOT NULL,code TEXT DEFAULT '',purchase_qty REAL DEFAULT 0,purchase_unit TEXT DEFAULT '',purchase_unit_price REAL DEFAULT 0,line_total REAL DEFAULT 0,stock_qty REAL DEFAULT 0,stock_unit TEXT DEFAULT 'un',secondary_qty REAL DEFAULT 0,secondary_unit TEXT DEFAULT '',created_at TEXT DEFAULT CURRENT_TIMESTAMP);
  CREATE TABLE IF NOT EXISTS inventory_movements(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,invoice_id INTEGER,quantity REAL NOT NULL,unit TEXT DEFAULT 'un',secondary_quantity REAL DEFAULT 0,secondary_unit TEXT DEFAULT '',cost_total REAL DEFAULT 0,description TEXT DEFAULT '',created_at TEXT DEFAULT CURRENT_TIMESTAMP);
  CREATE TABLE IF NOT EXISTS app_settings(setting_key TEXT PRIMARY KEY,setting_value TEXT NOT NULL);
- CREATE TABLE IF NOT EXISTS supplier_product_codes(id INTEGER PRIMARY KEY AUTOINCREMENT,supplier_cnpj TEXT NOT NULL,supplier_code TEXT NOT NULL,product_id INTEGER NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP,UNIQUE(supplier_cnpj,supplier_code));`);
+ CREATE TABLE IF NOT EXISTS supplier_product_codes(id INTEGER PRIMARY KEY AUTOINCREMENT,supplier_cnpj TEXT NOT NULL,supplier_code TEXT NOT NULL,product_id INTEGER NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP,UNIQUE(supplier_cnpj,supplier_code));
+ CREATE TABLE IF NOT EXISTS technical_recipe_items(id INTEGER PRIMARY KEY AUTOINCREMENT,sale_product_id INTEGER NOT NULL,ingredient_id INTEGER NOT NULL,quantity REAL NOT NULL,unit TEXT NOT NULL,notes TEXT DEFAULT '',created_at TEXT DEFAULT CURRENT_TIMESTAMP,UNIQUE(sale_product_id,ingredient_id));
+ CREATE TABLE IF NOT EXISTS recipe_stock_movements(id INTEGER PRIMARY KEY AUTOINCREMENT,source_type TEXT NOT NULL,source_item_id INTEGER NOT NULL,ingredient_id INTEGER NOT NULL,quantity REAL NOT NULL,unit TEXT NOT NULL,reversed INTEGER NOT NULL DEFAULT 0,created_at TEXT DEFAULT CURRENT_TIMESTAMP,UNIQUE(source_type,source_item_id,ingredient_id));`);
  const purchaseCols=db.prepare('PRAGMA table_info(purchase_invoices)').all().map(c=>c.name); if(!purchaseCols.includes('xml_content')) db.exec("ALTER TABLE purchase_invoices ADD COLUMN xml_content TEXT DEFAULT ''");
  // Migração segura dos campos usados pelo painel de produtos.
  const productCols=db.prepare('PRAGMA table_info(products)').all().map(c=>c.name);
@@ -97,6 +99,8 @@ async function initPg(){
  await db.query("CREATE INDEX IF NOT EXISTS idx_supplier_product_codes_lookup ON supplier_product_codes(supplier_cnpj,supplier_code)");
  await db.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS barcode TEXT DEFAULT ''");
  await db.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS brand TEXT DEFAULT ''");
+ await db.query("CREATE TABLE IF NOT EXISTS technical_recipe_items(id SERIAL PRIMARY KEY,sale_product_id INTEGER NOT NULL,ingredient_id INTEGER NOT NULL,quantity NUMERIC(14,4) NOT NULL,unit TEXT NOT NULL,notes TEXT DEFAULT '',created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,UNIQUE(sale_product_id,ingredient_id))");
+ await db.query("CREATE TABLE IF NOT EXISTS recipe_stock_movements(id SERIAL PRIMARY KEY,source_type TEXT NOT NULL,source_item_id INTEGER NOT NULL,ingredient_id INTEGER NOT NULL,quantity NUMERIC(14,4) NOT NULL,unit TEXT NOT NULL,reversed BOOLEAN NOT NULL DEFAULT FALSE,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,UNIQUE(source_type,source_item_id,ingredient_id))");
  await db.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS unit TEXT DEFAULT 'un'");
  await db.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS cost_price NUMERIC(12,2) DEFAULT 0');
  await db.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS stock NUMERIC(12,3) DEFAULT 0');
@@ -179,6 +183,83 @@ function parseSaleOptions(product){try{const v=product?.sale_options;const a=Arr
 function resolveSale(product,key,qty){const opts=parseSaleOptions(product);if(!opts.length)return {label:'',factor:1,price:Number(product.price||0),qty:Number(qty),stockQty:Number(qty),stockUnit:String(product.unit||'un')};const option=opts.find(x=>String(x.key)===String(key))||opts[0];if(!option)throw new Error('Apresentação de venda inválida.');const factor=Number(option.factor),price=Number(option.price);if(!(factor>0)||!(price>=0)||!Number.isFinite(factor)||!Number.isFinite(price))throw new Error('Configuração de venda inválida para '+product.name+'.');return {label:String(option.label||'Unidade'),factor,price,qty:Number(qty),stockQty:factor*Number(qty),stockUnit:String(product.unit||'un')}}
 async function ensureStockAvailable(items){const totals=new Map();for(const x of items){const n=Number(x.sale?.stockQty??x.stock_qty??0);if(n>0)totals.set(Number(x.p?.id??x.product_id),(totals.get(Number(x.p?.id??x.product_id))||0)+n)}for(const [id,n] of totals){const p=await one('SELECT * FROM products WHERE id='+(isPg?'$1':'?'),[id]);if(!p||Number(p.stock||0)+0.0001<n)throw new Error('Estoque insuficiente para '+(p?.name||('produto '+id))+'. Disponível: '+Number(p?.stock||0)+' '+(p?.unit||'un')+'. Necessário: '+n+' '+(p?.unit||'un')+'.');}}
 async function changeStock(productId,amount,unit,description){const p=await one('SELECT * FROM products WHERE id='+(isPg?'$1':'?'),[productId]);if(!p)throw new Error('Produto não encontrado no estoque.');const current=Number(p.stock||0),delta=Number(amount);if(current+delta < -0.0001)throw new Error('Estoque insuficiente para '+p.name+'. Disponível: '+current+' '+(p.unit||'un')+'.');await run('UPDATE products SET stock='+(isPg?'$1':'?')+' WHERE id='+(isPg?'$2':'?'),[Math.max(0,current+delta),productId]);await run('INSERT INTO inventory_movements(product_id,quantity,unit,cost_total,description) VALUES('+(isPg?'$1,$2,$3,$4,$5':'?,?,?,?,?')+')',[productId,delta,unit||p.unit||'un',0,description]);}
+
+// Consumo centralizado de ficha técnica. Se o produto não tiver receita, mantém a baixa tradicional do próprio produto.
+async function getRecipeRows(productId){return await q('SELECT r.ingredient_id,r.quantity,r.unit,p.name,p.stock,p.unit AS stock_unit FROM technical_recipe_items r JOIN products p ON p.id=r.ingredient_id WHERE r.sale_product_id='+(isPg?'$1':'?')+' ORDER BY r.ingredient_id',[productId]);}
+const RECIPE_STOCK_DEDUCTION_ENABLED = String(process.env.RECIPE_STOCK_DEDUCTION_ENABLED||'').toLowerCase()==='true';
+async function ensureSaleInventoryAvailable(products){const needs=new Map();for(const x of products){const recipe=await getRecipeRows(x.p.id);if(recipe.length && RECIPE_STOCK_DEDUCTION_ENABLED){for(const r of recipe){const id=Number(r.ingredient_id);needs.set(id,(needs.get(id)||0)+Number(r.quantity||0)*Number(x.qty||1));}}else if(Number(x.sale.stockQty||0)>0){const id=Number(x.p.id);needs.set(id,(needs.get(id)||0)+Number(x.sale.stockQty));}}await ensureStockAvailable([...needs.entries()].map(([product_id,stock_qty])=>({product_id,stock_qty})));}
+async function ensureCommandItemsInventoryAvailable(items){const products=[];for(const item of items){const p=await one('SELECT * FROM products WHERE id='+(isPg?'$1':'?'),[Number(item.product_id)]);if(p)products.push({p,qty:Number(item.qty||1),sale:{stockQty:Number(item.stock_qty||0)}});}await ensureSaleInventoryAvailable(products);}
+async function applySaleInventoryUnlocked(productId,qty,stockQty,stockUnit,sourceType,sourceItemId,description){
+ // O rastreio é consultado para qualquer venda, inclusive produtos sem ficha técnica.
+ // Isso impede baixa duplicada e permite estornar usando o consumo real registrado,
+ // mesmo que a ficha técnica seja criada ou alterada depois da venda.
+ const already=await one('SELECT id FROM recipe_stock_movements WHERE source_type='+(isPg?'$1':'?')+' AND source_item_id='+(isPg?'$2':'?')+' LIMIT 1',[sourceType,sourceItemId]);
+ if(already)return {mode:'already_applied',deducted:true};
+ const recipe=await getRecipeRows(productId);
+ if(recipe.length && RECIPE_STOCK_DEDUCTION_ENABLED){
+  const required=recipe.map(r=>({product_id:Number(r.ingredient_id),stock_qty:Number(r.quantity||0)*Number(qty||1)}));
+  await ensureStockAvailable(required);
+  const done=[];
+  try{
+   for(const r of recipe){
+    const amount=Number(r.quantity||0)*Number(qty||1);if(!(amount>0))continue;
+    await changeStock(Number(r.ingredient_id),-amount,r.unit,'Consumo ficha técnica — '+description);
+    done.push({id:Number(r.ingredient_id),amount,unit:r.unit});
+    await run('INSERT INTO recipe_stock_movements(source_type,source_item_id,ingredient_id,quantity,unit) VALUES('+(isPg?'$1,$2,$3,$4,$5':'?,?,?,?,?')+')',[sourceType,sourceItemId,Number(r.ingredient_id),amount,r.unit]);
+   }
+  }catch(e){
+   for(const d of done.reverse()){
+    try{
+     await changeStock(d.id,d.amount,d.unit,'Estorno de falha no consumo da ficha técnica — '+description);
+     await run('UPDATE recipe_stock_movements SET reversed='+(isPg?'TRUE':'1')+' WHERE source_type='+(isPg?'$1':'?')+' AND source_item_id='+(isPg?'$2':'?')+' AND ingredient_id='+(isPg?'$3':'?'),[sourceType,sourceItemId,d.id]);
+    }catch(restoreError){console.error('Falha ao estornar ingrediente:',restoreError)}
+   }
+   throw e;
+  }
+  return {mode:'recipe',deducted:true};
+ }
+ if(Number(stockQty||0)>0){
+  await ensureStockAvailable([{product_id:Number(productId),stock_qty:Number(stockQty)}]);
+  await changeStock(productId,-Number(stockQty),stockUnit,description);
+  try{
+   // Registra também a baixa tradicional para o estorno não depender da ficha atual.
+   await run('INSERT INTO recipe_stock_movements(source_type,source_item_id,ingredient_id,quantity,unit) VALUES('+(isPg?'$1,$2,$3,$4,$5':'?,?,?,?,?')+')',[sourceType,sourceItemId,Number(productId),Number(stockQty),stockUnit||'un']);
+  }catch(e){await changeStock(productId,Number(stockQty),stockUnit,'Estorno de falha ao registrar rastreio — '+description);throw e;}
+  return {mode:'product',deducted:true};
+ }
+ return {mode:'none',deducted:false};
+}
+async function restoreSaleInventoryUnlocked(productId,stockQty,stockUnit,sourceType,sourceItemId,description){
+ const allRows=await q('SELECT * FROM recipe_stock_movements WHERE source_type='+(isPg?'$1':'?')+' AND source_item_id='+(isPg?'$2':'?')+' ORDER BY id',[sourceType,sourceItemId]);
+ if(allRows.length){
+  const activeRows=allRows.filter(r=>!(r.reversed===true||r.reversed===1||String(r.reversed).toLowerCase()==='true'));
+  if(!activeRows.length)return 'already_restored';
+  for(const r of activeRows){
+   const ingredientId=Number(r.ingredient_id),amount=Number(r.quantity||0);
+   await changeStock(ingredientId,amount,r.unit,'Devolução de estoque — '+description);
+   try{
+    await run('UPDATE recipe_stock_movements SET reversed='+(isPg?'TRUE':'1')+' WHERE id='+(isPg?'$1':'?')+' AND reversed='+(isPg?'FALSE':'0'),[r.id]);
+   }catch(markError){
+    // Se não conseguir marcar o movimento como estornado, desfaz a devolução
+    // para que uma nova tentativa não some a mesma quantidade novamente.
+    try{await changeStock(ingredientId,-amount,r.unit,'Reversão de devolução não confirmada — '+description)}catch(compensationError){console.error('Falha ao compensar devolução não confirmada:',compensationError)}
+    throw markError;
+   }
+  }
+  return 'restored';
+ }
+ // Compatibilidade com vendas antigas, anteriores ao rastreio individual.
+ // Se já existe ficha hoje, não é possível saber com segurança se a venda antiga
+ // baixou o produto ou ingredientes; não inventamos uma devolução.
+ const recipe=await getRecipeRows(productId);
+ if(recipe.length)return 'legacy_unknown_no_restore';
+ if(Number(stockQty||0)>0){await changeStock(Number(productId),Number(stockQty),stockUnit||'un',description);return 'product_legacy';}
+ return 'none';
+}
+let inventoryQueue=Promise.resolve();
+async function withInventoryLock(work){const previous=inventoryQueue;let release;inventoryQueue=new Promise(resolve=>{release=resolve});await previous;try{return await work()}finally{release()}}
+async function applySaleInventory(...args){return withInventoryLock(()=>applySaleInventoryUnlocked(...args))}
+async function restoreSaleInventory(...args){return withInventoryLock(()=>restoreSaleInventoryUnlocked(...args))}
 
 
 app.get('/api/health',(req,res)=>res.json({ok:true,version:'4.0.0',database:isPg?'postgres':'sqlite',adminConfigured:Boolean(process.env.SENHA_DE_ADMINISTRADOR||process.env.ADMIN_PASSWORD)}));
@@ -321,6 +402,24 @@ app.get('/api/admin/database/backup',auth,async(req,res)=>{
  const file=path.join(os.tmpdir(),'esp-reinaldo-backup-'+Date.now()+'.sqlite');
  try{await db.backup(file);res.setHeader('Content-Type','application/vnd.sqlite3');res.setHeader('Content-Disposition','attachment; filename="esp-reinaldo-backup.sqlite"');const stream=fs.createReadStream(file);stream.on('error',err=>{console.error('Leitura do backup:',err);if(!res.headersSent)res.status(500).end('Falha ao transferir backup');});stream.on('close',()=>fs.promises.unlink(file).catch(()=>{}));stream.pipe(res);}catch(e){console.error('Backup SQLite:',e);fs.promises.unlink(file).catch(()=>{});res.status(500).json({error:'Não foi possível gerar o backup do banco SQLite.'});}
 });
+
+// Fichas técnicas: um único cadastro de insumo pode participar de várias receitas.
+app.get('/api/admin/recipes',auth,async(req,res)=>{try{
+ const products=await q("SELECT id,name,category,price,unit,product_type,active FROM products WHERE COALESCE(product_type,'venda')='venda' ORDER BY name");
+ const ingredients=await q("SELECT id,name,category,unit,cost_price,stock,min_stock,active FROM products WHERE COALESCE(product_type,'venda')='insumo' ORDER BY name");
+ const productId=Number(req.query.product_id||0);let rows=[];
+ if(productId)rows=await q('SELECT r.*,p.name AS ingredient_name,p.cost_price,p.stock AS ingredient_stock,p.unit AS ingredient_unit FROM technical_recipe_items r JOIN products p ON p.id=r.ingredient_id WHERE r.sale_product_id='+(isPg?'$1':'?')+' ORDER BY p.name',[productId]);
+ res.json({products,ingredients,items:rows.map(x=>({...x,quantity:Number(x.quantity||0),cost:Number(x.quantity||0)*Number(x.cost_price||0)}))});
+ }catch(e){console.error('Carregar fichas técnicas:',e);res.status(500).json({error:'Não foi possível carregar as fichas técnicas.'})}});
+app.put('/api/admin/recipes/:productId',auth,async(req,res)=>{try{
+ const productId=Number(req.params.productId),product=await one("SELECT id,name FROM products WHERE id="+(isPg?'$1':'?')+" AND COALESCE(product_type,'venda')='venda'",[productId]);
+ if(!product)return res.status(404).json({error:'Produto de venda não encontrado.'});
+ const items=Array.isArray(req.body?.items)?req.body.items:[];const normalized=[];const seen=new Set();
+ for(const row of items){const ingredientId=Number(row.ingredient_id),quantity=productNumber(row.quantity),unit=String(row.unit||'').trim();if(!Number.isInteger(ingredientId)||ingredientId<=0||!(quantity>0)||!Number.isFinite(quantity)||!unit)return res.status(400).json({error:'Confira o ingrediente, a quantidade e a unidade de cada linha.'});if(seen.has(ingredientId))return res.status(400).json({error:'O mesmo insumo não pode aparecer duas vezes na mesma ficha. Some as quantidades em uma única linha.'});seen.add(ingredientId);const ingredient=await one("SELECT id,name,unit FROM products WHERE id="+(isPg?'$1':'?')+" AND COALESCE(product_type,'venda')='insumo' AND active="+(isPg?'TRUE':'1'),[ingredientId]);if(!ingredient)return res.status(400).json({error:'Um dos ingredientes não está cadastrado como insumo ativo.'});if(unit!==String(ingredient.unit||''))return res.status(400).json({error:'A unidade da ficha deve ser a mesma unidade-base do insumo '+ingredient.name+' ('+ingredient.unit+').'});normalized.push({ingredientId,quantity,unit,notes:String(row.notes||'').slice(0,200)});}
+ if(isPg){await db.query('BEGIN');try{await db.query('DELETE FROM technical_recipe_items WHERE sale_product_id=$1',[productId]);for(const x of normalized)await db.query('INSERT INTO technical_recipe_items(sale_product_id,ingredient_id,quantity,unit,notes) VALUES($1,$2,$3,$4,$5)',[productId,x.ingredientId,x.quantity,x.unit,x.notes]);await db.query('COMMIT')}catch(e){await db.query('ROLLBACK');throw e}}
+ else{const tx=db.transaction(()=>{db.prepare('DELETE FROM technical_recipe_items WHERE sale_product_id=?').run(productId);const ins=db.prepare('INSERT INTO technical_recipe_items(sale_product_id,ingredient_id,quantity,unit,notes) VALUES(?,?,?,?,?)');for(const x of normalized)ins.run(productId,x.ingredientId,x.quantity,x.unit,x.notes)});tx();}
+ const saved=await q('SELECT r.*,p.name AS ingredient_name,p.cost_price FROM technical_recipe_items r JOIN products p ON p.id=r.ingredient_id WHERE r.sale_product_id='+(isPg?'$1':'?')+' ORDER BY p.name',[productId]);res.json({ok:true,product,items:saved.map(x=>({...x,quantity:Number(x.quantity),cost:Number(x.quantity)*Number(x.cost_price||0)})),message:'Ficha técnica salva.'});
+ }catch(e){console.error('Salvar ficha técnica:',e);res.status(500).json({error:'Não foi possível salvar a ficha técnica.'})}});
 
 app.get('/api/admin/products/barcode/:barcode/lookup',auth,async(req,res)=>{
  try{
@@ -491,6 +590,8 @@ app.put('/api/admin/customers/:id',auth,async(req,res)=>{
 let orderCreationQueue=Promise.resolve();
 app.post('/api/orders',async(req,res)=>{
  let release;
+ let orderIdForRollback=null;
+ const appliedSiteItems=[];
  const previous=orderCreationQueue;
  orderCreationQueue=new Promise(resolve=>{release=resolve;});
  await previous;
@@ -500,7 +601,7 @@ app.post('/api/orders',async(req,res)=>{
   let total=0,products=[];
   for(const it of items){
    const p=await one('SELECT * FROM products WHERE id='+(isPg?'$1':'?'),[Number(it.product_id)]);
-   if(!p||!(p.active===true||p.active===1))return res.status(400).json({error:'Produto indisponível'});
+   if(!p||!(p.active===true||p.active===1)||String(p.product_type||'venda')==='insumo')return res.status(400).json({error:'Produto indisponível para venda'});
    const qty=Number(it.qty)||1;
    if(!Number.isFinite(qty)||qty<=0)return res.status(400).json({error:'Quantidade inválida'});
    let sale;try{sale=resolveSale(p,it.sale_option_key,qty)}catch(e){return res.status(400).json({error:e.message})}
@@ -513,27 +614,42 @@ app.post('/api/orders',async(req,res)=>{
     return res.status(409).json({error:'Atingimos nosso limite de pedidos de sanduíches neste momento. Os sanduíches foram temporariamente pausados. Você pode retirar esses itens do carrinho e pedir os demais produtos.' ,sandwich_paused:true,...capacity});
    }
   }
-  try{await ensureStockAvailable(products)}catch(e){return res.status(409).json({error:e.message})}
+  try{await ensureSaleInventoryAvailable(products)}catch(e){return res.status(409).json({error:e.message})}
   const deliveryFee=type==='entrega'?DELIVERY_FEE:0;
   total+=deliveryFee;
   let orderId,commandNo=String(req.body.command_no||'');
+  const itemIds=[];
   if(isPg){
    const r=await db.query('INSERT INTO orders(customer_name,phone,type,address,payment,notes,status,total,command_no) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id',[customer_name,phone,type,address,payment,notes,'novo',total,commandNo]);
-   orderId=r.rows[0].id;
-   for(const x of products)await db.query('INSERT INTO order_items(order_id,product_id,name,qty,unit_price,total,sale_label,stock_qty,stock_unit) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[orderId,x.p.id,x.p.name+(x.sale.label?' — '+x.sale.label:''),x.qty,x.sale.price,x.line,x.sale.label,x.sale.stockQty,x.sale.stockUnit]);
+   orderId=r.rows[0].id;orderIdForRollback=Number(orderId);
+   for(const x of products){const ir=await db.query('INSERT INTO order_items(order_id,product_id,name,qty,unit_price,total,sale_label,stock_qty,stock_unit) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id',[orderId,x.p.id,x.p.name+(x.sale.label?' — '+x.sale.label:''),x.qty,x.sale.price,x.line,x.sale.label,x.sale.stockQty,x.sale.stockUnit]);itemIds.push(ir.rows[0].id);}
   }else{
    const r=await run('INSERT INTO orders(customer_name,phone,type,address,payment,notes,status,total,command_no) VALUES(?,?,?,?,?,?,?,?,?)',[customer_name,phone,type,address,payment,notes,'novo',total,commandNo]);
-   orderId=r.lastID;
-   for(const x of products)await run('INSERT INTO order_items(order_id,product_id,name,qty,unit_price,total,sale_label,stock_qty,stock_unit) VALUES(?,?,?,?,?,?,?,?,?)',[orderId,x.p.id,x.p.name+(x.sale.label?' — '+x.sale.label:''),x.qty,x.sale.price,x.line,x.sale.label,x.sale.stockQty,x.sale.stockUnit]);
+   orderId=r.lastID;orderIdForRollback=Number(orderId);
+   for(const x of products){const ir=await run('INSERT INTO order_items(order_id,product_id,name,qty,unit_price,total,sale_label,stock_qty,stock_unit) VALUES(?,?,?,?,?,?,?,?,?)',[orderId,x.p.id,x.p.name+(x.sale.label?' — '+x.sale.label:''),x.qty,x.sale.price,x.line,x.sale.label,x.sale.stockQty,x.sale.stockUnit]);itemIds.push(ir.lastID);}
   }
-  // Reserva/baixa o estoque no recebimento do pedido. Em cancelamento, a rota de status devolve as quantidades.
-  for(const x of products)await changeStock(x.p.id,-x.sale.stockQty,x.sale.stockUnit,'Venda pedido do site #'+orderId+' — '+x.sale.label);
-  if(products.some(x=>x.sale.stockQty>0))await run('UPDATE orders SET stock_deducted='+(isPg?'TRUE':'1')+' WHERE id='+(isPg?'$1':'?'),[orderId]);
+  // Uma rotina única decide entre consumir a ficha técnica ou o estoque do próprio produto.
+  let inventoryChanged=false;
+  for(let i=0;i<products.length;i++){const x=products[i];const applied=await applySaleInventory(x.p.id,x.qty,x.sale.stockQty,x.sale.stockUnit,'site',Number(itemIds[i]),'Pedido do site #'+orderId+' — '+(x.sale.label||x.p.name));if(applied.deducted)appliedSiteItems.push({productId:Number(x.p.id),stockQty:Number(x.sale.stockQty||0),stockUnit:x.sale.stockUnit||'un',itemId:Number(itemIds[i])});inventoryChanged=inventoryChanged||applied.deducted;}
+  if(inventoryChanged)await run('UPDATE orders SET stock_deducted='+(isPg?'TRUE':'1')+' WHERE id='+(isPg?'$1':'?'),[orderId]);
   // Preserva a impressão atual de todos os itens configurados para pedidos do site.
   const orderPrintItems=products.filter(x=>x.p.print_site===true||x.p.print_site===1||x.p.print_site===undefined||x.p.print_site===null).map(x=>({name:x.p.name+(x.sale.label?' — '+x.sale.label:''),qty:x.qty,unit_price:Number(x.sale.price),total:x.line}));
   if(orderPrintItems.length)await enqueuePrint('site-order-'+orderId,'kitchen',{title:'PEDIDO DO SITE — PRODUÇÃO E SEPARAÇÃO',order:orderId,customer:customer_name,phone,type,address,notes,items:orderPrintItems,subtotal:products.reduce((sum,x)=>sum+x.line,0),delivery_fee:deliveryFee,total,created_at:new Date().toISOString()});
   res.json({ok:true,order_id:orderId,total,delivery_fee:deliveryFee,command_no:commandNo});
- }catch(e){console.error('Erro ao receber pedido do site:',e);res.status(500).json({error:e.message||'Não foi possível receber o pedido.'})}
+ }catch(e){
+  console.error('Erro ao receber pedido do site:',e);
+  // Se um pedido falhar depois de consumir algum item, devolve somente os
+  // movimentos já aplicados e remove o pedido incompleto.
+  if(orderIdForRollback!==null){
+   for(const item of appliedSiteItems.slice().reverse()){
+    try{await restoreSaleInventory(item.productId,item.stockQty,item.stockUnit,'site',item.itemId,'Estorno de pedido incompleto #'+orderIdForRollback)}
+    catch(restoreError){console.error('Falha ao estornar item do pedido incompleto:',restoreError)}
+   }
+   try{await run('DELETE FROM order_items WHERE order_id='+(isPg?'$1':'?'),[orderIdForRollback]);await run('DELETE FROM orders WHERE id='+(isPg?'$1':'?'),[orderIdForRollback]);}
+   catch(cleanupError){console.error('Falha ao remover pedido incompleto:',cleanupError)}
+  }
+  res.status(500).json({error:e.message||'Não foi possível receber o pedido.'})
+ }
  finally{release();}
 });
 app.get('/api/orders/:id/status',async(req,res)=>{
@@ -559,7 +675,7 @@ app.get('/api/orders/:id',async(req,res)=>{
   }catch(e){res.status(500).json({error:e.message})}
 });
 app.get('/api/admin/orders',auth,async(req,res)=>{const orders=await q('SELECT * FROM orders ORDER BY id DESC');for(const o of orders)o.items=await q('SELECT * FROM order_items WHERE order_id='+(isPg?'$1':'?')+' ORDER BY id',[o.id]);res.json(orders);});
-app.put('/api/admin/orders/:id/status',auth,async(req,res)=>{try{const status=req.body.status;const allowed=['novo','confirmado','preparando','pronto','entregando','finalizado','cancelado'];if(!allowed.includes(status))return res.status(400).json({error:'Status inválido'});const id=Number(req.params.id),o=await one('SELECT * FROM orders WHERE id='+(isPg?'$1':'?'),[id]);if(!o)return res.status(404).json({error:'Pedido não encontrado'});if(status==='cancelado'&&!(o.stock_deducted===false||o.stock_deducted===0||o.stock_deducted===null)){const items=await q('SELECT * FROM order_items WHERE order_id='+(isPg?'$1':'?'),[id]);for(const it of items){const n=Number(it.stock_qty||it.qty||0);if(n>0)await changeStock(Number(it.product_id),n,it.stock_unit||'un','Estorno pedido cancelado #'+id);}await run('UPDATE orders SET stock_deducted='+(isPg?'FALSE':'0')+' WHERE id='+(isPg?'$1':'?'),[id]);}if(o.status==='cancelado'&&status!=='cancelado')return res.status(400).json({error:'Pedido cancelado. Para refazer a venda, crie um novo pedido.'});await run('UPDATE orders SET status='+(isPg?'$1':'?')+' WHERE id='+(isPg?'$2':'?'),[status,id]);res.json({ok:true});}catch(e){res.status(400).json({error:e.message||'Não foi possível atualizar o pedido.'})}});
+app.put('/api/admin/orders/:id/status',auth,async(req,res)=>{try{const status=req.body.status;const allowed=['novo','confirmado','preparando','pronto','entregando','finalizado','cancelado'];if(!allowed.includes(status))return res.status(400).json({error:'Status inválido'});const id=Number(req.params.id),o=await one('SELECT * FROM orders WHERE id='+(isPg?'$1':'?'),[id]);if(!o)return res.status(404).json({error:'Pedido não encontrado'});if(status==='cancelado'&&!(o.stock_deducted===false||o.stock_deducted===0||o.stock_deducted===null)){const items=await q('SELECT * FROM order_items WHERE order_id='+(isPg?'$1':'?'),[id]);for(const it of items){await restoreSaleInventory(Number(it.product_id),Number(it.stock_qty||it.qty||0),it.stock_unit||'un','site',Number(it.id),'Estorno pedido cancelado #'+id);}await run('UPDATE orders SET stock_deducted='+(isPg?'FALSE':'0')+' WHERE id='+(isPg?'$1':'?'),[id]);}if(o.status==='cancelado'&&status!=='cancelado')return res.status(400).json({error:'Pedido cancelado. Para refazer a venda, crie um novo pedido.'});await run('UPDATE orders SET status='+(isPg?'$1':'?')+' WHERE id='+(isPg?'$2':'?'),[status,id]);res.json({ok:true});}catch(e){res.status(400).json({error:e.message||'Não foi possível atualizar o pedido.'})}});
 app.post('/api/admin/orders/:id/confirm-payment',auth,async(req,res)=>{try{const id=Number(req.params.id);const o=await one('SELECT * FROM orders WHERE id='+(isPg?'$1':'?'),[id]);if(!o)return res.status(404).json({error:'Pedido não encontrado'});if(o.payment_confirmed===true||o.payment_confirmed===1)return res.json({ok:true,already_confirmed:true});await run('UPDATE orders SET payment_confirmed='+(isPg?'TRUE':'1')+' WHERE id='+(isPg?'$1':'?'),[id]);const exists=await one('SELECT id FROM cash WHERE description='+(isPg?'$1':'?'),['Pedido #'+o.id]);if(!exists)await run('INSERT INTO cash(type,description,value,payment,order_id) VALUES('+(isPg?'$1,$2,$3,$4,$5':'?,?,?,?,?')+')',['entrada','Pedido #'+o.id,Number(o.total),o.payment||'',id]);const items=await q('SELECT * FROM order_items WHERE order_id='+(isPg?'$1':'?')+' ORDER BY id',[id]);const subtotal=items.reduce((sum,it)=>sum+Number(it.total||0),0);const fee=Math.max(0,Number(o.total||0)-subtotal);await enqueuePrint('receipt-order-paid-'+o.id,'receipt',{title:'COMPROVANTE DE VENDA — PAGAMENTO CONFIRMADO',order:o.id,customer:o.customer_name,type:o.type,address:o.address,notes:o.notes,items,subtotal,delivery_fee:fee,total:Number(o.total||0),payment:o.payment||'',created_at:o.created_at});res.json({ok:true});}catch(e){console.error(e);res.status(500).json({error:'Não foi possível confirmar o pagamento'});}});
 
 app.get('/api/admin/cash',auth,async(req,res)=>{
@@ -643,7 +759,7 @@ app.get('/api/garcom/me',waiterAuth,(req,res)=>res.json({ok:true,waiter:req.wait
 app.get('/api/garcom/products',waiterAuth,async(req,res)=>{try{const rows=await q("SELECT id,name,category,price,unit,sale_options,active,product_type FROM products WHERE active="+(isPg?'TRUE':'1')+" AND COALESCE(product_type,'venda')='venda' ORDER BY category,name");res.json(rows);}catch(e){res.status(500).json({error:'Não foi possível carregar os produtos.'});}});
 app.get('/api/garcom/commands',waiterAuth,async(req,res)=>{try{const rows=await q("SELECT * FROM commands WHERE status='aberta' ORDER BY id DESC");for(const c of rows)c.items=await q('SELECT id,name,qty,unit_price,total,notes,waiter_name FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[c.id]);res.json(rows);}catch(e){res.status(500).json({error:'Não foi possível carregar as comandas.'});}});
 app.post('/api/garcom/commands',waiterAuth,async(req,res)=>{try{const customer=String(req.body?.customer||'').trim().slice(0,100),table=String(req.body?.table||'').trim().slice(0,40);const existing=await q('SELECT number FROM commands');const nums=existing.map(c=>String(c.number||'').trim()).filter(n=>/^\d+$/.test(n)).map(Number).filter(Number.isSafeInteger);const number=String((nums.length?Math.max(...nums):0)+1);if(isPg)await db.query('INSERT INTO commands(number,customer,waiter_number,waiter_name,waiter_table) VALUES($1,$2,$3,$4,$5)',[number,customer,req.waiter.number,req.waiter.name,table]);else await run('INSERT INTO commands(number,customer,waiter_number,waiter_name,waiter_table) VALUES(?,?,?,?,?)',[number,customer,req.waiter.number,req.waiter.name,table]);const command=await one('SELECT * FROM commands WHERE number='+(isPg?'$1':'?'),[number]);res.json({ok:true,command});}catch(e){console.error('Garçom abrir comanda:',e);res.status(500).json({error:'Não foi possível abrir a comanda.'});}});
-app.post('/api/garcom/commands/:id/items',waiterAuth,async(req,res)=>{let rollback=null;try{const id=Number(req.params.id),command=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[id]);if(!command)return res.status(404).json({error:'Comanda não encontrada.'});if(command.status!=='aberta')return res.status(409).json({error:'Esta comanda não está aberta.'});const productId=Number(req.body?.product_id),qty=Number(req.body?.qty),notes=String(req.body?.notes||'').trim().slice(0,240);if(!Number.isInteger(productId)||productId<=0||!Number.isFinite(qty)||qty<=0||qty>999)return res.status(400).json({error:'Informe produto e quantidade válidos.'});const product=await one('SELECT * FROM products WHERE id='+(isPg?'$1':'?'),[productId]);if(!product||!(product.active===true||product.active===1)||String(product.product_type||'venda')==='insumo')return res.status(400).json({error:'Produto indisponível para venda.'});let sale;try{sale=resolveSale(product,req.body?.sale_option_key,qty)}catch(e){return res.status(400).json({error:e.message})}const line=sale.price*qty;if(sale.stockQty>0){await ensureStockAvailable([{product_id:product.id,stock_qty:sale.stockQty}]);await changeStock(product.id,-sale.stockQty,sale.stockUnit,'Venda comanda '+command.number+' — '+(sale.label||product.name));rollback={id:product.id,qty:sale.stockQty,unit:sale.stockUnit};}const itemName=product.name+(sale.label?' — '+sale.label:'');let itemId;if(isPg){const r=await db.query('INSERT INTO command_items(command_id,product_id,name,qty,unit_price,total,sale_label,stock_qty,stock_unit,stock_deducted,waiter_number,waiter_name,notes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id',[id,product.id,itemName,qty,sale.price,line,sale.label,sale.stockQty,sale.stockUnit,sale.stockQty>0,req.waiter.number,req.waiter.name,notes]);itemId=r.rows[0].id;await db.query('UPDATE commands SET total=COALESCE(total,0)+$1 WHERE id=$2',[line,id]);}else{const r=await run('INSERT INTO command_items(command_id,product_id,name,qty,unit_price,total,sale_label,stock_qty,stock_unit,stock_deducted,waiter_number,waiter_name,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',[id,product.id,itemName,qty,sale.price,line,sale.label,sale.stockQty,sale.stockUnit,sale.stockQty>0?1:0,req.waiter.number,req.waiter.name,notes]);itemId=r.lastID;await run('UPDATE commands SET total=COALESCE(total,0)+? WHERE id=?',[line,id]);}rollback=null;if(product.print_command===true||product.print_command===1||((product.print_command===undefined||product.print_command===null)&&(product.prepare_kitchen===true||product.prepare_kitchen===1))){const item=await one('SELECT * FROM command_items WHERE id='+(isPg?'$1':'?'),[itemId]);if(item)await enqueuePrint('kitchen-command-item-'+item.id,'kitchen',{title:'COMANDA — COZINHA',command:command.number,customer:command.customer||'',items:[{name:itemName+(notes?' — '+notes:''),qty,total:line}],created_at:new Date().toISOString()});}const updated=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[id]);res.json({ok:true,command:updated});}catch(e){if(rollback)try{await changeStock(rollback.id,rollback.qty,rollback.unit,'Estorno de falha no lançamento pelo garçom')}catch(x){console.error(x)}console.error('Garçom lançar item:',e);res.status(500).json({error:e.message||'Não foi possível lançar o produto.'});}});
+app.post('/api/garcom/commands/:id/items',waiterAuth,async(req,res)=>{let itemId=null,inventoryApplied=false,product=null,sale=null,commandId=Number(req.params.id);try{const id=commandId,command=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[id]);if(!command)return res.status(404).json({error:'Comanda não encontrada.'});if(command.status!=='aberta')return res.status(409).json({error:'Esta comanda não está aberta.'});const productId=Number(req.body?.product_id),qty=Number(req.body?.qty),notes=String(req.body?.notes||'').trim().slice(0,240);if(!Number.isInteger(productId)||productId<=0||!Number.isFinite(qty)||qty<=0||qty>999)return res.status(400).json({error:'Informe produto e quantidade válidos.'});product=await one('SELECT * FROM products WHERE id='+(isPg?'$1':'?'),[productId]);if(!product||!(product.active===true||product.active===1)||String(product.product_type||'venda')==='insumo')return res.status(400).json({error:'Produto indisponível para venda.'});try{sale=resolveSale(product,req.body?.sale_option_key,qty)}catch(e){return res.status(400).json({error:e.message})}const line=sale.price*qty;const recipe=await getRecipeRows(product.id);if(recipe.length)await ensureStockAvailable(recipe.map(r=>({product_id:Number(r.ingredient_id),stock_qty:Number(r.quantity||0)*qty})));else if(sale.stockQty>0)await ensureStockAvailable([{product_id:product.id,stock_qty:sale.stockQty}]);const itemName=product.name+(sale.label?' — '+sale.label:'');if(isPg){const r=await db.query('INSERT INTO command_items(command_id,product_id,name,qty,unit_price,total,sale_label,stock_qty,stock_unit,stock_deducted,waiter_number,waiter_name,notes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,FALSE,$10,$11,$12) RETURNING id',[id,product.id,itemName,qty,sale.price,line,sale.label,sale.stockQty,sale.stockUnit,req.waiter.number,req.waiter.name,notes]);itemId=r.rows[0].id;await db.query('UPDATE commands SET total=COALESCE(total,0)+$1 WHERE id=$2',[line,id]);}else{const r=await run('INSERT INTO command_items(command_id,product_id,name,qty,unit_price,total,sale_label,stock_qty,stock_unit,stock_deducted,waiter_number,waiter_name,notes) VALUES(?,?,?,?,?,?,?,?,?,0,?,?,?)',[id,product.id,itemName,qty,sale.price,line,sale.label,sale.stockQty,sale.stockUnit,req.waiter.number,req.waiter.name,notes]);itemId=r.lastID;await run('UPDATE commands SET total=COALESCE(total,0)+? WHERE id=?',[line,id]);}const applied=await applySaleInventory(product.id,qty,sale.stockQty,sale.stockUnit,'command',Number(itemId),'Comanda '+command.number+' — '+(sale.label||product.name));inventoryApplied=applied.deducted;if(inventoryApplied)await run('UPDATE command_items SET stock_deducted='+(isPg?'TRUE':'1')+' WHERE id='+(isPg?'$1':'?'),[itemId]);if(product.print_command===true||product.print_command===1||((product.print_command===undefined||product.print_command===null)&&(product.prepare_kitchen===true||product.prepare_kitchen===1))){const item=await one('SELECT * FROM command_items WHERE id='+(isPg?'$1':'?'),[itemId]);if(item)await enqueuePrint('kitchen-command-item-'+item.id,'kitchen',{title:'COMANDA — COZINHA',command:command.number,customer:command.customer||'',items:[{name:itemName+(notes?' — '+notes:''),qty,total:line}],created_at:new Date().toISOString()});}const updated=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[id]);res.json({ok:true,command:updated});}catch(e){if(itemId!==null){try{if(inventoryApplied)await restoreSaleInventory(Number(product?.id),Number(sale?.stockQty||0),sale?.stockUnit||'un','command',Number(itemId),'Estorno de falha no lançamento pelo garçom');await run('DELETE FROM command_items WHERE id='+(isPg?'$1':'?'),[itemId]);const sums=await q('SELECT COALESCE(SUM(total),0) AS total FROM command_items WHERE command_id='+(isPg?'$1':'?'),[commandId]);await run('UPDATE commands SET total='+(isPg?'$1':'?')+' WHERE id='+(isPg?'$2':'?'),[Number(sums[0]?.total||0),commandId]);}catch(x){console.error('Falha no estorno do lançamento do garçom:',x)}}console.error('Garçom lançar item:',e);res.status(500).json({error:e.message||'Não foi possível lançar o produto.'});}});
 app.delete('/api/garcom/commands/:id/items/:itemId',waiterAuth,async(req,res)=>{
  try{
   const commandId=Number(req.params.id),itemId=Number(req.params.itemId);
@@ -653,10 +769,7 @@ app.delete('/api/garcom/commands/:id/items/:itemId',waiterAuth,async(req,res)=>{
   if(command.status!=='aberta')return res.status(400).json({error:'Só é possível excluir produtos de comandas abertas.'});
   const item=await one('SELECT * FROM command_items WHERE id='+(isPg?'$1':'?')+' AND command_id='+(isPg?'$2':'?'),[itemId,commandId]);
   if(!item)return res.status(404).json({error:'Este produto não pertence a esta comanda ou já foi excluído.'});
-  if(item.stock_deducted===true||item.stock_deducted===1){
-   const quantity=Number(item.stock_qty||0);
-   if(quantity>0)await changeStock(Number(item.product_id),quantity,item.stock_unit||'un','Devolução por exclusão do item da comanda '+command.number);
-  }
+  if(item.stock_deducted===true||item.stock_deducted===1){await restoreSaleInventory(Number(item.product_id),Number(item.stock_qty||0),item.stock_unit||'un','command',Number(item.id),'Devolução por exclusão do item da comanda '+command.number);}
   await run('DELETE FROM command_items WHERE id='+(isPg?'$1':'?')+' AND command_id='+(isPg?'$2':'?'),[itemId,commandId]);
   const remaining=await q('SELECT id FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[commandId]);
   if(remaining.length===0){
@@ -692,49 +805,7 @@ app.post('/api/admin/commands',auth,async(req,res)=>{
  }
 });
 
-app.post('/api/admin/commands/:id/items',auth,async(req,res)=>{
- let deductedProductId=null,deductedQty=0,deductedUnit='un';
- try{
-  const commandId=Number(req.params.id);
-  const command=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[commandId]);
-  if(!command)return res.status(404).json({error:'Comanda não encontrada'});
-  if(command.status!=='aberta')return res.status(400).json({error:'Esta comanda não está aberta'});
-  const productId=Number(req.body.product_id),qty=Number(req.body.qty);
-  if(!Number.isInteger(productId)||productId<=0||!Number.isFinite(qty)||qty<=0)return res.status(400).json({error:'Produto e quantidade válidos são obrigatórios'});
-  const product=await one('SELECT * FROM products WHERE id='+(isPg?'$1':'?'),[productId]);
-  if(!product||!(product.active===true||product.active===1))return res.status(400).json({error:'Produto indisponível'});
-  if(String(product.product_type||'venda')==='insumo')return res.status(400).json({error:'Este cadastro é um insumo e não pode ser vendido.'});
-  let sale;try{sale=resolveSale(product,req.body.sale_option_key,qty)}catch(e){return res.status(400).json({error:e.message})}
-  const line=sale.price*qty;
-  if(sale.stockQty>0){
-   await ensureStockAvailable([{product_id:product.id,stock_qty:sale.stockQty}]);
-   await changeStock(product.id,-sale.stockQty,sale.stockUnit,'Venda comanda '+command.number+' — '+(sale.label||product.name));
-   deductedProductId=product.id;deductedQty=sale.stockQty;deductedUnit=sale.stockUnit;
-  }
-  let itemId;
-  if(isPg){
-   const r=await db.query('INSERT INTO command_items(command_id,product_id,name,qty,unit_price,total,sale_label,stock_qty,stock_unit,stock_deducted) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id',[commandId,product.id,product.name+(sale.label?' — '+sale.label:''),qty,sale.price,line,sale.label,sale.stockQty,sale.stockUnit,sale.stockQty>0]);
-   itemId=r.rows[0].id;
-   await db.query('UPDATE commands SET total=COALESCE(total,0)+$1 WHERE id=$2',[line,commandId]);
-  }else{
-   const r=await run('INSERT INTO command_items(command_id,product_id,name,qty,unit_price,total,sale_label,stock_qty,stock_unit,stock_deducted) VALUES(?,?,?,?,?,?,?,?,?,?)',[commandId,product.id,product.name+(sale.label?' — '+sale.label:''),qty,sale.price,line,sale.label,sale.stockQty,sale.stockUnit,sale.stockQty>0?1:0]);
-   itemId=r.lastID;
-   await run('UPDATE commands SET total=COALESCE(total,0)+? WHERE id=?',[line,commandId]);
-  }
-  deductedProductId=null;
-  if(product.print_command===true||product.print_command===1||((product.print_command===undefined||product.print_command===null)&&(product.prepare_kitchen===true||product.prepare_kitchen===1))){
-   const last=await one('SELECT * FROM command_items WHERE id='+(isPg?'$1':'?'),[itemId]);
-   if(last)await enqueuePrint('kitchen-command-item-'+last.id,'kitchen',{title:'COMANDA — COZINHA',command:command.number,customer:command.customer||'',items:[{name:product.name+(sale.label?' — '+sale.label:''),qty,total:line}],created_at:new Date().toISOString()});
-  }
-  const updated=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[commandId]);
-  const items=await q('SELECT * FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[commandId]);
-  res.json({ok:true,command:updated,items});
- }catch(e){
-  if(deductedProductId!==null){try{await changeStock(deductedProductId,deductedQty,deductedUnit,'Estorno automático de falha no lançamento da comanda')}catch(restoreError){console.error('Falha ao estornar estoque após erro:',restoreError)}}
-  res.status(500).json({error:e.message||'Erro ao lançar produto na comanda'})
- }
-});
-
+app.post('/api/admin/commands/:id/items',auth,async(req,res)=>{let itemId=null,product=null,sale=null,inventoryApplied=false,commandId=Number(req.params.id);try{const command=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[commandId]);if(!command)return res.status(404).json({error:'Comanda não encontrada'});if(command.status!=='aberta')return res.status(400).json({error:'Esta comanda não está aberta'});const productId=Number(req.body.product_id),qty=Number(req.body.qty);if(!Number.isInteger(productId)||productId<=0||!Number.isFinite(qty)||qty<=0)return res.status(400).json({error:'Produto e quantidade válidos são obrigatórios'});product=await one('SELECT * FROM products WHERE id='+(isPg?'$1':'?'),[productId]);if(!product||!(product.active===true||product.active===1))return res.status(400).json({error:'Produto indisponível'});if(String(product.product_type||'venda')==='insumo')return res.status(400).json({error:'Este cadastro é um insumo e não pode ser vendido.'});try{sale=resolveSale(product,req.body.sale_option_key,qty)}catch(e){return res.status(400).json({error:e.message})}const line=sale.price*qty;const recipe=await getRecipeRows(product.id);if(recipe.length)await ensureStockAvailable(recipe.map(r=>({product_id:Number(r.ingredient_id),stock_qty:Number(r.quantity||0)*qty})));else if(sale.stockQty>0)await ensureStockAvailable([{product_id:product.id,stock_qty:sale.stockQty}]);if(isPg){const r=await db.query('INSERT INTO command_items(command_id,product_id,name,qty,unit_price,total,sale_label,stock_qty,stock_unit,stock_deducted) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,FALSE) RETURNING id',[commandId,product.id,product.name+(sale.label?' — '+sale.label:''),qty,sale.price,line,sale.label,sale.stockQty,sale.stockUnit]);itemId=r.rows[0].id;await db.query('UPDATE commands SET total=COALESCE(total,0)+$1 WHERE id=$2',[line,commandId]);}else{const r=await run('INSERT INTO command_items(command_id,product_id,name,qty,unit_price,total,sale_label,stock_qty,stock_unit,stock_deducted) VALUES(?,?,?,?,?,?,?,?,?,0)',[commandId,product.id,product.name+(sale.label?' — '+sale.label:''),qty,sale.price,line,sale.label,sale.stockQty,sale.stockUnit]);itemId=r.lastID;await run('UPDATE commands SET total=COALESCE(total,0)+? WHERE id=?',[line,commandId]);}const applied=await applySaleInventory(product.id,qty,sale.stockQty,sale.stockUnit,'command',Number(itemId),'Comanda '+command.number+' — '+(sale.label||product.name));inventoryApplied=applied.deducted;if(inventoryApplied)await run('UPDATE command_items SET stock_deducted='+(isPg?'TRUE':'1')+' WHERE id='+(isPg?'$1':'?'),[itemId]);if(product.print_command===true||product.print_command===1||((product.print_command===undefined||product.print_command===null)&&(product.prepare_kitchen===true||product.prepare_kitchen===1))){const last=await one('SELECT * FROM command_items WHERE id='+(isPg?'$1':'?'),[itemId]);if(last)await enqueuePrint('kitchen-command-item-'+last.id,'kitchen',{title:'COMANDA — COZINHA',command:command.number,customer:command.customer||'',items:[{name:product.name+(sale.label?' — '+sale.label:''),qty,total:line}],created_at:new Date().toISOString()});}const updated=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[commandId]);const items=await q('SELECT * FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[commandId]);res.json({ok:true,command:updated,items});}catch(e){if(itemId!==null){try{if(inventoryApplied)await restoreSaleInventory(Number(product?.id),Number(sale?.stockQty||0),sale?.stockUnit||'un','command',Number(itemId),'Estorno automático de falha no lançamento da comanda');await run('DELETE FROM command_items WHERE id='+(isPg?'$1':'?'),[itemId]);const sums=await q('SELECT COALESCE(SUM(total),0) AS total FROM command_items WHERE command_id='+(isPg?'$1':'?'),[commandId]);await run('UPDATE commands SET total='+(isPg?'$1':'?')+' WHERE id='+(isPg?'$2':'?'),[Number(sums[0]?.total||0),commandId]);}catch(restoreError){console.error('Falha ao estornar estoque após erro:',restoreError)}}console.error('Erro ao lançar item na comanda:',e);res.status(500).json({error:e.message||'Erro ao lançar produto na comanda'});}});
 
 // Remove um produto somente de uma comanda que ainda está aberta e devolve o estoque já baixado.
 app.delete('/api/admin/commands/:id/items/:itemId',auth,async(req,res)=>{
@@ -746,10 +817,7 @@ app.delete('/api/admin/commands/:id/items/:itemId',auth,async(req,res)=>{
   if(command.status!=='aberta')return res.status(400).json({error:'Só é possível excluir produtos de comandas abertas.'});
   const item=await one('SELECT * FROM command_items WHERE id='+(isPg?'$1':'?')+' AND command_id='+(isPg?'$2':'?'),[itemId,commandId]);
   if(!item)return res.status(404).json({error:'Este produto não pertence a esta comanda ou já foi excluído.'});
-  if(item.stock_deducted===true||item.stock_deducted===1){
-   const quantity=Number(item.stock_qty||0);
-   if(quantity>0)await changeStock(Number(item.product_id),quantity,item.stock_unit||'un','Devolução por exclusão do item da comanda '+command.number);
-  }
+  if(item.stock_deducted===true||item.stock_deducted===1){await restoreSaleInventory(Number(item.product_id),Number(item.stock_qty||0),item.stock_unit||'un','command',Number(item.id),'Devolução por exclusão do item da comanda '+command.number);}
   await run('DELETE FROM command_items WHERE id='+(isPg?'$1':'?')+' AND command_id='+(isPg?'$2':'?'),[itemId,commandId]);
   const remaining=await q('SELECT id FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[commandId]);
   if(remaining.length===0){
@@ -871,8 +939,8 @@ app.put('/api/admin/commands/:id/close',auth,async(req,res)=>{
   }
   const commandItems=await q('SELECT * FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[id]);
   const pendingStockItems=commandItems.filter(item=>!(item.stock_deducted===true||item.stock_deducted===1));
-  try{await ensureStockAvailable(pendingStockItems.map(item=>({product_id:item.product_id,stock_qty:item.stock_qty})))}catch(e){return res.status(409).json({error:e.message})}
-  for(const item of pendingStockItems){const stockQty=Number(item.stock_qty||0);if(stockQty>0)await changeStock(Number(item.product_id),-stockQty,item.stock_unit||'un','Venda comanda '+c.number+' — '+(item.sale_label||item.name));await run('UPDATE command_items SET stock_deducted='+(isPg?'TRUE':'1')+' WHERE id='+(isPg?'$1':'?'),[item.id]);}
+  try{await ensureCommandItemsInventoryAvailable(pendingStockItems)}catch(e){return res.status(409).json({error:e.message})}
+  for(const item of pendingStockItems){await applySaleInventory(Number(item.product_id),Number(item.qty||1),Number(item.stock_qty||0),item.stock_unit||'un','command',Number(item.id),'Venda comanda '+c.number+' — '+(item.sale_label||item.name));await run('UPDATE command_items SET stock_deducted='+(isPg?'TRUE':'1')+' WHERE id='+(isPg?'$1':'?'),[item.id]);}
   const summary=pendingOnly?'pendente':(normalized.length===1?normalized[0].payment:'misto');
   const changed=await run('UPDATE commands SET status='+(isPg?'$1':'?')+',payment='+(isPg?'$2':'?')+',closed_at=CURRENT_TIMESTAMP WHERE id='+(isPg?'$3':'?')+" AND status='aberta'",['fechada',summary,id]);
   if(!changed.changes)return res.status(409).json({error:'Esta comanda já foi finalizada. Atualize a tela.'});
