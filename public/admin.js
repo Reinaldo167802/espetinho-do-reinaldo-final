@@ -420,7 +420,7 @@ function xmlReadSummary(doc,inf){
   const lines=Array.from(inf.getElementsByTagName('*')).filter(x=>x.localName==='det').map((det,i)=>{
     const prod=xmlNode(det,'prod'),tax=xmlNode(det,'imposto'),lotNodes=Array.from(det.getElementsByTagName('*')).filter(x=>['rastro','rastroProd'].includes(x.localName));
     const lots=lotNodes.map(l=>({number:xmlVal(l,'nLote'),quantity:xmlVal(l,'qLote'),made:xmlVal(l,'dFab'),expires:xmlVal(l,'dVal'),agro:xmlVal(l,'cAgreg')}));
-    return {index:i+1,code:xmlVal(prod,'cProd'),name:xmlVal(prod,'xProd'),ean:xmlVal(prod,'cEAN'),ncm:xmlVal(prod,'NCM'),cest:xmlVal(prod,'CEST'),cfop:xmlVal(prod,'CFOP'),commercialUnit:xmlVal(prod,'uCom'),commercialQty:xmlNum(prod,'qCom'),commercialUnitPrice:xmlNum(prod,'vUnCom'),tributaryEan:xmlVal(prod,'cEANTrib'),tributaryUnit:xmlVal(prod,'uTrib'),tributaryQty:xmlNum(prod,'qTrib'),tributaryUnitPrice:xmlNum(prod,'vUnTrib'),productTotal:xmlNum(prod,'vProd'),discount:xmlNum(prod,'vDesc'),freight:xmlNum(prod,'vFrete'),insurance:xmlNum(prod,'vSeg'),other:xmlNum(prod,'vOutro'),order:xmlVal(prod,'nItemPed'),additionalInfo:xmlVal(prod,'infAdProd'),taxTotal:xmlNum(tax,'vTotTrib'),taxGroups:xmlTaxGroups(tax),lots};
+    return {index:i+1,code:xmlVal(prod,'cProd'),name:xmlVal(prod,'xProd'),ean:xmlVal(prod,'cEAN'),ncm:xmlVal(prod,'NCM'),cest:xmlVal(prod,'CEST'),cfop:xmlVal(prod,'CFOP'),commercialUnit:xmlVal(prod,'uCom'),commercialQty:xmlNum(prod,'qCom'),commercialUnitPrice:xmlNum(prod,'vUnCom'),tributaryEan:xmlVal(prod,'cEANTrib'),tributaryUnit:xmlVal(prod,'uTrib'),tributaryQty:xmlNum(prod,'qTrib'),tributaryUnitPrice:xmlNum(prod,'vUnTrib'),productTotal:xmlNum(prod,'vProd'),discount:xmlNum(prod,'vDesc'),freight:xmlNum(prod,'vFrete'),insurance:xmlNum(prod,'vSeg'),other:xmlNum(prod,'vOutro'),taxST:xmlFirstDescendantNumber(tax,'vICMSST'),fcpST:xmlFirstDescendantNumber(tax,'vFCPST'),ipi:xmlFirstDescendantNumber(tax,'vIPI'),importDuty:xmlFirstDescendantNumber(tax,'vII'),order:xmlVal(prod,'nItemPed'),additionalInfo:xmlVal(prod,'infAdProd'),taxTotal:xmlNum(tax,'vTotTrib'),taxGroups:xmlTaxGroups(tax),lots};
   });
   return {ide:{number:xmlVal(ide,'nNF'),series:xmlVal(ide,'serie'),issued:xmlVal(ide,'dhEmi')||xmlVal(ide,'dEmi'),operation:xmlVal(ide,'natOp'),type:xmlVal(ide,'tpNF'),environment:xmlVal(ide,'tpAmb'),purpose:xmlVal(ide,'finNFe'),protocol:xmlVal(doc,'nProt')},emit:{name:xmlVal(emit,'xNome'),tradeName:xmlVal(emit,'xFant'),cnpj:xmlVal(emit,'CNPJ')||xmlVal(emit,'CPF'),stateRegistration:xmlVal(emit,'IE'),phone:xmlVal(emit,'fone'),address:address(emit)},dest:{name:xmlVal(dest,'xNome'),document:xmlVal(dest,'CNPJ')||xmlVal(dest,'CPF'),stateRegistration:xmlVal(dest,'IE'),address:address(dest)},transport:{carrier:xmlVal(transp,'xNome'),document:xmlVal(transp,'CNPJ')||xmlVal(transp,'CPF'),freightMode:xmlVal(transp,'modFrete'),vehicle:xmlVal(transp,'placa'),state:xmlVal(transp,'UF'),volume:xmlVal(transp,'qVol'),grossWeight:xmlVal(transp,'pesoB'),netWeight:xmlVal(transp,'pesoL')},billing:{invoiceValue:xmlNum(cobr,'vOrig'),discount:xmlNum(cobr,'vDesc'),netValue:xmlNum(cobr,'vLiq'),installments},payments,totals,additionalInfo:xmlVal(infAdic,'infCpl'),lines};
 }
@@ -430,20 +430,19 @@ function renderXmlReadOnly(data){
  const moneyCell=(label,value)=>kv(label,xmlMoney(value));
  const totalLabels={vProd:'Produtos',vFrete:'Frete',vSeg:'Seguro',vDesc:'Descontos',vII:'II',vIPI:'IPI',vIPIDevol:'IPI devolvido',vPIS:'PIS',vCOFINS:'COFINS',vOutro:'Outras despesas',vBC:'Base ICMS',vICMS:'ICMS',vICMSDeson:'ICMS desonerado',vFCP:'FCP',vBCST:'Base ICMS-ST',vST:'ICMS-ST',vFCPST:'FCP-ST',vFCPSTRet:'FCP-ST retido',vTotTrib:'Tributos aproximados',vNF:'TOTAL NF-e'};
  const panel=(title,content)=>`<section class="xml-invoice-panel"><h3>${title}</h3><div class="xml-invoice-grid">${content}</div></section>`;
- // Rateia somente a diferença entre o total efetivo da NF-e e a soma dos itens.
- // Não soma ICMS, ICMS-ST, PIS ou COFINS novamente: esses valores já compõem os totais fiscais.
- const invoiceTotal=Number(data.totals.find(t=>t.key==='vNF')?.value)||0;
- const itemTotal=data.lines.reduce((sum,l)=>sum+(Number(l.productTotal)||0),0);
- const extraCents=Math.round((invoiceTotal-itemTotal)*100);
- let allocatedCents=0;
- const costByLine=data.lines.map((l,i)=>{
-   const lineCents=Math.round((Number(l.productTotal)||0)*100);
-   const shareCents=i===data.lines.length-1?extraCents-allocatedCents:(itemTotal>0?Math.round(extraCents*((Number(l.productTotal)||0)/itemTotal)):0);
-   allocatedCents+=shareCents;
-   const finalCents=lineCents+shareCents;
+ // Custo por item conforme os componentes efetivos da própria linha da NF-e.
+ // ICMS próprio, PIS, COFINS e tributos aproximados são informativos e não são somados novamente.
+ const costByLine=data.lines.map(l=>{
+   const cents=v=>Math.round((Number(v)||0)*100);
+   const components={discount:-cents(l.discount),freight:cents(l.freight),insurance:cents(l.insurance),other:cents(l.other),icmsST:cents(l.taxST),fcpST:cents(l.fcpST),ipi:cents(l.ipi),importDuty:cents(l.importDuty)};
+   const original=cents(l.productTotal);
+   const totalCents=original+Object.values(components).reduce((a,b)=>a+b,0);
    const qty=Number(l.commercialQty)||0;
-   return {extra:shareCents/100,total:finalCents/100,unit:qty>0?(finalCents/100)/qty:0};
+   return {extra:Object.values(components).reduce((a,b)=>a+b,0)/100,total:totalCents/100,unit:qty>0?(totalCents/100)/qty:0,components};
  });
+ const computedTotalCents=costByLine.reduce((sum,c)=>sum+Math.round(c.total*100),0);
+ const invoiceTotalCents=Math.round((Number(data.totals.find(t=>t.key==='vNF')?.value)||0)*100);
+ const reconciliationCents=invoiceTotalCents-computedTotalCents;
  const rows=data.lines.map((l,i)=>{const c=costByLine[i];return `<tr>
  <td class="xml-center">${l.index}</td><td><b>${esc(l.code)}</b><div>${esc(l.name)}</div></td>
  <td>${esc(l.ncm||'—')}</td><td>${esc(l.cest||'—')}</td><td>${esc(l.cfop||'—')}</td>
@@ -451,7 +450,7 @@ function renderXmlReadOnly(data){
  <td class="xml-number">${xmlMoney(l.commercialUnitPrice)}</td><td class="xml-number">${xmlMoney(l.productTotal)}</td>
  <td class="xml-number">${xmlMoney(c.extra)}</td><td class="xml-number"><b>${xmlMoney(c.unit)}</b></td><td class="xml-number"><b>${xmlMoney(c.total)}</b></td><td>${esc(l.ean||l.tributaryEan||'—')}</td>
  </tr><tr class="xml-detail-row"><td colspan="13"><details><summary>Detalhamento fiscal, tributário e lote — ${esc(l.name)}</summary>
- <div class="xml-invoice-grid xml-invoice-grid-4">${kv('EAN tributável',l.tributaryEan)}${kv('Unidade tributável',l.tributaryUnit)}${kv('Quantidade tributável',l.tributaryQty)}${moneyCell('Valor unitário tributável',l.tributaryUnitPrice)}${moneyCell('Desconto',l.discount)}${moneyCell('Frete',l.freight)}${moneyCell('Seguro',l.insurance)}${moneyCell('Outras despesas',l.other)}${moneyCell('Tributos aproximados',l.taxTotal)}${kv('Pedido do fornecedor',l.order)}${kv('Informação adicional',l.additionalInfo)}</div>
+ <div class="xml-invoice-grid xml-invoice-grid-4">${kv('EAN tributável',l.tributaryEan)}${kv('Unidade tributável',l.tributaryUnit)}${kv('Quantidade tributável',l.tributaryQty)}${moneyCell('Valor unitário tributável',l.tributaryUnitPrice)}${moneyCell('Desconto',l.discount)}${moneyCell('Frete',l.freight)}${moneyCell('Seguro',l.insurance)}${moneyCell('Outras despesas',l.other)}${moneyCell('ICMS-ST considerado no custo',l.taxST)}${moneyCell('FCP-ST considerado no custo',l.fcpST)}${moneyCell('IPI considerado no custo',l.ipi)}${moneyCell('II considerado no custo',l.importDuty)}${moneyCell('Tributos aproximados (informativo)',l.taxTotal)}${kv('Pedido do fornecedor',l.order)}${kv('Informação adicional',l.additionalInfo)}</div>
  <h4>Grupos tributários</h4>${l.taxGroups.length?`<div class="xml-tax-groups">${l.taxGroups.map(g=>`<div><b>${esc(g.name)}</b><span>${g.values.map(esc).join(' · ')}</span></div>`).join('')}</div>`:'<p>Não informado no XML.</p>'}
  <h4>Lotes e validade</h4>${l.lots.length?`<div class="xml-invoice-grid xml-invoice-grid-4">${l.lots.map(x=>kv('Lote / Quantidade / Fabricação / Validade',`${x.number||'—'} · ${x.quantity||'—'} · ${x.made||'—'} · ${x.expires||'—'}`)).join('')}</div>`:'<p>Não informado no XML.</p>'}
  </details></td></tr>`;}).join('');
@@ -459,11 +458,16 @@ function renderXmlReadOnly(data){
  <div class="xml-invoice-title"><div><strong>ESPELHO DA NF-e</strong><small>Leitura do arquivo XML — somente conferência</small></div><div class="xml-invoice-number"><span>NOTA FISCAL ELETRÔNICA</span><b>Nº ${esc(data.ide.number||'—')} · Série ${esc(data.ide.series||'—')}</b><small>Emissão: ${esc(data.ide.issued||'—')}</small></div></div>
  ${panel('IDENTIFICAÇÃO DA NOTA FISCAL',`${kv('Natureza da operação',data.ide.operation)}${kv('Tipo',data.ide.type==='0'?'Entrada':data.ide.type==='1'?'Saída':data.ide.type)}${kv('Ambiente',data.ide.environment==='1'?'Produção':data.ide.environment==='2'?'Homologação':data.ide.environment)}${kv('Finalidade',data.ide.purpose)}${kv('Protocolo',data.ide.protocol)}`)}
  <div class="xml-invoice-two">${panel('EMITENTE / FORNECEDOR',`${kv('Razão social',data.emit.name)}${kv('Nome fantasia',data.emit.tradeName)}${kv('CNPJ/CPF',data.emit.cnpj)}${kv('Inscrição estadual',data.emit.stateRegistration)}${kv('Telefone',data.emit.phone)}${kv('Endereço',data.emit.address)}`)}${panel('DESTINATÁRIO',`${kv('Nome',data.dest.name)}${kv('CNPJ/CPF',data.dest.document)}${kv('Inscrição estadual',data.dest.stateRegistration)}${kv('Endereço',data.dest.address)}`)}</div>
- <section class="xml-invoice-panel"><h3>PRODUTOS E SERVIÇOS (${data.lines.length})</h3><p class="xml-cost-rule">O custo final é calculado pelo rateio proporcional da diferença entre o total da NF-e e a soma dos produtos. Os impostos não são somados novamente individualmente.</p><div class="xml-read-table-wrap"><table class="xml-read-table"><thead><tr><th>#</th><th>Código / Descrição</th><th>NCM</th><th>CEST</th><th>CFOP</th><th>Quantidade</th><th>Un.</th><th>Preço unit. original</th><th>Total original</th><th>Rateio impostos/acréscimos</th><th>Custo final unitário</th><th>Total final</th><th>EAN</th></tr></thead><tbody>${rows}</tbody></table></div></section>
+ <section class="xml-invoice-panel"><h3>PRODUTOS E SERVIÇOS (${data.lines.length})</h3><p class="xml-cost-rule">O custo final de cada item usa seus próprios valores do XML: desconto, frete, seguro, outras despesas, ICMS-ST, FCP-ST, IPI e II. ICMS próprio, PIS, COFINS e tributos aproximados não são adicionados novamente. Conferência da soma com o total da NF-e: ${xmlMoney(computedTotalCents/100)} calculado · ${xmlMoney(invoiceTotalCents/100)} na nota · diferença ${xmlMoney(reconciliationCents/100)}.</p><div class="xml-read-table-wrap"><table class="xml-read-table"><thead><tr><th>#</th><th>Código / Descrição</th><th>NCM</th><th>CEST</th><th>CFOP</th><th>Quantidade</th><th>Un.</th><th>Preço unit. original</th><th>Total original</th><th>Impostos/acréscimos do item</th><th>Custo final unitário</th><th>Total final</th><th>EAN</th></tr></thead><tbody>${rows}</tbody></table></div></section>
  ${panel('TOTAIS E IMPOSTOS DA NOTA',data.totals.map(t=>moneyCell(totalLabels[t.key]||t.key,t.value)).join(''))}
  <div class="xml-invoice-two">${panel('FATURA E PAGAMENTO',`${moneyCell('Valor original',data.billing.invoiceValue)}${moneyCell('Desconto da fatura',data.billing.discount)}${moneyCell('Valor líquido',data.billing.netValue)}${data.payments.map((p,i)=>kv('Pagamento '+(i+1),`${p.method||'—'} · ${p.description||'forma não descrita'} · ${xmlMoney(p.amount)}`)).join('')}${data.billing.installments.map((x,i)=>kv('Parcela '+(i+1),`${x.number||''} · Vencimento ${x.due||'—'} · ${xmlMoney(x.amount)}`)).join('')}`)}${panel('TRANSPORTE',`${kv('Transportador',data.transport.carrier)}${kv('CNPJ/CPF',data.transport.document)}${kv('Modalidade do frete',data.transport.freightMode)}${kv('Veículo',data.transport.vehicle)}${kv('Volumes',data.transport.volume)}${kv('Peso bruto',data.transport.grossWeight)}${kv('Peso líquido',data.transport.netWeight)}`)}</div>
  ${data.additionalInfo?panel('INFORMAÇÕES COMPLEMENTARES',kv('Observações',data.additionalInfo)):''}
  <p class="xml-read-note">LEITURA SOMENTE PARA CONFERÊNCIA. Nenhum produto, custo ou quantidade foi alterado no estoque.</p></div>`;
+}
+function xmlFirstDescendantNumber(node, tag){
+ if(!node)return 0;
+ const found=Array.from(node.getElementsByTagName('*')).find(el=>(el.localName||el.nodeName)===tag);
+ return found&&String(found.textContent||'').trim()?Number(found.textContent):0;
 }
 function parsePurchaseXml(input){
  const file=input.files&&input.files[0];if(!file)return;
