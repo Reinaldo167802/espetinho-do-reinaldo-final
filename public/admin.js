@@ -507,13 +507,45 @@ function installTestCleanupPanel(){
     <p>Esta rotina apaga comandas, itens de comandas, pedidos do site, pagamentos, registros de fiado, caixa, filas de impressão e movimentações de estoque. Também zera as quantidades dos estoques principal e secundário.</p>
     <p><b>Serão preservados:</b> cadastro de produtos, preços, códigos, categorias, unidades, clientes, limites e autorizações de fiado, fornecedores, notas fiscais, configurações e fichas técnicas.</p>
     <p style="font-weight:800;color:#b42318">Atenção: a operação é definitiva. Confira se o backup está guardado antes de continuar.</p>
-    <button type="button" id="runTestDataCleanup" style="background:#b42318;color:#fff;border:0;border-radius:8px;padding:11px 15px;font-weight:900;cursor:pointer" onclick="runTestDataCleanup()">LIMPAR DADOS DE TESTE</button>
+    <button type="button" id="checkTestDataCleanup" style="background:#555;color:#fff;border:0;border-radius:8px;padding:11px 15px;font-weight:900;cursor:pointer;margin-right:8px" onclick="checkTestDataCleanup()">VERIFICAR BANCO ANTES</button>\n    <button type="button" id="runTestDataCleanup" style="background:#b42318;color:#fff;border:0;border-radius:8px;padding:11px 15px;font-weight:900;cursor:pointer" onclick="runTestDataCleanup()">LIMPAR DADOS DE TESTE</button>
     <p id="testDataCleanupStatus" class="muted" role="status"></p>
   `;
   section.appendChild(panel);
 }
+async function checkTestDataCleanup(){
+  const status=$('testDataCleanupStatus'),button=$('checkTestDataCleanup');
+  if(button)button.disabled=true;
+  if(status)status.textContent='Consultando a estrutura do banco. Nenhum dado será alterado...';
+  try{
+    const result=await api('/api/admin/test-data/clean-check');
+    if(!result.ready){
+      const detail=[...(result.missing_tables||[]).map(x=>'Tabela ausente: '+x),...(result.missing_product_columns||[]).map(x=>'Coluna ausente: products.'+x)].join('\\n');
+      if(status)status.textContent='VERIFICAÇÃO NÃO APROVADA. '+detail;
+      alert('Não execute a limpeza. Foram encontrados itens ausentes:\\n'+detail);
+      return;
+    }
+    const refs=result.external_foreign_key_references||[];
+    if(refs.length){
+      const detail=refs.join(', ');
+      if(status)status.textContent='ATENÇÃO: existem referências adicionais: '+detail;
+      alert('A estrutura principal foi encontrada, mas há tabelas adicionais ligadas por chaves estrangeiras: '+detail+'\\n\\nNão execute a limpeza ainda. Precisamos revisar essas dependências.');
+      return;
+    }
+    if(status)status.textContent='VERIFICAÇÃO ESTRUTURAL APROVADA · '+result.database+' · '+result.present_tables+'/'+result.required_tables+' tabelas. Nenhum dado foi alterado.';
+    alert('Verificação estrutural aprovada. Banco: '+result.database+'. Tabelas verificadas: '+result.present_tables+'/'+result.required_tables+'.\\n\\nNenhum dado foi alterado. Aguarde a conferência final antes de clicar em LIMPAR.');
+  }catch(e){
+    if(status)status.textContent='Não foi possível verificar: '+e.message;
+    alert('Verificação não concluída: '+e.message+'\\nNenhum dado foi alterado.');
+  }finally{if(button)button.disabled=false;}
+}
 async function runTestDataCleanup(){
   const button=$('runTestDataCleanup'),status=$('testDataCleanupStatus');
+  const check=await api('/api/admin/test-data/clean-check').catch(e=>({ok:false,error:e.message}));
+  if(!check.ok||!check.ready||(check.external_foreign_key_references||[]).length){
+    alert('A limpeza foi bloqueada porque a verificação prévia não está aprovada. Nenhum dado foi apagado.\\n'+(check.error||'Verifique as tabelas e dependências do banco.'));
+    if(status)status.textContent='Limpeza bloqueada: verificação prévia não aprovada.';
+    return;
+  }
   if(!confirm('CONFIRMA A LIMPEZA GERAL? Serão apagados os dados operacionais de teste e todo o estoque principal e secundário será zerado. Os cadastros e configurações serão preservados. Esta ação não pode ser desfeita.'))return;
   const phrase=prompt('Para autorizar, digite exatamente: LIMPAR TESTES ESPETINHO');
   if(phrase!=='LIMPAR TESTES ESPETINHO'){
