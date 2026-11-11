@@ -785,10 +785,26 @@ app.get('/api/admin/test-data/clean-check', auth, async (req, res) => {
       ).all(...requiredTables).map(x => x.table_name);
       productColumns = db.prepare('PRAGMA table_info(products)').all()
         .map(x => x.name).filter(x => ['stock','stock_secondary'].includes(x));
+      // Inspeciona as chaves estrangeiras reais do SQLite, inclusive tabelas não previstas.
+      const allTables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all().map(x => x.name);
+      const cleanupTables = new Set([
+        'command_receipts','fiado_payments','command_payments','command_items',
+        'commands','order_items','orders','cash','print_jobs',
+        'inventory_movements','recipe_stock_movements'
+      ]);
+      const external = new Set();
+      for (const tableName of allTables) {
+        const quoted = '"' + String(tableName).replace(/"/g,'""') + '"';
+        const foreignKeys = db.prepare('PRAGMA foreign_key_list(' + quoted + ')').all();
+        for (const fk of foreignKeys) {
+          if (cleanupTables.has(fk.table) && !cleanupTables.has(tableName)) external.add(tableName);
+        }
+      }
+      externalReferences = [...external];
     }
     const missingTables = requiredTables.filter(x => !presentTables.includes(x));
     const missingProductColumns = ['stock','stock_secondary'].filter(x => !productColumns.includes(x));
-    const ready = missingTables.length === 0 && missingProductColumns.length === 0;
+    const ready = missingTables.length === 0 && missingProductColumns.length === 0 && externalReferences.length === 0;
     res.set('Cache-Control','no-store');
     return res.json({
       ok: true,
@@ -801,8 +817,8 @@ app.get('/api/admin/test-data/clean-check', auth, async (req, res) => {
       missing_product_columns: missingProductColumns,
       external_foreign_key_references: externalReferences,
       warning: externalReferences.length
-        ? 'Há tabelas adicionais com chaves estrangeiras para tabelas operacionais. A limpeza atual poderá ser revertida pelo banco; não foi feita nenhuma alteração.'
-        : 'Verificação estrutural concluída. Nenhum dado foi alterado. A execução ainda depende da confirmação final.'
+        ? 'Há tabelas adicionais com chaves estrangeiras para tabelas operacionais. A limpeza está bloqueada até revisar essas dependências; nenhum dado foi alterado.'
+        : 'Verificação estrutural e de dependências concluída. Nenhum dado foi alterado. A execução ainda depende da confirmação final.'
     });
   } catch (error) {
     console.error('Erro na verificação prévia da limpeza:', error);
