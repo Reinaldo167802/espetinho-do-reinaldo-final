@@ -3,9 +3,8 @@ const money=v=>Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'B
 const toNumber=v=>{if(v===undefined||v===null||String(v).trim()==='')return 0;const s=String(v).trim().replace(/\s/g,'').replace(/\.(?=\d{3}(?:\D|$))/g,'').replace(',','.');const n=Number(s);return Number.isFinite(n)?n:NaN};
 const $=id=>document.getElementById(id);
 const api=async(url,opt={})=>{opt.headers={...(opt.headers||{}),'x-admin-password':pass,'Content-Type':'application/json'};const r=await fetch(url,opt);const raw=await r.text();let d;try{d=JSON.parse(raw)}catch(_){throw Error('O servidor respondeu uma página HTML em vez de JSON. Confira a implantação do sistema.')}if(!r.ok)throw Error(d.error||d.message||'Erro');return d};
-function login(){const pw=$('pw');pass=pw.value.trim();if(!pass){alert('Digite a senha administrativa.');return}api('/api/admin/orders').then(()=>{$('login').style.display='none';$('app').style.display='block';history.replaceState({adminPanel:true,tab:'orders'},'',location.href);history.pushState({adminPanel:true,tab:'orders'},'',location.href);activeAdminTab='orders';loadAll()}).catch(err=>alert('Erro ao entrar: '+err.message));}
-let activeAdminTab='orders',restoringAdminHistory=false;
-function tab(id){if(!restoringAdminHistory&&pass&&id!==activeAdminTab){history.pushState({adminPanel:true,tab:id},'',location.href);}activeAdminTab=id;['orders','products','purchases','suppliers','cash','commands','customers','fiado','settings'].forEach(x=>{if($(x))$(x).style.display=x===id?'block':'none'});if(id==='orders')loadOrders();if(id==='products'&&xmlReturnLine===null)loadProducts();if(id==='purchases'){loadPurchaseHistory();}if(id==='suppliers')loadSuppliers();if(id==='cash')loadCash();if(id==='commands')loadCommands();if(id==='customers')loadCustomers();if(id==='fiado')loadFiado();if(id==='settings'){loadSettings().catch(()=>{});loadSandwichCapacity();}}
+function login(){const pw=$('pw');pass=pw.value.trim();if(!pass){alert('Digite a senha administrativa.');return}api('/api/admin/orders').then(()=>{$('login').style.display='none';$('app').style.display='block';loadAll()}).catch(err=>alert('Erro ao entrar: '+err.message));}
+function tab(id){['orders','products','purchases','suppliers','cash','commands','customers','fiado','settings'].forEach(x=>{if($(x))$(x).style.display=x===id?'block':'none'});if(id==='orders')loadOrders();if(id==='products'&&xmlReturnLine===null)loadProducts();if(id==='purchases'){loadPurchaseHistory();}if(id==='suppliers')loadSuppliers();if(id==='cash')loadCash();if(id==='commands')loadCommands();if(id==='customers')loadCustomers();if(id==='fiado')loadFiado();if(id==='settings'){loadSettings().catch(()=>{});loadSandwichCapacity();}}
 async function loadAll(){loadOrders();loadCustomerOptions()}
 function installCompactOrderStyles(){
   if(document.getElementById('compact-order-card-styles')) return;
@@ -168,7 +167,7 @@ async function loadCommands(){
   const activeProducts=products.filter(p=>p.active===true||p.active===1);
   const opened=rows.filter(c=>c.status==='aberta').sort((a,b)=>Number(a.number)-Number(b.number));
   const closed=rows.filter(c=>c.status!=='aberta').sort((a,b)=>Number(b.id)-Number(a.id));
-  const card=c=>{const emptyOpen=c.status==='aberta'&&(!Array.isArray(c.items)||c.items.length===0)&&Number(c.total||0)<=0.001;return `<article class="command-card ${c.status==='aberta'?'open':'closed'}"><div class="command-meta"><span class="command-status">${c.status==='aberta'?'EM ATENDIMENTO':(String(c.payment||'').toLowerCase()==='fiado'?'FIADO / A RECEBER':String(c.payment||'').toLowerCase()==='pendente'?'AGUARDANDO PAGAMENTO':'FINALIZADA')}</span><h3>Comanda ${esc(c.number)} · ${esc(c.customer||'Sem cadastro')}</h3></div><div class="command-total">${money(c.total)}</div>${(c.waiter_name||c.waiter_number)?`<div class="command-time" style="color:#f0d9a5;font-weight:700">Garçom: ${esc(c.waiter_name||'Não identificado')}${c.waiter_number?` · Nº ${esc(c.waiter_number)}`:''}</div>`:''}${c.status==='aberta'?`<span class="command-time">${esc(commandElapsed(c.created_at))}</span><button class="command-open-btn" onclick="openCommandDetails(${c.id})">ABRIR</button>${emptyOpen?`<button type="button" class="danger" style="display:block;margin-top:7px;background:#b42318!important;color:#fff!important;border:0!important;padding:8px 10px!important;border-radius:7px!important;font-weight:800!important" onclick="deleteEmptyCommand(${c.id})">EXCLUIR COMANDA VAZIA</button>`:''}`:`<span class="command-time">${esc(c.closed_at?new Date(c.closed_at).toLocaleDateString('pt-BR'):'Histórico')}</span>${String(c.payment||'').toLowerCase()==='pendente'?`<button onclick="payClosedCommand(${c.id})">RECEBER</button> <button onclick="openCommandDocument(${c.id},'a4')">COMANDA A4 / PDF</button>`:`<button onclick="printCommand(${c.id},'conferencia')">IMPRIMIR CONFERÊNCIA</button> <button onclick="printCommand(${c.id},'paga')">IMPRIMIR COMPROVANTE</button> <button onclick="openCommandDocument(${c.id},'a4')">COMANDA A4 / PDF</button>`}`}</article>`};
+  const card=c=>{const emptyOpen=c.status==='aberta'&&(!Array.isArray(c.items)||c.items.length===0)&&Number(c.total||0)<=0.001;return `<article class="command-card ${c.status==='aberta'?'open':'closed'}"><div class="command-meta"><span class="command-status">${c.status==='aberta'?'EM ATENDIMENTO':(String(c.payment||'').toLowerCase()==='fiado'?'FIADO / A RECEBER':String(c.payment||'').toLowerCase()==='pendente'?'AGUARDANDO PAGAMENTO':'FINALIZADA')}</span><h3>Comanda ${esc(c.number)} · ${esc(c.customer||'Sem cadastro')}</h3></div><div class="command-total">${money(c.total)}</div>${c.status==='aberta'?`<span class="command-time">${esc(commandElapsed(c.created_at))}</span><button class="command-open-btn" onclick="openCommandDetails(${c.id})">ABRIR</button>${emptyOpen?`<button type="button" class="danger" style="display:block;margin-top:7px;background:#b42318!important;color:#fff!important;border:0!important;padding:8px 10px!important;border-radius:7px!important;font-weight:800!important" onclick="deleteEmptyCommand(${c.id})">EXCLUIR COMANDA VAZIA</button>`:''}`:`<span class="command-time">${esc(c.closed_at?new Date(c.closed_at).toLocaleDateString('pt-BR'):'Histórico')}</span>${String(c.payment||'').toLowerCase()==='pendente'?`<button onclick="payClosedCommand(${c.id})">RECEBER</button> <button onclick="openCommandDocument(${c.id},'a4')">COMANDA A4 / PDF</button>`:`<button onclick="printCommand(${c.id},'conferencia')">IMPRIMIR CONFERÊNCIA</button> <button onclick="printCommand(${c.id},'paga')">IMPRIMIR COMPROVANTE</button> <button onclick="openCommandDocument(${c.id},'a4')">COMANDA A4 / PDF</button>`}`}</article>`};
   $('commandsOpenList').innerHTML=`<button type="button" class="command-card command-new" onclick="openNewCommandDialog()"><strong>＋ NOVA COMANDA</strong><span>Escolher cliente</span></button>`+opened.map(card).join('');
   $('commandsClosedList').innerHTML=closed.length?closed.map(card).join(''):'<div class="command-empty">Nenhuma conta finalizada ainda.</div>';
   if(currentCommandId){const stillOpen=opened.some(c=>Number(c.id)===Number(currentCommandId));if(stillOpen)renderCommandDetails(rows.find(c=>Number(c.id)===Number(currentCommandId)),activeProducts);else closeCommandDetails();}
@@ -183,16 +182,10 @@ async function openCommandDetails(id){
 }
 function renderCommandDetails(c,activeProducts){
  if(!c)return;window.commandActiveProducts=activeProducts||[];const items=c.items||[];
- const itemHtml=items.length?`<div class="command-detail-items" style="display:grid;gap:9px;margin:8px 0 14px;width:100%;">${items.map(i=>`<div class="command-item-card" style="display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;padding:11px;border:1px solid #75634a;border-radius:10px;background:#292521;color:#fff;box-sizing:border-box;width:100%;"><div style="min-width:0;"><div style="font-weight:800;overflow-wrap:anywhere;color:#f7e8c5;">${esc(i.name)}</div><div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:5px;font-size:.9rem;color:#fff;"><span>Qtd.: <b>${esc(i.qty)}</b></span><span>Unit.: <b>${money(i.unit_price)}</b></span><span>Total: <b>${money(i.total)}</b></span></div><div style="margin-top:5px;font-size:.82rem;color:#f0d9a5">Lançado por: <b>${esc(i.waiter_name||'Painel administrativo / não informado')}</b>${i.waiter_number?` · Garçom nº ${esc(i.waiter_number)}`:''}${i.notes?` · Obs.: ${esc(i.notes)}`:''}</div></div><button type="button" class="danger command-item-delete" style="display:inline-flex!important;align-items:center;justify-content:center;visibility:visible!important;opacity:1!important;background:#b42318!important;color:#fff!important;border:0!important;padding:11px 13px!important;border-radius:8px!important;font-weight:900!important;white-space:nowrap;min-height:44px;cursor:pointer;" title="Excluir este item da comanda" onclick="deleteCommandItem(${c.id},${i.id})">🗑 EXCLUIR</button></div>`).join('')}</div>`:'<p class="muted">Nenhum produto lançado.</p>';
+ const itemHtml=items.length?`<div class="command-detail-items" style="display:grid;gap:9px;margin:8px 0 14px;width:100%;">${items.map(i=>`<div class="command-item-card" style="display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;padding:11px;border:1px solid #75634a;border-radius:10px;background:#292521;color:#fff;box-sizing:border-box;width:100%;"><div style="min-width:0;"><div style="font-weight:800;overflow-wrap:anywhere;color:#f7e8c5;">${esc(i.name)}</div><div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:5px;font-size:.9rem;color:#fff;"><span>Qtd.: <b>${esc(i.qty)}</b></span><span>Unit.: <b>${money(i.unit_price)}</b></span><span>Total: <b>${money(i.total)}</b></span></div></div><button type="button" class="danger command-item-delete" style="display:inline-flex!important;align-items:center;justify-content:center;visibility:visible!important;opacity:1!important;background:#b42318!important;color:#fff!important;border:0!important;padding:11px 13px!important;border-radius:8px!important;font-weight:900!important;white-space:nowrap;min-height:44px;cursor:pointer;" title="Excluir este item da comanda" onclick="deleteCommandItem(${c.id},${i.id})">🗑 EXCLUIR</button></div>`).join('')}</div>`:'<p class="muted">Nenhum produto lançado.</p>';
  $('commandsBoardView').style.display='none';const view=$('commandDetailView');view.style.display='block';
- view.innerHTML=`<div class="command-detail-head"><div><h2>Comanda ${esc(c.number)}</h2><b>${esc(c.customer||'Consumidor não identificado')}</b><div style="margin-top:6px;color:#f0d9a5;font-weight:700">Garçom responsável: ${esc(c.waiter_name||'Não identificado')}${c.waiter_number?` · Nº ${esc(c.waiter_number)}`:''}${c.waiter_table?` · Mesa ${esc(c.waiter_table)}`:''}</div></div><button class="command-save" onclick="closeCommandDetails()">← VOLTAR</button></div><div class="command-detail-total"><span>Total acumulado</span><strong>${money(c.total)}</strong></div><h3>Produtos</h3>${itemHtml}<h3>Adicionar produto</h3><div class="command-product-picker" style="display:block;width:100%;max-width:500px;box-sizing:border-box;margin:0"><div class="command-search-wrap" style="display:block;width:100%;max-width:100%;box-sizing:border-box;margin:0"><input id="cmdProductSearch" class="command-product-search" type="search" placeholder="🔎 Digite o nome, marca ou código..." oninput="filterCommandProducts()" autocomplete="off" aria-label="Pesquisar produtos" style="display:block;width:100%;max-width:100%;box-sizing:border-box"><div id="cmdProductSuggestions" class="command-product-suggestions" role="listbox" hidden></div></div><div id="cmdProductResults" class="command-product-suggestions" style="position:static!important;left:auto!important;right:auto!important;top:auto!important;display:grid;gap:4px;margin-top:6px;width:100%!important;min-width:0!important;max-width:100%!important;max-height:220px;overflow-y:auto;overflow-x:hidden;box-sizing:border-box;align-content:start"></div></div><div class="command-detail-actions"><button class="command-save" onclick="closeCommandDetails()">GUARDAR E VOLTAR</button><button type="button" onclick="openCommandDocument(${c.id},'a4')">COMANDA A4 / PDF</button><button class="command-finalize" type="button" onclick="showCommandPayment()">FINALIZAR E PAGAR</button></div><div id="commandPaymentBox" class="command-payment-box" data-total="${Number(c.total||0).toFixed(2)}"><b>Formas de pagamento</b><p style="margin:4px 0 10px;color:#e8d9b8">Total da comanda: <strong>${money(c.total)}</strong></p><div id="cmdPaymentRows"></div><button type="button" class="command-save" style="width:100%;margin:7px 0" onclick="addCommandPaymentRow()">＋ ADICIONAR OUTRA FORMA</button><div id="cmdPaymentSummary" style="padding:9px;border-radius:8px;background:#211e1a;margin:7px 0;font-weight:700"></div><button class="command-finalize" style="width:100%" onclick="finalizeCommand(${c.id})">CONFIRMAR FINALIZAÇÃO</button></div>`;updateCommandSaleOptions();
+ view.innerHTML=`<div class="command-detail-head"><div><h2>Comanda ${esc(c.number)}</h2><b>${esc(c.customer||'Consumidor não identificado')}</b></div><button class="command-save" onclick="closeCommandDetails()">← VOLTAR</button></div><div class="command-detail-total"><span>Total acumulado</span><strong>${money(c.total)}</strong></div><h3>Produtos</h3>${itemHtml}<h3>Adicionar produto</h3><div class="command-search-wrap"><input id="cmdProductSearch" class="command-product-search" type="search" placeholder="🔎 Digite o nome, marca ou código..." oninput="filterCommandProducts()" onkeydown="commandSearchKeydown(event)" autocomplete="off" aria-label="Pesquisar produtos"><div id="cmdProductSuggestions" class="command-product-suggestions" role="listbox" hidden></div></div><div class="row command-product-controls" style="margin-top:0"><select id="cmdProductCurrent" aria-label="Produto selecionado" onchange="updateCommandSaleOptions()">${activeProducts.map(p=>`<option value="${p.id}">${esc(p.name)} — ${money(p.price)}</option>`).join('')}</select><select id="cmdSaleOption" aria-label="Apresentação de venda" style="min-width:150px"></select><label class="command-qty-label" for="cmdQtyCurrent">Qtd.<input id="cmdQtyCurrent" type="number" min="0.01" step="0.01" value="1" aria-label="Quantidade" placeholder="Qtd."></label></div><button class="primary" style="width:100%;margin-top:7px;padding:10px" onclick="addCurrentCommandItem(${c.id})">＋ LANÇAR PRODUTO</button><div class="command-detail-actions"><button class="command-save" onclick="closeCommandDetails()">GUARDAR E VOLTAR</button><button type="button" onclick="openCommandDocument(${c.id},'a4')">COMANDA A4 / PDF</button><button type="button" class="command-save" onclick="printCommand(${c.id},'conferencia')">CONFERIR CONTA / IMPRIMIR</button><button class="command-finalize" type="button" onclick="showCommandPayment()">FINALIZAR E PAGAR</button></div><div id="commandPaymentBox" class="command-payment-box" data-total="${Number(c.total||0).toFixed(2)}"><b>Formas de pagamento</b><p style="margin:4px 0 10px;color:#e8d9b8">Total da comanda: <strong>${money(c.total)}</strong></p><div id="cmdPaymentRows"></div><button type="button" class="command-save" style="width:100%;margin:7px 0" onclick="addCommandPaymentRow()">＋ ADICIONAR OUTRA FORMA</button><div id="cmdPaymentSummary" style="padding:9px;border-radius:8px;background:#211e1a;margin:7px 0;font-weight:700"></div><button class="command-finalize" style="width:100%" onclick="finalizeCommand(${c.id})">CONFIRMAR FINALIZAÇÃO</button></div>`;updateCommandSaleOptions();
  addCommandPaymentRow(Number(c.total||0));
-}
-async function loadFiadoPaymentCustomers(){
- if(Array.isArray(window.commandFiadoCustomers))return window.commandFiadoCustomers;
- const rows=await api('/api/admin/customers');
- window.commandFiadoCustomers=rows.filter(c=>(c.active===true||c.active===1)&&(c.fiado_authorized===true||c.fiado_authorized===1));
- return window.commandFiadoCustomers;
 }
 function addCommandPaymentRow(defaultAmount=''){
  const box=$('cmdPaymentRows');if(!box)return;
@@ -200,25 +193,8 @@ function addCommandPaymentRow(defaultAmount=''){
  row.innerHTML='<select class="cmdPayMethod" aria-label="Forma de pagamento"><option value="pix">Pix</option><option value="dinheiro">Dinheiro</option><option value="debito">Cartão de débito</option><option value="credito">Cartão de crédito</option><option value="fiado">Fiado / promissória</option></select><input class="cmdPayAmount" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="Valor (R$)" aria-label="Valor do pagamento"><button type="button" class="danger cmdPayRemove" style="padding:8px 10px" aria-label="Remover forma de pagamento">✕</button>';
  const amount=row.querySelector('.cmdPayAmount');if(defaultAmount!==''&&defaultAmount!==null)amount.value=Number(defaultAmount).toFixed(2);
  row.querySelector('.cmdPayRemove').addEventListener('click',()=>{row.remove();updateCommandPaymentTotal()});
- row.querySelector('.cmdPayMethod').addEventListener('change',()=>handleCommandPaymentMethod(row));amount.addEventListener('input',updateCommandPaymentTotal);
+ row.querySelector('.cmdPayMethod').addEventListener('change',updateCommandPaymentTotal);amount.addEventListener('input',updateCommandPaymentTotal);
  box.appendChild(row);updateCommandPaymentTotal();
-}
-async function handleCommandPaymentMethod(row){
- const method=row.querySelector('.cmdPayMethod').value;let customerBox=row.querySelector('.cmdFiadoCustomer');
- if(method!=='fiado'){customerBox?.remove();updateCommandPaymentTotal();return;}
- if(customerBox)return;
- try{
-  const customers=await loadFiadoPaymentCustomers();
-  if(!customers.length){row.querySelector('.cmdPayMethod').value='pix';return alert('Não há clientes ativos e autorizados para comprar no fiado. Cadastre ou autorize um cliente primeiro.');}
-  customerBox=document.createElement('div');customerBox.className='cmdFiadoCustomer';customerBox.style.cssText='grid-column:1 / -1';
-  customerBox.innerHTML='<label style="display:block;font-size:.9rem;margin-bottom:4px">Cliente responsável pelo fiado</label><select class="cmdFiadoClient" style="width:100%"><option value="">Selecione o cliente</option>'+customers.map(c=>'<option value="'+escAttr(c.name)+'">'+esc(c.name)+' — disponível '+money(c.credit_available||0)+'</option>').join('')+'</select>';
-  row.appendChild(customerBox);customerBox.querySelector('select').addEventListener('change',()=>{
-   const selected=customerBox.querySelector('select').value;
-   if(selected&&[...document.querySelectorAll('.cmdFiadoClient')].filter(el=>el!==customerBox.querySelector('select')).some(el=>el.value===selected)){customerBox.querySelector('select').value='';alert('Este cliente já está selecionado em outro lançamento de fiado. Escolha outro cliente.');}
-   updateCommandPaymentTotal();
-  });
- }catch(e){row.querySelector('.cmdPayMethod').value='pix';alert('Não foi possível carregar os clientes: '+e.message)}
- updateCommandPaymentTotal();
 }
 function updateCommandPaymentTotal(){
  const box=$('commandPaymentBox');if(!box)return;
@@ -229,38 +205,25 @@ function updateCommandSaleOptions(){const p=window.commandActiveProducts?.find(x
 function showCommandPayment(){const box=$('commandPaymentBox');if(box)box.classList.toggle('show');}
 function commandSearchNormalize(value){return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('pt-BR').trim()}
 function filterCommandProducts(){
- const input=$('cmdProductSearch'),box=$('cmdProductResults');if(!input||!box)return;
- const q=commandSearchNormalize(input.value);
- if(!q){box.innerHTML='';return}
- const products=(window.commandActiveProducts||[]).filter(p=>[p.name,p.brand,p.internal_code,p.barcode].some(v=>commandSearchNormalize(v).includes(q))).slice(0,20);
- if(!products.length){box.innerHTML='<div class="command-search-empty">Nenhum produto encontrado.</div>';return}
- box.innerHTML=products.map(p=>{
-  let opts=[];try{opts=Array.isArray(p.sale_options)?p.sale_options:JSON.parse(p.sale_options||'[]')}catch(_){}
-  if(!opts.length)opts=[{key:'',label:'',price:Number(p.price||0)}];
-  return opts.map(o=>`<div class="cmd-product-result-row" style="display:grid;grid-template-columns:minmax(0,1fr) auto 28px!important;align-items:center!important;gap:7px!important;padding:4px 7px!important;border:1px solid #75634a;border-radius:5px;width:100%;min-height:36px;box-sizing:border-box"><div style="min-width:0;overflow:hidden"><b style="display:inline;font-size:12px;line-height:1.2;white-space:normal;overflow-wrap:anywhere">${esc(p.name)}${o.label?' — '+esc(o.label):''}</b><small style="display:block;font-size:9px;line-height:1;color:#c9c2b7;margin-top:1px">${esc(p.internal_code||'')}</small></div><strong style="white-space:nowrap;justify-self:end;font-size:11px;line-height:1">${money(o.price)}</strong><button type="button" class="primary" style="display:inline-flex!important;align-items:center!important;justify-content:center!important;width:26px!important;min-width:26px!important;max-width:26px!important;height:26px!important;min-height:26px!important;max-height:26px!important;flex:none!important;padding:0!important;margin:0!important;box-sizing:border-box!important;justify-self:end;background:#176b45!important;color:#fff!important;border:0!important;border-radius:4px!important;font-size:15px!important;line-height:1!important" onclick="addCommandPresentation(${Number(p.id)},'${String(o.key||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')">＋</button></div>`).join('');
- }).join('');
+ const input=$('cmdProductSearch'),select=$('cmdProductCurrent'),box=$('cmdProductSuggestions');if(!input||!select||!box)return;
+ const q=commandSearchNormalize(input.value);const products=Array.from(select.options).map(o=>({id:o.value,label:o.text,search:commandSearchNormalize(o.text)}));
+ if(!q){box.hidden=true;box.innerHTML='';return}
+ const matches=products.filter(p=>p.search.includes(q)).slice(0,8);
+ if(!matches.length){box.innerHTML='<div class="command-search-empty">Nenhum produto encontrado. Confira o nome ou tente outra palavra.</div>';box.hidden=false;return}
+ box.innerHTML=matches.map((p,i)=>`<button type="button" class="command-product-suggestion ${i===0?'is-first':''}" role="option" onclick="chooseCommandProduct('${String(p.id).replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')"><span>${esc(p.label.split(' — ')[0])}</span><strong>${esc(p.label.includes(' — ')?p.label.split(' — ').slice(1).join(' — '):'')}</strong></button>`).join('');box.hidden=false;
 }
-async function addCommandPresentation(productId,key){
- if(!currentCommandId)return alert('Comanda não selecionada.');
- try{
-  await api('/api/admin/commands/'+currentCommandId+'/items',{method:'POST',body:JSON.stringify({product_id:Number(productId),qty:1,sale_option_key:key||''})});
-  const [rows,products]=await Promise.all([api('/api/admin/commands'),api('/api/admin/products')]);
-  const c=rows.find(x=>Number(x.id)===Number(currentCommandId));
-  renderCommandDetails(c,products.filter(p=>p.active===true||p.active===1));
- }catch(e){alert(e.message)}
-}
+function chooseCommandProduct(id){const select=$('cmdProductCurrent'),input=$('cmdProductSearch'),box=$('cmdProductSuggestions');if(!select)return;select.value=String(id);if(input){input.value=select.selectedOptions[0]?.text.split(' — ')[0]||'';}if(box){box.hidden=true;box.innerHTML='';}updateCommandSaleOptions();const qty=$('cmdQtyCurrent');if(qty){qty.focus();qty.select();}}
+function commandSearchKeydown(event){if(event.key==='Escape'){const box=$('cmdProductSuggestions');if(box)box.hidden=true;return;}if(event.key==='Enter'){event.preventDefault();const first=$('cmdProductSuggestions')?.querySelector('.command-product-suggestion');if(first)first.click();else if($('cmdProductCurrent')?.options.length===1){const qty=$('cmdQtyCurrent');if(qty)qty.focus();}}}
 function closeCommandDetails(){currentCommandId=null;$('commandDetailView').style.display='none';$('commandDetailView').innerHTML='';$('commandsBoardView').style.display='block';loadCommands();}
 async function addCurrentCommandItem(id){const product_id=Number($('cmdProductCurrent').value),qty=Number($('cmdQtyCurrent').value);if(!product_id)return alert('Cadastre/ative um produto antes de lançar.');if(!Number.isFinite(qty)||qty<=0)return alert('Informe uma quantidade válida.');try{await api('/api/admin/commands/'+id+'/items',{method:'POST',body:JSON.stringify({product_id,qty,sale_option_key:$('cmdSaleOption')?.value||''})});const [rows,products]=await Promise.all([api('/api/admin/commands'),api('/api/admin/products')]);const c=rows.find(x=>Number(x.id)===Number(id));renderCommandDetails(c,products.filter(p=>p.active===true||p.active===1));}catch(e){alert(e.message)}}
 async function deleteCommandItem(commandId,itemId){if(!confirm('Confirma excluir este produto da comanda aberta? Se for o último produto, a comanda também será removida automaticamente.'))return;try{const result=await api('/api/admin/commands/'+commandId+'/items/'+itemId,{method:'DELETE'});if(result.commandDeleted){currentCommandId=null;$('commandDetailView').style.display='none';$('commandDetailView').innerHTML='';$('commandsBoardView').style.display='block';await loadCommands();alert('Último produto excluído. A comanda vazia foi removida automaticamente.');return;}const [rows,products]=await Promise.all([api('/api/admin/commands'),api('/api/admin/products')]);const c=rows.find(x=>Number(x.id)===Number(commandId));if(!c){currentCommandId=null;$('commandDetailView').style.display='none';$('commandDetailView').innerHTML='';$('commandsBoardView').style.display='block';await loadCommands();return;}renderCommandDetails(c,products.filter(p=>p.active===true||p.active===1));}catch(e){alert(e.message)}}
 async function finalizeCommand(id){
  const box=$('commandPaymentBox');
- const payments=[...box.querySelectorAll('.cmd-payment-row')].map(row=>({payment:row.querySelector('.cmdPayMethod').value,amount:Number(row.querySelector('.cmdPayAmount').value),customer:row.querySelector('.cmdFiadoClient')?.value||''}));
+ const payments=[...box.querySelectorAll('.cmd-payment-row')].map(row=>({payment:row.querySelector('.cmdPayMethod').value,amount:Number(row.querySelector('.cmdPayAmount').value)}));
  if(!payments.length||payments.some(p=>!Number.isFinite(p.amount)||p.amount<=0))return alert('Informe um valor maior que zero em cada forma de pagamento.');
- if(payments.some(p=>p.payment==='fiado'&&!p.customer))return alert('Selecione um cliente para cada lançamento de fiado.');
- const fiadoNames=payments.filter(p=>p.payment==='fiado').map(p=>commandSearchNormalize(p.customer));if(new Set(fiadoNames).size!==fiadoNames.length)return alert('Cada lançamento de fiado deve ser para um cliente diferente.');
  const expected=Math.round(Number(box.dataset.total||0)*100),sum=payments.reduce((n,p)=>n+Math.round(p.amount*100),0);
  if(sum!==expected)return alert('A soma dos pagamentos precisa ser exatamente igual ao total da comanda.');
- const summary=payments.map(p=>(p.payment==='fiado'?'Fiado ('+p.customer+')':p.payment)+': '+money(p.amount)).join(' + ');
+ const summary=payments.map(p=>p.payment+': '+money(p.amount)).join(' + ');
  if(!confirm('Confirma finalizar a comanda com: '+summary+'?'))return;
  try{await api('/api/admin/commands/'+id+'/close',{method:'PUT',body:JSON.stringify({payments})});currentCommandId=null;$('commandDetailView').style.display='none';$('commandDetailView').innerHTML='';$('commandsBoardView').style.display='block';await loadCommands();if($('cash').style.display!=='none')await loadCash();printCommand(id,'paga');const hasFiado=payments.some(p=>p.payment==='fiado');alert(hasFiado?'Venda finalizada. Os recebimentos foram lançados no caixa e a parcela fiada foi registrada para o cliente.':'Venda finalizada e recebimentos registrados no caixa.');}catch(e){alert(e.message)}
 }
@@ -275,7 +238,7 @@ async function openCommandDocument(id,mode='a4'){
   const rows=await api('/api/admin/commands');
   const c=rows.find(x=>Number(x.id)===Number(id));
   if(!c)throw Error('Comanda não encontrada.');
-  const data={number:c.number,command:c.number,customer:c.customer||'',payment:c.payment||'Pendente',payment_details:Array.isArray(c.payment_details)?c.payment_details:[],status:c.status||'',created_at:c.closed_at||c.created_at||new Date().toISOString(),items:(c.items||[]).map(i=>({name:i.name,qty:Number(i.qty||1),unit_price:Number(i.unit_price||0),total:Number(i.total||0)})),total:Number(c.total||0),notes:c.notes||''};
+  const data={number:c.number,command:c.number,customer:c.customer||'',payment:c.payment||'Pendente',status:c.status||'',created_at:c.closed_at||c.created_at||new Date().toISOString(),items:(c.items||[]).map(i=>({name:i.name,qty:Number(i.qty||1),unit_price:Number(i.unit_price||0),total:Number(i.total||0)})),total:Number(c.total||0),notes:c.notes||''};
   const key='esp-reinaldo-command-'+Date.now()+'-'+Math.random().toString(36).slice(2,8);
   localStorage.setItem(key,JSON.stringify(data));
   win.location.href='/comanda-fiado.html?key='+encodeURIComponent(key)+'&mode='+encodeURIComponent(mode);
@@ -289,13 +252,9 @@ let customerEditingId=null;
 async function loadCustomers(){
  try{
   const rows=await api('/api/admin/customers');
-  $('customersList').innerHTML=rows.length?'<div class="table"><table><tr><th>Cliente</th><th>Contato</th><th>Limite total</th><th>Utilizado</th><th>Disponível</th><th>Autorização</th><th>Situação</th><th>Ações</th></tr>'+rows.map(c=>`<tr><td><b>${esc(c.name)}</b><br><span class="small">${esc(c.address||'')}</span></td><td>${esc(c.phone||'-')}</td><td>${money(c.credit_limit)}</td><td>${money(c.credit_used||0)}</td><td><b>${money(c.credit_available===undefined?c.credit_limit:c.credit_available)}</b></td><td>${(c.fiado_authorized===true||c.fiado_authorized===1)?'Autorizado':'Não autorizado'}</td><td>${(c.active===true||c.active===1)?'Ativo':'Inativo'}</td><td><button onclick="editCustomer(${c.id})">Editar</button> <button onclick="showCustomerReceipts(${c.id})">Comprovantes</button></td></tr>`).join('')+'</table></div>':'<p>Nenhum cliente cadastrado ainda.</p>';
+  $('customersList').innerHTML=rows.length?'<div class="table"><table><tr><th>Cliente</th><th>Contato</th><th>Limite total</th><th>Utilizado</th><th>Disponível</th><th>Autorização</th><th>Situação</th><th>Ações</th></tr>'+rows.map(c=>`<tr><td><b>${esc(c.name)}</b><br><span class="small">${esc(c.address||'')}</span></td><td>${esc(c.phone||'-')}</td><td>${money(c.credit_limit)}</td><td>${money(c.credit_used||0)}</td><td><b>${money(c.credit_available===undefined?c.credit_limit:c.credit_available)}</b></td><td>${(c.fiado_authorized===true||c.fiado_authorized===1)?'Autorizado':'Não autorizado'}</td><td>${(c.active===true||c.active===1)?'Ativo':'Inativo'}</td><td><button onclick="editCustomer(${c.id})">Editar</button></td></tr>`).join('')+'</table></div>':'<p>Nenhum cliente cadastrado ainda.</p>';
  }catch(e){$('customersList').innerHTML='<p>Erro ao carregar clientes: '+esc(e.message)+'</p>'}
 }
-
-async function showCustomerReceipts(id){try{const rows=await api('/api/admin/customers/'+id+'/receipts');const customer=(await api('/api/admin/customers')).find(c=>Number(c.id)===Number(id));const html=rows.length?rows.map(r=>`<div style="border:1px solid #b99b5b;border-radius:9px;padding:10px;margin:8px 0"><b>Comanda ${esc(r.payload.command||r.command_id)}</b> · ${esc(r.created_at||'')}<br>Fiado original: <b>${money(r.fiado_amount)}</b><br><button onclick="openCommandDocument(${Number(r.command_id)},'a4')">VER COMANDA A4 / PDF</button> <button onclick="reprintCustomerReceipt(${r.id},${id})">REIMPRIMIR COMPROVANTE</button></div>`).join(''):'<p>Nenhum comprovante individual salvo para este cliente.</p>';const box=document.getElementById('customerReceiptsModal')||document.createElement('div');box.id='customerReceiptsModal';box.style.cssText='position:fixed;inset:0;background:#000b;z-index:99999;display:flex;align-items:center;justify-content:center;padding:15px';box.innerHTML=`<div style="background:#292521;color:#fff;border:1px solid #b99b5b;border-radius:12px;padding:18px;max-width:620px;width:100%;max-height:85vh;overflow:auto"><h2>Comprovantes — ${esc(customer?.name||'Cliente')}</h2>${html}<button onclick="document.getElementById('customerReceiptsModal').remove()">FECHAR</button></div>`;document.body.appendChild(box);}catch(e){alert(e.message)}}
-async function reprintCustomerReceipt(receiptId,customerId){try{await api('/api/admin/customers/'+customerId+'/receipts/'+receiptId+'/print',{method:'POST',body:JSON.stringify({})});alert('Comprovante enviado para impressão.')}catch(e){alert(e.message)}}
-
 function clearCustomerForm(){customerEditingId=null;['customerId','customerName','customerPhone','customerAddress','customerNotes'].forEach(id=>$(id).value='');$('customerLimit').value='0';$('customerFiado').checked=false;$('customerActive').checked=true;$('customerSaveBtn').textContent='CADASTRAR CLIENTE';}
 async function editCustomer(id){
  try{const rows=await api('/api/admin/customers');const c=rows.find(x=>Number(x.id)===Number(id));if(!c)return;customerEditingId=Number(c.id);$('customerId').value=c.id;$('customerName').value=c.name||'';$('customerPhone').value=c.phone||'';$('customerAddress').value=c.address||'';$('customerLimit').value=Number(c.credit_limit||0);$('customerFiado').checked=c.fiado_authorized===true||c.fiado_authorized===1;$('customerActive').checked=c.active===true||c.active===1;$('customerNotes').value=c.notes||'';$('customerSaveBtn').textContent='SALVAR ALTERAÇÕES';window.scrollTo({top:0,behavior:'smooth'});}catch(e){alert(e.message)}
@@ -309,14 +268,14 @@ async function saveCustomer(){
 async function loadFiado(){
  try{
   const [rows,history]=await Promise.all([api('/api/admin/fiado'),api('/api/admin/fiado/history')]);
-  $('fiadoList').innerHTML=rows.length?'<div class="table"><table><tr><th>Marcar</th><th>Cliente</th><th>Comanda</th><th>Total original</th><th>Já pago</th><th>Saldo pendente</th><th>Valor deste recebimento (R$)</th></tr>'+rows.map((c,i)=>`<tr><td><input type="checkbox" class="fiadoCheck" data-id="${c.id}" data-customer="${escAttr(c.customer||'')}" data-row="${i}" style="width:auto"></td><td>${esc(c.customer||'Cliente não identificado')}</td><td>${esc(c.number)}</td><td>${money(c.fiado_total||c.total)}</td><td>${money(c.paid)}</td><td><b>${money(c.remaining)}</b></td><td><input type="number" min="0.01" max="${Number(c.remaining).toFixed(2)}" step="0.01" id="fiadoAmount${i}" value="${Number(c.remaining).toFixed(2)}" style="width:125px"></td></tr>`).join('')+'</table></div>':'<p>Nenhuma comanda com fiado pendente.</p>';
+  $('fiadoList').innerHTML=rows.length?'<div class="table"><table><tr><th>Marcar</th><th>Cliente</th><th>Comanda</th><th>Total original</th><th>Já pago</th><th>Saldo pendente</th><th>Valor deste recebimento (R$)</th></tr>'+rows.map(c=>`<tr><td><input type="checkbox" class="fiadoCheck" data-id="${c.id}" style="width:auto"></td><td>${esc(c.customer||'Cliente não identificado')}</td><td>${esc(c.number)}</td><td>${money(c.total)}</td><td>${money(c.paid)}</td><td><b>${money(c.remaining)}</b></td><td><input type="number" min="0.01" max="${Number(c.remaining).toFixed(2)}" step="0.01" id="fiadoAmount${c.id}" value="${Number(c.remaining).toFixed(2)}" style="width:125px"></td></tr>`).join('')+'</table></div>':'<p>Nenhuma comanda com fiado pendente.</p>';
   $('fiadoHistory').innerHTML=history.length?'<div class="table"><table><tr><th>Data</th><th>Cliente</th><th>Comanda</th><th>Valor recebido</th><th>Forma</th></tr>'+history.map(h=>`<tr><td>${esc(h.created_at||'-')}</td><td>${esc(h.customer||'-')}</td><td>${esc(h.command_number||h.command_id)}</td><td>${money(h.amount)}</td><td>${esc(h.payment||'-')}</td></tr>`).join('')+'</table></div>':'<p>Nenhum recebimento de fiado registrado ainda.</p>';
  }catch(e){$('fiadoList').innerHTML='<p>Erro ao carregar fiado: '+esc(e.message)+'</p>'}
 }
 async function receiveFiado(){
  const marked=[...document.querySelectorAll('.fiadoCheck:checked')];
  if(!marked.length)return alert('Marque pelo menos uma comanda pendente.');
- const allocations=marked.map(box=>({command_id:Number(box.dataset.id),customer:box.dataset.customer,amount:Number($('fiadoAmount'+box.dataset.row).value)}));
+ const allocations=marked.map(box=>({command_id:Number(box.dataset.id),amount:Number($('fiadoAmount'+box.dataset.id).value)}));
  if(allocations.some(a=>!Number.isFinite(a.amount)||a.amount<=0))return alert('Informe um valor maior que zero para cada comanda marcada.');
  if(!confirm('Confirma registrar o recebimento parcial ou total destas comandas?'))return;
  try{
@@ -398,116 +357,32 @@ function xmlText(node,tag){
   const el=Array.from(node.getElementsByTagName('*')).find(x=>x.localName===tag);
   return el?String(el.textContent||'').trim():'';
 }
-function xmlNode(parent,tag){return Array.from(parent?.getElementsByTagName?.('*')||[]).find(x=>x.localName===tag)||null;}
-function xmlVal(parent,tag){const el=xmlNode(parent,tag);return el?String(el.textContent||'').trim():'';}
-function xmlNum(parent,tag){const v=xmlVal(parent,tag);return v===''?null:Number(v);}
-function xmlMoney(v){return v===null||v===undefined||v===''?'—':money(Number(v)||0);}
-function xmlTaxGroups(imposto){
-  const groups=[];if(!imposto)return groups;
-  for(const group of Array.from(imposto.children||[])){
-    const tag=group.localName||group.nodeName; if(tag==='vTotTrib')continue;
-    const values=[];for(const el of Array.from(group.getElementsByTagName('*'))){if(el.children.length===0&&String(el.textContent||'').trim()&&/^v[A-Z]/.test(el.localName||''))values.push(`${el.localName}: ${String(el.textContent).trim()}`);}
-    if(values.length)groups.push({name:tag,values});
-  }
-  return groups;
-}
-function xmlReadSummary(doc,inf){
-  const ide=xmlNode(inf,'ide')||xmlNode(doc,'ide'),emit=xmlNode(inf,'emit')||xmlNode(doc,'emit'),dest=xmlNode(inf,'dest')||xmlNode(doc,'dest'),total=xmlNode(inf,'ICMSTot')||xmlNode(doc,'ICMSTot'),transp=xmlNode(inf,'transp')||xmlNode(doc,'transp'),cobr=xmlNode(inf,'cobr')||xmlNode(doc,'cobr'),pag=xmlNode(inf,'pag')||xmlNode(doc,'pag'),infAdic=xmlNode(inf,'infAdic')||xmlNode(doc,'infAdic');
-  const address=n=>[xmlVal(n,'xLgr'),xmlVal(n,'nro'),xmlVal(n,'xBairro'),xmlVal(n,'xMun'),xmlVal(n,'UF'),xmlVal(n,'CEP')].filter(Boolean).join(', ');
-  const payments=Array.from(pag?.getElementsByTagName?.('*')||[]).filter(x=>x.localName==='detPag').map(d=>({method:xmlVal(d,'tPag'),description:xmlVal(d,'xPag'),amount:xmlNum(d,'vPag'),cardBrand:xmlVal(d,'tBand'),authorization:xmlVal(d,'cAut')}));
-  const installments=Array.from(cobr?.getElementsByTagName?.('*')||[]).filter(x=>x.localName==='dup').map(d=>({number:xmlVal(d,'nDup'),due:xmlVal(d,'dVenc'),amount:xmlNum(d,'vDup')}));
-  const totals=['vProd','vFrete','vSeg','vDesc','vII','vIPI','vIPIDevol','vPIS','vCOFINS','vOutro','vBC','vICMS','vICMSDeson','vFCP','vBCST','vST','vFCPST','vFCPSTRet','vTotTrib','vNF'].map(k=>({key:k,value:xmlNum(total,k)})).filter(x=>x.value!==null);
-  const lines=Array.from(inf.getElementsByTagName('*')).filter(x=>x.localName==='det').map((det,i)=>{
-    const prod=xmlNode(det,'prod'),tax=xmlNode(det,'imposto'),lotNodes=Array.from(det.getElementsByTagName('*')).filter(x=>['rastro','rastroProd'].includes(x.localName));
-    const lots=lotNodes.map(l=>({number:xmlVal(l,'nLote'),quantity:xmlVal(l,'qLote'),made:xmlVal(l,'dFab'),expires:xmlVal(l,'dVal'),agro:xmlVal(l,'cAgreg')}));
-    return {index:i+1,code:xmlVal(prod,'cProd'),name:xmlVal(prod,'xProd'),ean:xmlVal(prod,'cEAN'),ncm:xmlVal(prod,'NCM'),cest:xmlVal(prod,'CEST'),cfop:xmlVal(prod,'CFOP'),commercialUnit:xmlVal(prod,'uCom'),commercialQty:xmlNum(prod,'qCom'),commercialUnitPrice:xmlNum(prod,'vUnCom'),tributaryEan:xmlVal(prod,'cEANTrib'),tributaryUnit:xmlVal(prod,'uTrib'),tributaryQty:xmlNum(prod,'qTrib'),tributaryUnitPrice:xmlNum(prod,'vUnTrib'),productTotal:xmlNum(prod,'vProd'),discount:xmlNum(prod,'vDesc'),freight:xmlNum(prod,'vFrete'),insurance:xmlNum(prod,'vSeg'),other:xmlNum(prod,'vOutro'),taxST:xmlFirstDescendantNumber(tax,'vICMSST'),fcpST:xmlFirstDescendantNumber(tax,'vFCPST'),ipi:xmlFirstDescendantNumber(tax,'vIPI'),importDuty:xmlFirstDescendantNumber(tax,'vII'),order:xmlVal(prod,'nItemPed'),additionalInfo:xmlVal(prod,'infAdProd'),taxTotal:xmlNum(tax,'vTotTrib'),taxGroups:xmlTaxGroups(tax),lots};
-  });
-  return {ide:{number:xmlVal(ide,'nNF'),series:xmlVal(ide,'serie'),issued:xmlVal(ide,'dhEmi')||xmlVal(ide,'dEmi'),operation:xmlVal(ide,'natOp'),type:xmlVal(ide,'tpNF'),environment:xmlVal(ide,'tpAmb'),purpose:xmlVal(ide,'finNFe'),protocol:xmlVal(doc,'nProt')},emit:{name:xmlVal(emit,'xNome'),tradeName:xmlVal(emit,'xFant'),cnpj:xmlVal(emit,'CNPJ')||xmlVal(emit,'CPF'),stateRegistration:xmlVal(emit,'IE'),phone:xmlVal(emit,'fone'),address:address(emit)},dest:{name:xmlVal(dest,'xNome'),document:xmlVal(dest,'CNPJ')||xmlVal(dest,'CPF'),stateRegistration:xmlVal(dest,'IE'),address:address(dest)},transport:{carrier:xmlVal(transp,'xNome'),document:xmlVal(transp,'CNPJ')||xmlVal(transp,'CPF'),freightMode:xmlVal(transp,'modFrete'),vehicle:xmlVal(transp,'placa'),state:xmlVal(transp,'UF'),volume:xmlVal(transp,'qVol'),grossWeight:xmlVal(transp,'pesoB'),netWeight:xmlVal(transp,'pesoL')},billing:{invoiceValue:xmlNum(cobr,'vOrig'),discount:xmlNum(cobr,'vDesc'),netValue:xmlNum(cobr,'vLiq'),installments},payments,totals,additionalInfo:xmlVal(infAdic,'infCpl'),lines};
-}
-function renderXmlReadOnly(data){
- installXmlCompactStyles();
- const kv=(label,value)=>value!==null&&value!==undefined&&value!==''?`<div class="xml-invoice-cell"><span>${esc(label)}</span><b>${esc(String(value))}</b></div>`:'';
- const moneyCell=(label,value)=>kv(label,xmlMoney(value));
- const totalLabels={vProd:'Produtos',vFrete:'Frete',vSeg:'Seguro',vDesc:'Descontos',vII:'II',vIPI:'IPI',vIPIDevol:'IPI devolvido',vPIS:'PIS',vCOFINS:'COFINS',vOutro:'Outras despesas',vBC:'Base ICMS',vICMS:'ICMS',vICMSDeson:'ICMS desonerado',vFCP:'FCP',vBCST:'Base ICMS-ST',vST:'ICMS-ST',vFCPST:'FCP-ST',vFCPSTRet:'FCP-ST retido',vTotTrib:'Tributos aproximados',vNF:'TOTAL NF-e'};
- const panel=(title,content)=>`<section class="xml-invoice-panel"><h3>${title}</h3><div class="xml-invoice-grid">${content}</div></section>`;
- // Custo por item conforme os componentes efetivos da própria linha da NF-e.
- // ICMS próprio, PIS, COFINS e tributos aproximados são informativos e não são somados novamente.
- const costByLine=data.lines.map(l=>{
-   const cents=v=>Math.round((Number(v)||0)*100);
-   const components={discount:-cents(l.discount),freight:cents(l.freight),insurance:cents(l.insurance),other:cents(l.other),icmsST:cents(l.taxST),fcpST:cents(l.fcpST),ipi:cents(l.ipi),importDuty:cents(l.importDuty)};
-   const original=cents(l.productTotal);
-   const totalCents=original+Object.values(components).reduce((a,b)=>a+b,0);
-   const qty=Number(l.commercialQty)||0;
-   return {extra:Object.values(components).reduce((a,b)=>a+b,0)/100,total:totalCents/100,unit:qty>0?(totalCents/100)/qty:0,components};
- });
- const computedTotalCents=costByLine.reduce((sum,c)=>sum+Math.round(c.total*100),0);
- const invoiceTotalCents=Math.round((Number(data.totals.find(t=>t.key==='vNF')?.value)||0)*100);
- const reconciliationCents=invoiceTotalCents-computedTotalCents;
- const rows=data.lines.map((l,i)=>{const c=costByLine[i];return `<tr>
- <td class="xml-center">${l.index}</td><td><b>${esc(l.code)}</b><div>${esc(l.name)}</div></td>
- <td>${esc(l.ncm||'—')}</td><td>${esc(l.cest||'—')}</td><td>${esc(l.cfop||'—')}</td>
- <td class="xml-number">${esc(l.commercialQty??'—')}</td><td>${esc(l.commercialUnit||'—')}</td>
- <td class="xml-number">${xmlMoney(l.commercialUnitPrice)}</td><td class="xml-number">${xmlMoney(l.productTotal)}</td>
- <td class="xml-number">${xmlMoney(c.extra)}</td><td class="xml-number"><b>${xmlMoney(c.unit)}</b></td><td class="xml-number"><b>${xmlMoney(c.total)}</b></td><td>${esc(l.ean||l.tributaryEan||'—')}</td>
- </tr><tr class="xml-detail-row"><td colspan="13"><details><summary>Detalhamento fiscal, tributário e lote — ${esc(l.name)}</summary>
- <div class="xml-invoice-grid xml-invoice-grid-4">${kv('EAN tributável',l.tributaryEan)}${kv('Unidade tributável',l.tributaryUnit)}${kv('Quantidade tributável',l.tributaryQty)}${moneyCell('Valor unitário tributável',l.tributaryUnitPrice)}${moneyCell('Desconto',l.discount)}${moneyCell('Frete',l.freight)}${moneyCell('Seguro',l.insurance)}${moneyCell('Outras despesas',l.other)}${moneyCell('ICMS-ST considerado no custo',l.taxST)}${moneyCell('FCP-ST considerado no custo',l.fcpST)}${moneyCell('IPI considerado no custo',l.ipi)}${moneyCell('II considerado no custo',l.importDuty)}${moneyCell('Tributos aproximados (informativo)',l.taxTotal)}${kv('Pedido do fornecedor',l.order)}${kv('Informação adicional',l.additionalInfo)}</div>
- <h4>Grupos tributários</h4>${l.taxGroups.length?`<div class="xml-tax-groups">${l.taxGroups.map(g=>`<div><b>${esc(g.name)}</b><span>${g.values.map(esc).join(' · ')}</span></div>`).join('')}</div>`:'<p>Não informado no XML.</p>'}
- <h4>Lotes e validade</h4>${l.lots.length?`<div class="xml-invoice-grid xml-invoice-grid-4">${l.lots.map(x=>kv('Lote / Quantidade / Fabricação / Validade',`${x.number||'—'} · ${x.quantity||'—'} · ${x.made||'—'} · ${x.expires||'—'}`)).join('')}</div>`:'<p>Não informado no XML.</p>'}
- </details></td></tr>`;}).join('');
- return `<div class="xml-readonly xml-invoice">
- <div class="xml-invoice-title"><div><strong>ESPELHO DA NF-e</strong><small>Leitura do arquivo XML — somente conferência</small></div><div class="xml-invoice-number"><span>NOTA FISCAL ELETRÔNICA</span><b>Nº ${esc(data.ide.number||'—')} · Série ${esc(data.ide.series||'—')}</b><small>Emissão: ${esc(data.ide.issued||'—')}</small></div></div>
- ${panel('IDENTIFICAÇÃO DA NOTA FISCAL',`${kv('Natureza da operação',data.ide.operation)}${kv('Tipo',data.ide.type==='0'?'Entrada':data.ide.type==='1'?'Saída':data.ide.type)}${kv('Ambiente',data.ide.environment==='1'?'Produção':data.ide.environment==='2'?'Homologação':data.ide.environment)}${kv('Finalidade',data.ide.purpose)}${kv('Protocolo',data.ide.protocol)}`)}
- <div class="xml-invoice-two">${panel('EMITENTE / FORNECEDOR',`${kv('Razão social',data.emit.name)}${kv('Nome fantasia',data.emit.tradeName)}${kv('CNPJ/CPF',data.emit.cnpj)}${kv('Inscrição estadual',data.emit.stateRegistration)}${kv('Telefone',data.emit.phone)}${kv('Endereço',data.emit.address)}`)}${panel('DESTINATÁRIO',`${kv('Nome',data.dest.name)}${kv('CNPJ/CPF',data.dest.document)}${kv('Inscrição estadual',data.dest.stateRegistration)}${kv('Endereço',data.dest.address)}`)}</div>
- <section class="xml-invoice-panel"><h3>PRODUTOS E SERVIÇOS (${data.lines.length})</h3><p class="xml-cost-rule">O custo final de cada item usa seus próprios valores do XML: desconto, frete, seguro, outras despesas, ICMS-ST, FCP-ST, IPI e II. ICMS próprio, PIS, COFINS e tributos aproximados não são adicionados novamente. Conferência da soma com o total da NF-e: ${xmlMoney(computedTotalCents/100)} calculado · ${xmlMoney(invoiceTotalCents/100)} na nota · diferença ${xmlMoney(reconciliationCents/100)}.</p><div class="xml-read-table-wrap"><table class="xml-read-table"><thead><tr><th>#</th><th>Código / Descrição</th><th>NCM</th><th>CEST</th><th>CFOP</th><th>Quantidade</th><th>Un.</th><th>Preço unit. original</th><th>Total original</th><th>Impostos/acréscimos do item</th><th>Custo final unitário</th><th>Total final</th><th>EAN</th></tr></thead><tbody>${rows}</tbody></table></div></section>
- ${panel('TOTAIS E IMPOSTOS DA NOTA',data.totals.map(t=>moneyCell(totalLabels[t.key]||t.key,t.value)).join(''))}
- <div class="xml-invoice-two">${panel('FATURA E PAGAMENTO',`${moneyCell('Valor original',data.billing.invoiceValue)}${moneyCell('Desconto da fatura',data.billing.discount)}${moneyCell('Valor líquido',data.billing.netValue)}${data.payments.map((p,i)=>kv('Pagamento '+(i+1),`${p.method||'—'} · ${p.description||'forma não descrita'} · ${xmlMoney(p.amount)}`)).join('')}${data.billing.installments.map((x,i)=>kv('Parcela '+(i+1),`${x.number||''} · Vencimento ${x.due||'—'} · ${xmlMoney(x.amount)}`)).join('')}`)}${panel('TRANSPORTE',`${kv('Transportador',data.transport.carrier)}${kv('CNPJ/CPF',data.transport.document)}${kv('Modalidade do frete',data.transport.freightMode)}${kv('Veículo',data.transport.vehicle)}${kv('Volumes',data.transport.volume)}${kv('Peso bruto',data.transport.grossWeight)}${kv('Peso líquido',data.transport.netWeight)}`)}</div>
- ${data.additionalInfo?panel('INFORMAÇÕES COMPLEMENTARES',kv('Observações',data.additionalInfo)):''}
- <p class="xml-read-note">LEITURA SOMENTE PARA CONFERÊNCIA. Nenhum produto, custo ou quantidade foi alterado no estoque.</p></div>`;
-}
-function xmlFirstDescendantNumber(node, tag){
- if(!node)return 0;
- const found=Array.from(node.getElementsByTagName('*')).find(el=>(el.localName||el.nodeName)===tag);
- return found&&String(found.textContent||'').trim()?Number(found.textContent):0;
-}
 function parsePurchaseXml(input){
- const file=input.files&&input.files[0];if(!file)return;
- const reader=new FileReader();reader.onload=async()=>{try{
-  const doc=new DOMParser().parseFromString(reader.result,'text/xml');if(doc.querySelector('parsererror'))throw Error('O arquivo não é um XML válido.');
-  const inf=doc.getElementsByTagName('infNFe')[0];if(!inf)throw Error('Não encontrei os dados de uma NF-e neste XML.');
-  const key=(inf.getAttribute('Id')||'').replace(/^NFe/,'');if(!/^\d{44}$/.test(key))throw Error('Não encontrei a chave de acesso de 44 dígitos. Use o XML autorizado da NF-e.');
-  const data=xmlReadSummary(doc,inf);
-  purchaseDraft={access_key:key,xml_content:String(reader.result||''),invoice_number:data.ide.number,series:data.ide.series,supplier_name:data.emit.name,supplier_cnpj:data.emit.cnpj,issue_date:data.ide.issued,total:Number(data.totals.find(x=>x.key==='vNF')?.value)||0,xml_read:data,lines:data.lines.map((l,i)=>({index:i,product_name:l.name,code:l.code,barcode:(l.ean||l.tributaryEan||'').replace(/\D/g,''),purchase_qty:Number(l.commercialQty)||0,purchase_unit:l.commercialUnit||'un',purchase_unit_price:Number(l.commercialUnitPrice)||0,line_total:Number(l.productTotal)||0,stock_qty:Number(l.commercialQty)||0,stock_unit:l.commercialUnit||'un',units_per_pack:1,unit_cost:(Number(l.productTotal)||0)/Math.max(1,Number(l.commercialQty)||1),product_id:''}))};
-  $('purchaseInvoiceInfo').innerHTML=renderXmlReadOnly(data);$('purchaseLines').innerHTML='';$('receivePurchaseBtn').disabled=true;$('receivePurchaseBtn').textContent='ENTRADA NO ESTOQUE — ETAPA FUTURA';
- }catch(e){purchaseDraft=null;$('receivePurchaseBtn').disabled=true;$('purchaseInvoiceInfo').textContent='Erro ao ler XML: '+e.message;alert(e.message);}};reader.readAsText(file);
+  const file=input.files&&input.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=async()=>{
+    try{
+      const doc=new DOMParser().parseFromString(reader.result,'text/xml');
+      if(doc.querySelector('parsererror'))throw Error('O arquivo não é um XML válido.');
+      const inf=doc.getElementsByTagName('infNFe')[0];if(!inf)throw Error('Não encontrei os dados de uma NF-e neste XML.');
+      const ide=doc.getElementsByTagName('ide')[0],emit=doc.getElementsByTagName('emit')[0],total=doc.getElementsByTagName('ICMSTot')[0];
+      const key=(inf.getAttribute('Id')||'').replace(/^NFe/,'');
+      if(!/^\d{44}$/.test(key))throw Error('Não encontrei a chave de acesso de 44 dígitos. Use o XML autorizado da NF-e.');
+      const products=await api('/api/admin/products?type=all');
+      const dets=Array.from(doc.getElementsByTagName('det'));
+      purchaseDraft={access_key:key,xml_content:String(reader.result||''),invoice_number:xmlText(ide,'nNF'),series:xmlText(ide,'serie'),supplier_name:xmlText(emit,'xNome'),supplier_cnpj:xmlText(emit,'CNPJ')||xmlText(emit,'CPF'),issue_date:xmlText(ide,'dhEmi')||xmlText(ide,'dEmi'),total:Number(xmlText(total,'vNF'))||0,lines:[]};
+      purchaseDraft.lines=dets.map((det,i)=>{
+        const prod=det.getElementsByTagName('prod')[0],qty=Number(xmlText(prod,'qCom'))||0,unit=xmlText(prod,'uCom')||'un',unitPrice=Number(xmlText(prod,'vUnCom'))||0,lineTotal=Number(xmlText(prod,'vProd'))||qty*unitPrice;
+        return {index:i,product_name:xmlText(prod,'xProd'),code:xmlText(prod,'cProd'),barcode:(xmlText(prod,'cEAN')||xmlText(prod,'cEANTrib')||'').replace(/\D/g,''),purchase_qty:qty,purchase_unit:unit,purchase_unit_price:unitPrice,line_total:lineTotal,stock_qty:qty,stock_unit:unit,units_per_pack:detectUnitsPerPack(xmlText(prod,'xProd')+' '+unit),unit_cost:lineTotal/Math.max(1,qty),product_id:'',products};
+      });
+      for(const line of purchaseDraft.lines){const match=await api('/api/admin/products/xml-match',{method:'POST',body:JSON.stringify({supplier_cnpj:purchaseDraft.supplier_cnpj,supplier_code:line.code,barcode:line.barcode,name:line.product_name})});if(match.found){line.product_id=String(match.product.id);line.match_reason=match.reason;}}
+      $('purchaseInvoiceInfo').innerHTML=`<b>NF-e ${esc(purchaseDraft.invoice_number)}</b> · ${esc(purchaseDraft.supplier_name)} · Total: ${money(purchaseDraft.total)}<br><small>Produtos reconhecidos automaticamente aparecem pré-selecionados. Confira todos antes de confirmar.</small>`;
+      renderPurchaseLines();$('receivePurchaseBtn').disabled=!purchaseDraft.lines.length;
+    }catch(e){purchaseDraft=null;$('receivePurchaseBtn').disabled=true;$('purchaseInvoiceInfo').textContent='Erro ao ler XML: '+e.message;alert(e.message);}
+  };
+  reader.readAsText(file);
 }
-function installXmlCompactStyles(){if($('xmlCompactStyles'))return;const s=document.createElement('style');s.id='xmlCompactStyles';s.textContent=`
-.xml-readonly{font-size:.84rem;line-height:1.35;color:#f4f6fb}
-.xml-invoice{background:#17243a;border:1px solid rgba(255,255,255,.2);border-radius:10px;padding:14px}
-.xml-invoice-title{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:12px 14px;margin-bottom:12px;background:#e9edf3;color:#17243a;border-radius:6px}
-.xml-invoice-title strong{display:block;font-size:1.05rem;letter-spacing:.06em}.xml-invoice-title small{display:block;margin-top:4px;color:#526071}
-.xml-invoice-number{text-align:right}.xml-invoice-number span,.xml-invoice-number small{display:block;font-size:.72rem}.xml-invoice-number b{display:block;font-size:1rem;margin:3px 0}
-.xml-invoice-panel{border:1px solid rgba(255,255,255,.22);border-radius:6px;margin:10px 0;padding:9px 10px;background:rgba(255,255,255,.025);min-width:0}
-.xml-invoice-panel h3{font-size:.8rem;letter-spacing:.045em;margin:0 0 8px;padding:0 0 6px;border-bottom:1px solid rgba(255,255,255,.2)}
-.xml-invoice-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 12px}
-.xml-invoice-grid-4{grid-template-columns:repeat(4,minmax(0,1fr))}
-.xml-invoice-cell{display:grid;grid-template-columns:minmax(75px,.8fr) minmax(0,1.5fr);gap:7px;padding:5px 2px;border-bottom:1px dotted rgba(255,255,255,.16);min-width:0;overflow-wrap:anywhere}
-.xml-invoice-cell span{font-size:.73rem;opacity:.72}.xml-invoice-cell b{font-size:.78rem;font-weight:650}
-.xml-invoice-two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.xml-read-table-wrap{overflow:auto;border:1px solid rgba(255,255,255,.16);border-radius:5px}
-.xml-read-table{width:100%;border-collapse:collapse;min-width:1050px;font-size:.76rem;background:rgba(0,0,0,.08)}
-.xml-read-table th,.xml-read-table td{padding:7px 8px;border:1px solid rgba(255,255,255,.13);text-align:left;vertical-align:top}
-.xml-read-table th{background:rgba(255,255,255,.1);font-size:.7rem;white-space:nowrap}
-.xml-read-table td div{margin-top:3px;white-space:normal;min-width:180px}
-.xml-read-table .xml-number{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.xml-read-table .xml-center{text-align:center}
-.xml-read-table .xml-detail-row td{padding:5px 8px;background:rgba(0,0,0,.12)}.xml-cost-rule{font-size:.76rem;opacity:.82;margin:0 0 8px}.xml-read-table th:nth-child(10),.xml-read-table th:nth-child(11),.xml-read-table th:nth-child(12){background:rgba(47,125,83,.22)}
-.xml-read-table details{white-space:normal}.xml-read-table summary{cursor:pointer;font-weight:700;padding:4px}
-.xml-read-table h4{margin:10px 0 5px;font-size:.76rem}.xml-tax-groups{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.xml-tax-groups>div{padding:6px;border:1px solid rgba(255,255,255,.12);border-radius:4px}.xml-tax-groups b,.xml-tax-groups span{display:block}.xml-tax-groups span{font-size:.74rem;margin-top:3px}
-.xml-read-note{margin-top:12px;padding:10px;border:1px solid #b88d32;border-radius:6px;color:#f4d58a;background:rgba(184,141,50,.08);font-weight:700}
-#purchaseInvoiceInfo{padding:8px 10px!important;margin:8px 0!important;font-size:.88rem}
-.xml-compact-wrap{overflow-x:auto;border:1px solid rgba(255,255,255,.12);border-radius:10px}.xml-compact-table{width:100%;border-collapse:collapse;min-width:850px;font-size:.82rem}.xml-compact-table th,.xml-compact-table td{padding:7px 8px!important;vertical-align:middle;border-bottom:1px solid rgba(255,255,255,.1);white-space:nowrap}.xml-compact-table th{font-size:.72rem;letter-spacing:.03em}.xml-product-desc{white-space:normal!important;min-width:210px;max-width:270px}.xml-product-desc small{display:block;opacity:.72;font-size:.72rem;margin-top:3px}.xml-units-input{width:66px!important;min-width:66px!important;padding:6px!important}.xml-product-select{width:175px!important;min-width:175px!important;padding:6px!important}.xml-register-btn{padding:6px 8px!important;margin-left:4px;font-size:.72rem!important;white-space:nowrap}#purchases>p.muted{display:none}#productFormArea>.hint{display:none}
-@media(max-width:900px){.xml-invoice-grid,.xml-invoice-grid-4{grid-template-columns:repeat(2,minmax(0,1fr))}.xml-invoice-two{grid-template-columns:1fr}}
-@media(max-width:560px){.xml-invoice{padding:8px}.xml-invoice-title{align-items:flex-start;flex-direction:column}.xml-invoice-number{text-align:left}.xml-invoice-grid,.xml-invoice-grid-4{grid-template-columns:1fr}.xml-tax-groups{grid-template-columns:1fr}.xml-invoice-cell{grid-template-columns:110px minmax(0,1fr)}}
-`;document.head.appendChild(s);}
+function installXmlCompactStyles(){if($('xmlCompactStyles'))return;const s=document.createElement('style');s.id='xmlCompactStyles';s.textContent=`#purchaseInvoiceInfo{padding:8px 10px!important;margin:8px 0!important;font-size:.88rem}#purchaseInvoiceInfo br+*{display:none}.xml-compact-wrap{overflow-x:auto;border:1px solid rgba(255,255,255,.12);border-radius:10px}.xml-compact-table{width:100%;border-collapse:collapse;min-width:850px;font-size:.82rem}.xml-compact-table th,.xml-compact-table td{padding:7px 8px!important;vertical-align:middle;border-bottom:1px solid rgba(255,255,255,.1);white-space:nowrap}.xml-compact-table th{font-size:.72rem;letter-spacing:.03em}.xml-product-desc{white-space:normal!important;min-width:210px;max-width:270px}.xml-product-desc small{display:block;opacity:.72;font-size:.72rem;margin-top:3px}.xml-units-input{width:66px!important;min-width:66px!important;padding:6px!important}.xml-product-select{width:175px!important;min-width:175px!important;padding:6px!important}.xml-register-btn{padding:6px 8px!important;margin-left:4px;font-size:.72rem!important;white-space:nowrap}#purchases>p.muted{display:none}#productFormArea>.hint{display:none}`;document.head.appendChild(s);}
 function renderPurchaseLines(){
   installXmlCompactStyles();
   const box=$('purchaseLines');if(!box||!purchaseDraft)return;
@@ -544,7 +419,6 @@ function updateXmlMarkup(i){
   }else el.textContent='Markup: — · Margem: —';
 }
 async function receivePurchaseXml(){
-  return alert('A leitura do XML está em fase de implantação. A entrada no estoque será liberada em uma próxima etapa, após a conferência.');
   if(!purchaseDraft)return alert('Carregue primeiro o XML da NF-e.');
   if(purchaseDraft.lines.some(l=>!Number(l.product_id)||!(Number(l.stock_qty)>0)||!String(l.stock_unit||'').trim()))return alert('Vincule todos os itens a um produto cadastrado e confira as quantidades.');
   if(!confirm('Confirma a entrada desta NF-e? O estoque dos produtos vinculados será atualizado.'))return;
@@ -597,12 +471,8 @@ function installPurchaseHistoryStyles(){
 }
 
 
-window.addEventListener('popstate',function(event){
-  if(xmlReturnLine!==null){returnFromXmlProduct();return;}
-  const state=event.state||{};
-  if(state.adminPanel&&state.tab){restoringAdminHistory=true;try{tab(state.tab);}finally{restoringAdminHistory=false;}return;}
-  /* Mantém o painel como destino seguro: a seta do navegador não deve encerrar a sessão administrativa. */
-  if(pass&&$('app')&&$('app').style.display!=='none'){history.pushState({adminPanel:true,tab:activeAdminTab},'',location.href);}
+window.addEventListener('popstate',function(){
+  if(xmlReturnLine!==null){returnFromXmlProduct();}
 });
 
 
