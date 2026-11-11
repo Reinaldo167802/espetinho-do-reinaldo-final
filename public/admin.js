@@ -4,7 +4,7 @@ const toNumber=v=>{if(v===undefined||v===null||String(v).trim()==='')return 0;co
 const $=id=>document.getElementById(id);
 const api=async(url,opt={})=>{opt.headers={...(opt.headers||{}),'x-admin-password':pass,'Content-Type':'application/json'};const r=await fetch(url,opt);const raw=await r.text();let d;try{d=JSON.parse(raw)}catch(_){throw Error('O servidor respondeu uma página HTML em vez de JSON. Confira a implantação do sistema.')}if(!r.ok)throw Error(d.error||d.message||'Erro');return d};
 function login(){const pw=$('pw');pass=pw.value.trim();if(!pass){alert('Digite a senha administrativa.');return}api('/api/admin/orders').then(()=>{$('login').style.display='none';$('app').style.display='block';loadAll()}).catch(err=>alert('Erro ao entrar: '+err.message));}
-function tab(id){['orders','products','purchases','suppliers','cash','commands','customers','fiado','settings'].forEach(x=>{if($(x))$(x).style.display=x===id?'block':'none'});if(id==='orders')loadOrders();if(id==='products'&&xmlReturnLine===null)loadProducts();if(id==='purchases'){loadPurchaseHistory();}if(id==='suppliers')loadSuppliers();if(id==='cash')loadCash();if(id==='commands')loadCommands();if(id==='customers')loadCustomers();if(id==='fiado')loadFiado();if(id==='settings'){loadSettings().catch(()=>{});loadSandwichCapacity();}}
+function tab(id){['orders','products','purchases','suppliers','cash','commands','customers','fiado','settings'].forEach(x=>{if($(x))$(x).style.display=x===id?'block':'none'});if(id==='orders')loadOrders();if(id==='products'&&xmlReturnLine===null)loadProducts();if(id==='purchases'){loadPurchaseHistory();}if(id==='suppliers')loadSuppliers();if(id==='cash')loadCash();if(id==='commands')loadCommands();if(id==='customers')loadCustomers();if(id==='fiado')loadFiado();if(id==='settings'){installTestCleanupPanel();loadSettings().catch(()=>{});loadSandwichCapacity();}}
 async function loadAll(){loadOrders();loadCustomerOptions()}
 function installCompactOrderStyles(){
   if(document.getElementById('compact-order-card-styles')) return;
@@ -495,3 +495,44 @@ window.addEventListener('popstate',function(){
 });
 
 
+// ===== Limpeza segura dos dados de teste =====
+function installTestCleanupPanel(){
+  const section=$('settings');
+  if(!section||$('testDataCleanupPanel'))return;
+  const panel=document.createElement('div');
+  panel.id='testDataCleanupPanel';
+  panel.style.cssText='margin-top:24px;padding:16px;border:1px solid #b42318;border-radius:12px;background:rgba(180,35,24,.08)';
+  panel.innerHTML=`
+    <h3 style="margin-top:0;color:#b42318">Limpeza geral dos dados de teste</h3>
+    <p>Esta rotina apaga comandas, itens de comandas, pedidos do site, pagamentos, registros de fiado, caixa, filas de impressão e movimentações de estoque. Também zera as quantidades dos estoques principal e secundário.</p>
+    <p><b>Serão preservados:</b> cadastro de produtos, preços, códigos, categorias, unidades, clientes, limites e autorizações de fiado, fornecedores, notas fiscais, configurações e fichas técnicas.</p>
+    <p style="font-weight:800;color:#b42318">Atenção: a operação é definitiva. Confira se o backup está guardado antes de continuar.</p>
+    <button type="button" id="runTestDataCleanup" style="background:#b42318;color:#fff;border:0;border-radius:8px;padding:11px 15px;font-weight:900;cursor:pointer" onclick="runTestDataCleanup()">LIMPAR DADOS DE TESTE</button>
+    <p id="testDataCleanupStatus" class="muted" role="status"></p>
+  `;
+  section.appendChild(panel);
+}
+async function runTestDataCleanup(){
+  const button=$('runTestDataCleanup'),status=$('testDataCleanupStatus');
+  if(!confirm('CONFIRMA A LIMPEZA GERAL? Serão apagados os dados operacionais de teste e todo o estoque principal e secundário será zerado. Os cadastros e configurações serão preservados. Esta ação não pode ser desfeita.'))return;
+  const phrase=prompt('Para autorizar, digite exatamente: LIMPAR TESTES ESPETINHO');
+  if(phrase!=='LIMPAR TESTES ESPETINHO'){
+    alert('Confirmação não reconhecida. Nenhum dado foi apagado.');
+    return;
+  }
+  if(button)button.disabled=true;
+  if(status)status.textContent='Executando limpeza. Aguarde e não feche esta página...';
+  try{
+    const result=await api('/api/admin/test-data/clean',{
+      method:'POST',
+      body:JSON.stringify({confirm:'LIMPAR_TESTES_ESPETINHO'})
+    });
+    if(status)status.textContent='Limpeza concluída com sucesso.';
+    alert(result.message||'Limpeza concluída. Os dados operacionais de teste foram apagados e as quantidades de estoque foram zeradas. Os cadastros preservados continuam no sistema.');
+  }catch(e){
+    if(status)status.textContent='A limpeza não foi confirmada pelo servidor: '+e.message;
+    alert('Não foi possível concluir a limpeza: '+e.message+'\\n\\nNenhuma confirmação de sucesso foi recebida. Não tente repetir antes de verificar o estado do sistema.');
+  }finally{
+    if(button)button.disabled=false;
+  }
+}
