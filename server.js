@@ -735,6 +735,83 @@ app.get('/api/admin/cash',auth,async(req,res)=>{
 });
 app.post('/api/admin/cash',auth,async(req,res)=>{const {type='entrada',description,value,payment=''}=req.body;if(!description||!value)return res.status(400).json({error:'Descrição e valor obrigatórios'});await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4)':'?,?,?,?)'),[type,description,Number(value),payment]);res.json({ok:true});});
 
+
+// VERIFICAÇÃO PRÉVIA DA LIMPEZA — SOMENTE LEITURA, NÃO ALTERA DADOS
+app.get('/api/admin/test-data/clean-check', auth, async (req, res) => {
+  const requiredTables = [
+    'products','orders','order_items','cash','commands','command_items',
+    'customers','fiado_payments','command_payments','command_receipts',
+    'print_jobs','suppliers','purchase_invoices','purchase_invoice_lines',
+    'inventory_movements','app_settings','supplier_product_codes',
+    'technical_recipe_items','recipe_stock_movements'
+  ];
+  try {
+    let presentTables = [];
+    let productColumns = [];
+    let externalReferences = [];
+    if (isPg) {
+      const t = await db.query(
+        `SELECT table_name FROM information_schema.tables
+         WHERE table_schema = current_schema() AND table_name = ANY($1::text[])`,
+        [requiredTables]
+      );
+      presentTables = t.rows.map(x => x.table_name);
+      const c = await db.query(
+        `SELECT column_name FROM information_schema.columns
+         WHERE table_schema = current_schema() AND table_name = 'products'
+           AND column_name IN ('stock','stock_secondary')`
+      );
+      productColumns = c.rows.map(x => x.column_name);
+      const refs = await db.query(
+        `SELECT DISTINCT src.relname AS table_name
+         FROM pg_constraint fk
+         JOIN pg_class src ON src.oid = fk.conrelid
+         JOIN pg_namespace ns ON ns.oid = src.relnamespace
+         JOIN pg_class dst ON dst.oid = fk.confrelid
+         WHERE fk.contype = 'f' AND ns.nspname = current_schema()
+           AND dst.relname = ANY($1::text[])
+           AND src.relname <> ALL($2::text[])`,
+        [requiredTables, [
+          'command_receipts','fiado_payments','command_payments','command_items',
+          'commands','order_items','orders','cash','print_jobs',
+          'inventory_movements','recipe_stock_movements'
+        ]]
+      );
+      externalReferences = refs.rows.map(x => x.table_name);
+    } else {
+      presentTables = db.prepare(
+        `SELECT name AS table_name FROM sqlite_master
+         WHERE type='table' AND name IN (${requiredTables.map(() => '?').join(',')})`
+      ).all(...requiredTables).map(x => x.table_name);
+      productColumns = db.prepare('PRAGMA table_info(products)').all()
+        .map(x => x.name).filter(x => ['stock','stock_secondary'].includes(x));
+    }
+    const missingTables = requiredTables.filter(x => !presentTables.includes(x));
+    const missingProductColumns = ['stock','stock_secondary'].filter(x => !productColumns.includes(x));
+    const ready = missingTables.length === 0 && missingProductColumns.length === 0;
+    res.set('Cache-Control','no-store');
+    return res.json({
+      ok: true,
+      check_only: true,
+      database: isPg ? 'PostgreSQL' : 'SQLite',
+      ready,
+      present_tables: presentTables.length,
+      required_tables: requiredTables.length,
+      missing_tables: missingTables,
+      missing_product_columns: missingProductColumns,
+      external_foreign_key_references: externalReferences,
+      warning: externalReferences.length
+        ? 'Há tabelas adicionais com chaves estrangeiras para tabelas operacionais. A limpeza atual poderá ser revertida pelo banco; não foi feita nenhuma alteração.'
+        : 'Verificação estrutural concluída. Nenhum dado foi alterado. A execução ainda depende da confirmação final.'
+    });
+  } catch (error) {
+    console.error('Erro na verificação prévia da limpeza:', error);
+    return res.status(500).json({
+      error: 'Não foi possível verificar o banco de dados. Nenhum dado foi alterado.'
+    });
+  }
+});
+
 // LIMPEZA GERAL SEGURA — ESPETINHO DO REINALDO
 // Apaga somente movimentações operacionais de teste e zera quantidades de estoque.
 // Preserva produtos, clientes, fornecedores, códigos, preços, fichas técnicas e configurações.
