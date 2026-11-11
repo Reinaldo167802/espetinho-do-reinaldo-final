@@ -735,6 +735,85 @@ app.get('/api/admin/cash',auth,async(req,res)=>{
 });
 app.post('/api/admin/cash',auth,async(req,res)=>{const {type='entrada',description,value,payment=''}=req.body;if(!description||!value)return res.status(400).json({error:'Descrição e valor obrigatórios'});await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4)':'?,?,?,?)'),[type,description,Number(value),payment]);res.json({ok:true});});
 
+// LIMPEZA GERAL SEGURA — ESPETINHO DO REINALDO
+// Apaga somente movimentações operacionais de teste e zera quantidades de estoque.
+// Preserva produtos, clientes, fornecedores, códigos, preços, fichas técnicas e configurações.
+app.post('/api/admin/test-data/clean', auth, async (req, res) => {
+  if (req.body?.confirm !== 'LIMPAR_TESTES_ESPETINHO') {
+    return res.status(400).json({ error: 'Confirmação de limpeza inválida.' });
+  }
+
+  let client = null;
+  try {
+    if (isPg) {
+      client = await db.connect();
+      await client.query('BEGIN');
+      try {
+        await client.query(`
+          TRUNCATE TABLE
+            command_receipts,
+            fiado_payments,
+            command_payments,
+            command_items,
+            commands,
+            order_items,
+            orders,
+            cash,
+            print_jobs,
+            inventory_movements,
+            recipe_stock_movements
+          RESTART IDENTITY
+        `);
+        await client.query(`
+          UPDATE products
+          SET stock = 0,
+              stock_secondary = 0
+        `);
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      }
+    } else {
+      const clean = db.transaction(() => {
+        db.prepare('DELETE FROM command_receipts').run();
+        db.prepare('DELETE FROM fiado_payments').run();
+        db.prepare('DELETE FROM command_payments').run();
+        db.prepare('DELETE FROM command_items').run();
+        db.prepare('DELETE FROM commands').run();
+        db.prepare('DELETE FROM order_items').run();
+        db.prepare('DELETE FROM orders').run();
+        db.prepare('DELETE FROM cash').run();
+        db.prepare('DELETE FROM print_jobs').run();
+        db.prepare('DELETE FROM inventory_movements').run();
+        db.prepare('DELETE FROM recipe_stock_movements').run();
+        db.prepare('UPDATE products SET stock = 0, stock_secondary = 0').run();
+        db.prepare(`
+          DELETE FROM sqlite_sequence
+          WHERE name IN (
+            'command_receipts', 'fiado_payments', 'command_payments',
+            'command_items', 'commands', 'order_items', 'orders',
+            'cash', 'print_jobs', 'inventory_movements', 'recipe_stock_movements'
+          )
+        `).run();
+      });
+      clean();
+    }
+
+    return res.json({
+      ok: true,
+      message: 'Limpeza concluída. Movimentações de teste removidas, estoque zerado e cadastros preservados.'
+    });
+  } catch (error) {
+    console.error('Erro na limpeza geral de dados de teste:', error);
+    return res.status(500).json({
+      error: 'Não foi possível concluir a limpeza. A operação foi revertida quando suportado pelo banco.'
+    });
+  } finally {
+    if (client) client.release();
+  }
+});
+
 // Exclusão manual de uma comanda antiga que já esteja vazia (sem itens e total zero).
 app.delete('/api/admin/commands/:id/empty',auth,async(req,res)=>{
  try{
