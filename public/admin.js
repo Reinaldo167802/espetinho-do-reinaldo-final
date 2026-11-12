@@ -62,12 +62,13 @@ function cancelProductForm(){
   $('productFormArea').style.display='none';$('productListScreen').style.display='block';clearForm();
 }
 function normalizeXmlPackageUnit(value){
-  const s=String(value||'').trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  const s=String(value||'').trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[.]/g,'');
   if(/^(UN|UND|UNID|UNIDADE|UNIDADES)$/.test(s))return 'UN';
   if(/^(FD|FDO|FARDO|FARDOS)$/.test(s))return 'FD';
   if(/^(CX|CAIXA|CAIXAS)$/.test(s))return 'CX';
   if(/^(KG|KILO|KILOS|QUILO|QUILOS)$/.test(s))return 'KG';
   if(/^(L|LT|LITRO|LITROS)$/.test(s))return 'L';
+  if(/^(MACO|MACOS|MCO|MCOS|MC|MCS|MCOES)$/.test(s))return 'MACO';
   if(/^(PCT|PC|PCTE|PACOTE|PACOTES)$/.test(s))return 'PCT';
   return 'UN';
 }
@@ -79,7 +80,7 @@ async function startXmlProductRegistration(i){
   await loadProducts();
   newProductForm();
   $('productFormTitle').textContent='Cadastrar Produto — Item da NF-e';
-  $('pn').value=l.product_name||'';$('pb').value=l.barcode||'';$('pbrand').value='';$('pc').value='Bebidas';$('pu').value='un';
+  $('pn').value=l.product_name||'';$('pb').value=l.barcode||'';$('pbrand').value='';$('pc').value=/cigar(r|r)o|cigaret/i.test(l.product_name||'')?'Cigarros e Tabacaria':'Bebidas';$('pu').value='un';
   const detected=Number(l.units_per_pack)||detectUnitsPerPack(l.product_name+' '+l.purchase_unit)||1;
   xmlPackContext={lineIndex:i,packageQty:Number(l.purchase_qty)||1,packageUnit:normalizeXmlPackageUnit(l.purchase_unit),lineTotal:Number(l.line_total)||0,unitsPerPack:detected};
   l.units_per_pack=detected;
@@ -91,9 +92,13 @@ async function startXmlProductRegistration(i){
   window.scrollTo({top:0,behavior:'smooth'});
 }
 function detectUnitsPerPack(text){
-  const s=String(text||'').toUpperCase();
-  let m=s.match(/(?:^|\D)(\d{1,3})\s*(?:UN|UND|UNID|U)\b/);
-  if(!m)m=s.match(/(?:FD|FARDO|CX|CAIXA|PACK|PCT|PACOTE)\s*(?:C\/|COM)?\s*(\d{1,3})\b/);
+  const s=String(text||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  const isCigarette=/CIGARRO|CIGARRETE|CIGARET/.test(s);
+  const isMaco=/(?:^|[^A-Z0-9])(?:MACO|MCO|MC|MCS|MCOES)(?:$|[^A-Z0-9])/.test(s);
+  const isTwenty=/20\s*(?:UN|UND|UNID|UNIDADES)?(?:$|[^A-Z0-9])/.test(s);
+  if(isCigarette&&(isMaco||isTwenty))return 20;
+  let m=s.match(/(?:^|\D)(\d{1,3})\s*(?:UN|UND|UNID|UNIDADES|U)\b/);
+  if(!m)m=s.match(/(?:FD|FARDO|CX|CAIXA|PACK|PCT|PACOTE)\s*(?:C\/?|COM)?\s*(\d{1,3})\b/);
   return m?Math.max(1,Number(m[1])):1;
 }
 function returnFromXmlProduct(){
@@ -108,8 +113,8 @@ function updateProductProfitPreview(){const c=toNumber($('pcost').value),p=toNum
 function saleOptionRows(){return [...document.querySelectorAll('#saleOptionsRows .sale-option-row')].map((row,i)=>({key:row.querySelector('.sale-key').value.trim()||('op'+i),label:row.querySelector('.sale-label').value.trim(),factor:toNumber(row.querySelector('.sale-factor').value),price:toNumber(row.querySelector('.sale-price').value)})).filter(x=>x.label&&x.factor>0&&Number.isFinite(x.price)&&x.price>=0)}
 function renderSaleOptionRows(options=[]){const box=$('saleOptionsRows');if(!box)return;box.innerHTML=options.map((o,i)=>`<div class="sale-option-row row3" style="grid-template-columns:1.3fr .7fr .8fr .8fr auto;gap:5px;margin:5px 0"><input class="sale-key" value="${escAttr(o.key||('op'+i))}" placeholder="chave" aria-label="Chave"><input class="sale-label" value="${escAttr(o.label||'')}" placeholder="Apresentação (ex.: Fardo 12 un)"><input class="sale-factor" type="number" min="0.001" step="0.001" value="${Number(o.factor??1)}" placeholder="Baixa no estoque"><input class="sale-price" type="number" min="0" step="0.01" value="${Number(o.price||0)}" placeholder="Preço R$"><button type="button" onclick="this.parentElement.remove()">✕</button></div>`).join('')}
 function addSaleOptionRow(){const opts=saleOptionRows();opts.push({key:'op'+(opts.length+1),label:'',factor:1,price:0});renderSaleOptionRows(opts)}
-function applySalePreset(){const preset=$('salePreset');if(!preset)return;const p=preset.value;let opts=[];if(p==='beer'){ $('pu').value='un';opts=[{key:'un',label:'Unidade',factor:1,price:Number($('pp').value)||0},{key:'fardo',label:'Fardo (12 unidades)',factor:12,price:0},{key:'caixa',label:'Caixa (24 unidades)',factor:24,price:0}]}else if(p==='spirit'){ $('pu').value='ml';opts=[{key:'dose',label:'Dose (50 ml)',factor:50,price:0},{key:'garrafa',label:'Garrafa (informe o volume em ml)',factor:0,price:0}]}else if(p==='cachaça'){ $('pu').value='ml';opts=[{key:'dose',label:'Dose (50 ml)',factor:50,price:0},{key:'garrafa200',label:'Garrafa 200 ml',factor:200,price:0},{key:'garrafa500',label:'Garrafa 500 ml',factor:500,price:0},{key:'garrafa1000',label:'Garrafa 1 litro',factor:1000,price:0}]}else if(p==='custom'){opts=saleOptionRows()}renderSaleOptionRows(opts)}
-function inferSalePreset(p){const o=(()=>{try{return Array.isArray(p.sale_options)?p.sale_options:JSON.parse(p.sale_options||'[]')}catch(_){return []}})();if(!o.length)return 'simple';if(o.some(x=>/fardo|caixa/i.test(x.label)))return 'beer';if(o.some(x=>/200 ml/i.test(x.label))&&o.some(x=>/500 ml/i.test(x.label)))return 'cachaça';if(o.some(x=>/dose/i.test(x.label)))return 'spirit';return 'custom'}
+function applySalePreset(){const preset=$('salePreset');if(!preset)return;const p=preset.value;let opts=[];if(p==='cigarette'){ $('pu').value='un';$('pc').value='Cigarros e Tabacaria';opts=[{key:'un',label:'Unidade',factor:1,price:Number($('pp').value)||0},{key:'maco',label:'Maço (20 unidades)',factor:20,price:0}]}else if(p==='beer'){ $('pu').value='un';opts=[{key:'un',label:'Unidade',factor:1,price:Number($('pp').value)||0},{key:'fardo',label:'Fardo (12 unidades)',factor:12,price:0},{key:'caixa',label:'Caixa (24 unidades)',factor:24,price:0}]}else if(p==='spirit'){ $('pu').value='ml';opts=[{key:'dose',label:'Dose (50 ml)',factor:50,price:0},{key:'garrafa',label:'Garrafa (informe o volume em ml)',factor:0,price:0}]}else if(p==='cachaça'){ $('pu').value='ml';opts=[{key:'dose',label:'Dose (50 ml)',factor:50,price:0},{key:'garrafa200',label:'Garrafa 200 ml',factor:200,price:0},{key:'garrafa500',label:'Garrafa 500 ml',factor:500,price:0},{key:'garrafa1000',label:'Garrafa 1 litro',factor:1000,price:0}]}else if(p==='custom'){opts=saleOptionRows()}renderSaleOptionRows(opts)}
+function inferSalePreset(p){const o=(()=>{try{return Array.isArray(p.sale_options)?p.sale_options:JSON.parse(p.sale_options||'[]')}catch(_){return []}})();if(!o.length)return 'simple';if(o.some(x=>/ma[cç]o|20 unidades/i.test(x.label)))return 'cigarette';if(o.some(x=>/fardo|caixa/i.test(x.label)))return 'beer';if(o.some(x=>/200 ml/i.test(x.label))&&o.some(x=>/500 ml/i.test(x.label)))return 'cachaça';if(o.some(x=>/dose/i.test(x.label)))return 'spirit';return 'custom'}
 
 function setProductPhotoUrl(value){const url=String(value||'').trim();$('pi').value=url;const preview=$('photoPreview');if(!preview)return;if(!url){preview.textContent='Nenhuma imagem selecionada';return;}preview.innerHTML=`<img src="${escAttr(url)}" alt="Pré-visualização da foto" onerror="this.style.display='none'"><span>Pré-visualização da imagem</span>`;} function fill(p){editingId=p.id;editingSaleOptions=(()=>{try{return Array.isArray(p.sale_options)?p.sale_options:JSON.parse(p.sale_options||'[]')}catch(_){return []}})();$('pcost').readOnly=false;$('productListScreen').style.display='none';$('productFormArea').style.display='block';$('productFormTitle').textContent='Editar Produto · '+(p.internal_code||'Código será gerado');if($('pInternalCode'))$('pInternalCode').value=p.internal_code||'';$('pfile').value='';$('photoPreview').innerHTML=p.image?`<img src="${escAttr(p.image)}" alt="Pré-visualização da foto"><span>Imagem cadastrada</span>`:'Nenhuma imagem selecionada';$('pb').value=p.barcode||'';$('pn').value=p.name||'';$('pbrand').value=p.brand||'';$('pc').value=p.category||'';$('pu').value=p.unit||'un';$('pcost').value=p.cost_price??0;$('pp').value=p.price??0;$('pstock').value=p.stock??0;$('pmin').value=p.min_stock??0;$('pi').value=p.image||'';if($('piUrl'))$('piUrl').value=(p.image&&!/^data:image\//i.test(String(p.image)))?p.image:'';$('pd').value=p.description||'';$('psite').checked=p.print_site===undefined||p.print_site===null||p.print_site===true||p.print_site===1;$('pcommand').checked=(p.print_command===true||p.print_command===1)||(p.print_command===undefined&&(p.prepare_kitchen===true||p.prepare_kitchen===1));if($('salePreset'))$('salePreset').value=inferSalePreset(p);renderSaleOptionRows(editingSaleOptions);$('saveBtn').textContent='SALVAR ALTERAÇÕES';window.scrollTo({top:0,behavior:'smooth'});}
 async function editProduct(id){const a=await api('/api/admin/products?type=all');const p=a.find(x=>Number(x.id)===Number(id));if(p)fill(p)}
