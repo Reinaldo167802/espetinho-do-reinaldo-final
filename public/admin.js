@@ -4,7 +4,7 @@ const toNumber=v=>{if(v===undefined||v===null||String(v).trim()==='')return 0;co
 const $=id=>document.getElementById(id);
 const api=async(url,opt={})=>{opt.headers={...(opt.headers||{}),'x-admin-password':pass,'Content-Type':'application/json'};const r=await fetch(url,opt);const raw=await r.text();let d;try{d=JSON.parse(raw)}catch(_){throw Error('O servidor respondeu uma página HTML em vez de JSON. Confira a implantação do sistema.')}if(!r.ok)throw Error(d.error||d.message||'Erro');return d};
 function login(){const pw=$('pw');pass=pw.value.trim();if(!pass){alert('Digite a senha administrativa.');return}api('/api/admin/orders').then(()=>{$('login').style.display='none';$('app').style.display='block';loadAll()}).catch(err=>alert('Erro ao entrar: '+err.message));}
-function tab(id){['orders','products','purchases','suppliers','cash','commands','customers','fiado','settings'].forEach(x=>{if($(x))$(x).style.display=x===id?'block':'none'});if(id==='orders')loadOrders();if(id==='products'&&xmlReturnLine===null)loadProducts();if(id==='purchases'){loadPurchaseHistory();}if(id==='suppliers')loadSuppliers();if(id==='cash')loadCash();if(id==='commands')loadCommands();if(id==='customers')loadCustomers();if(id==='fiado')loadFiado();if(id==='settings'){installTestCleanupPanel();loadSettings().catch(()=>{});loadSandwichCapacity();}}
+function tab(id){['orders','products','purchases','suppliers','cash','commands','customers','fiado','settings'].forEach(x=>{if($(x))$(x).style.display=x===id?'block':'none'});if(id==='orders')loadOrders();if(id==='products'&&xmlReturnLine===null)loadProducts();if(id==='purchases'){loadPurchaseHistory();}if(id==='suppliers')loadSuppliers();if(id==='cash')loadCash();if(id==='commands')loadCommands();if(id==='customers')loadCustomers();if(id==='fiado')loadFiado();if(id==='settings'){loadSettings().catch(()=>{});loadSandwichCapacity();}}
 async function loadAll(){loadOrders();loadCustomerOptions()}
 function installCompactOrderStyles(){
   if(document.getElementById('compact-order-card-styles')) return;
@@ -62,13 +62,12 @@ function cancelProductForm(){
   $('productFormArea').style.display='none';$('productListScreen').style.display='block';clearForm();
 }
 function normalizeXmlPackageUnit(value){
-  const s=String(value||'').trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[.]/g,'');
+  const s=String(value||'').trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
   if(/^(UN|UND|UNID|UNIDADE|UNIDADES)$/.test(s))return 'UN';
   if(/^(FD|FDO|FARDO|FARDOS)$/.test(s))return 'FD';
   if(/^(CX|CAIXA|CAIXAS)$/.test(s))return 'CX';
   if(/^(KG|KILO|KILOS|QUILO|QUILOS)$/.test(s))return 'KG';
   if(/^(L|LT|LITRO|LITROS)$/.test(s))return 'L';
-  if(/^(MACO|MACOS|MCO|MCOS|MC|MCS|MCOES)$/.test(s))return 'MACO';
   if(/^(PCT|PC|PCTE|PACOTE|PACOTES)$/.test(s))return 'PCT';
   return 'UN';
 }
@@ -80,7 +79,7 @@ async function startXmlProductRegistration(i){
   await loadProducts();
   newProductForm();
   $('productFormTitle').textContent='Cadastrar Produto — Item da NF-e';
-  $('pn').value=l.product_name||'';$('pb').value=l.barcode||'';$('pbrand').value='';$('pc').value=/cigar(r|r)o|cigaret/i.test(l.product_name||'')?'Cigarros e Tabacaria':'Bebidas';$('pu').value='un';
+  $('pn').value=l.product_name||'';$('pb').value=l.barcode||'';$('pbrand').value='';$('pc').value='Bebidas';$('pu').value='un';
   const detected=Number(l.units_per_pack)||detectUnitsPerPack(l.product_name+' '+l.purchase_unit)||1;
   xmlPackContext={lineIndex:i,packageQty:Number(l.purchase_qty)||1,packageUnit:normalizeXmlPackageUnit(l.purchase_unit),lineTotal:Number(l.line_total)||0,unitsPerPack:detected};
   l.units_per_pack=detected;
@@ -92,13 +91,9 @@ async function startXmlProductRegistration(i){
   window.scrollTo({top:0,behavior:'smooth'});
 }
 function detectUnitsPerPack(text){
-  const s=String(text||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-  const isCigarette=/CIGARRO|CIGARRETE|CIGARET/.test(s);
-  const isMaco=/(?:^|[^A-Z0-9])(?:MACO|MCO|MC|MCS|MCOES)(?:$|[^A-Z0-9])/.test(s);
-  const isTwenty=/20\s*(?:UN|UND|UNID|UNIDADES)?(?:$|[^A-Z0-9])/.test(s);
-  if(isCigarette&&(isMaco||isTwenty))return 20;
-  let m=s.match(/(?:^|\D)(\d{1,3})\s*(?:UN|UND|UNID|UNIDADES|U)\b/);
-  if(!m)m=s.match(/(?:FD|FARDO|CX|CAIXA|PACK|PCT|PACOTE)\s*(?:C\/?|COM)?\s*(\d{1,3})\b/);
+  const s=String(text||'').toUpperCase();
+  let m=s.match(/(?:^|\D)(\d{1,3})\s*(?:UN|UND|UNID|U)\b/);
+  if(!m)m=s.match(/(?:FD|FARDO|CX|CAIXA|PACK|PCT|PACOTE)\s*(?:C\/|COM)?\s*(\d{1,3})\b/);
   return m?Math.max(1,Number(m[1])):1;
 }
 function returnFromXmlProduct(){
@@ -113,8 +108,8 @@ function updateProductProfitPreview(){const c=toNumber($('pcost').value),p=toNum
 function saleOptionRows(){return [...document.querySelectorAll('#saleOptionsRows .sale-option-row')].map((row,i)=>({key:row.querySelector('.sale-key').value.trim()||('op'+i),label:row.querySelector('.sale-label').value.trim(),factor:toNumber(row.querySelector('.sale-factor').value),price:toNumber(row.querySelector('.sale-price').value)})).filter(x=>x.label&&x.factor>0&&Number.isFinite(x.price)&&x.price>=0)}
 function renderSaleOptionRows(options=[]){const box=$('saleOptionsRows');if(!box)return;box.innerHTML=options.map((o,i)=>`<div class="sale-option-row row3" style="grid-template-columns:1.3fr .7fr .8fr .8fr auto;gap:5px;margin:5px 0"><input class="sale-key" value="${escAttr(o.key||('op'+i))}" placeholder="chave" aria-label="Chave"><input class="sale-label" value="${escAttr(o.label||'')}" placeholder="Apresentação (ex.: Fardo 12 un)"><input class="sale-factor" type="number" min="0.001" step="0.001" value="${Number(o.factor??1)}" placeholder="Baixa no estoque"><input class="sale-price" type="number" min="0" step="0.01" value="${Number(o.price||0)}" placeholder="Preço R$"><button type="button" onclick="this.parentElement.remove()">✕</button></div>`).join('')}
 function addSaleOptionRow(){const opts=saleOptionRows();opts.push({key:'op'+(opts.length+1),label:'',factor:1,price:0});renderSaleOptionRows(opts)}
-function applySalePreset(){const preset=$('salePreset');if(!preset)return;const p=preset.value;let opts=[];if(p==='cigarette'){ $('pu').value='un';$('pc').value='Cigarros e Tabacaria';opts=[{key:'un',label:'Unidade',factor:1,price:Number($('pp').value)||0},{key:'maco',label:'Maço (20 unidades)',factor:20,price:0}]}else if(p==='beer'){ $('pu').value='un';opts=[{key:'un',label:'Unidade',factor:1,price:Number($('pp').value)||0},{key:'fardo',label:'Fardo (12 unidades)',factor:12,price:0},{key:'caixa',label:'Caixa (24 unidades)',factor:24,price:0}]}else if(p==='spirit'){ $('pu').value='ml';opts=[{key:'dose',label:'Dose (50 ml)',factor:50,price:0},{key:'garrafa',label:'Garrafa (informe o volume em ml)',factor:0,price:0}]}else if(p==='cachaça'){ $('pu').value='ml';opts=[{key:'dose',label:'Dose (50 ml)',factor:50,price:0},{key:'garrafa200',label:'Garrafa 200 ml',factor:200,price:0},{key:'garrafa500',label:'Garrafa 500 ml',factor:500,price:0},{key:'garrafa1000',label:'Garrafa 1 litro',factor:1000,price:0}]}else if(p==='custom'){opts=saleOptionRows()}renderSaleOptionRows(opts)}
-function inferSalePreset(p){const o=(()=>{try{return Array.isArray(p.sale_options)?p.sale_options:JSON.parse(p.sale_options||'[]')}catch(_){return []}})();if(!o.length)return 'simple';if(o.some(x=>/ma[cç]o|20 unidades/i.test(x.label)))return 'cigarette';if(o.some(x=>/fardo|caixa/i.test(x.label)))return 'beer';if(o.some(x=>/200 ml/i.test(x.label))&&o.some(x=>/500 ml/i.test(x.label)))return 'cachaça';if(o.some(x=>/dose/i.test(x.label)))return 'spirit';return 'custom'}
+function applySalePreset(){const preset=$('salePreset');if(!preset)return;const p=preset.value;let opts=[];if(p==='beer'){ $('pu').value='un';opts=[{key:'un',label:'Unidade',factor:1,price:Number($('pp').value)||0},{key:'fardo',label:'Fardo (12 unidades)',factor:12,price:0},{key:'caixa',label:'Caixa (24 unidades)',factor:24,price:0}]}else if(p==='spirit'){ $('pu').value='ml';opts=[{key:'dose',label:'Dose (50 ml)',factor:50,price:0},{key:'garrafa',label:'Garrafa (informe o volume em ml)',factor:0,price:0}]}else if(p==='cachaça'){ $('pu').value='ml';opts=[{key:'dose',label:'Dose (50 ml)',factor:50,price:0},{key:'garrafa200',label:'Garrafa 200 ml',factor:200,price:0},{key:'garrafa500',label:'Garrafa 500 ml',factor:500,price:0},{key:'garrafa1000',label:'Garrafa 1 litro',factor:1000,price:0}]}else if(p==='custom'){opts=saleOptionRows()}renderSaleOptionRows(opts)}
+function inferSalePreset(p){const o=(()=>{try{return Array.isArray(p.sale_options)?p.sale_options:JSON.parse(p.sale_options||'[]')}catch(_){return []}})();if(!o.length)return 'simple';if(o.some(x=>/fardo|caixa/i.test(x.label)))return 'beer';if(o.some(x=>/200 ml/i.test(x.label))&&o.some(x=>/500 ml/i.test(x.label)))return 'cachaça';if(o.some(x=>/dose/i.test(x.label)))return 'spirit';return 'custom'}
 
 function setProductPhotoUrl(value){const url=String(value||'').trim();$('pi').value=url;const preview=$('photoPreview');if(!preview)return;if(!url){preview.textContent='Nenhuma imagem selecionada';return;}preview.innerHTML=`<img src="${escAttr(url)}" alt="Pré-visualização da foto" onerror="this.style.display='none'"><span>Pré-visualização da imagem</span>`;} function fill(p){editingId=p.id;editingSaleOptions=(()=>{try{return Array.isArray(p.sale_options)?p.sale_options:JSON.parse(p.sale_options||'[]')}catch(_){return []}})();$('pcost').readOnly=false;$('productListScreen').style.display='none';$('productFormArea').style.display='block';$('productFormTitle').textContent='Editar Produto · '+(p.internal_code||'Código será gerado');if($('pInternalCode'))$('pInternalCode').value=p.internal_code||'';$('pfile').value='';$('photoPreview').innerHTML=p.image?`<img src="${escAttr(p.image)}" alt="Pré-visualização da foto"><span>Imagem cadastrada</span>`:'Nenhuma imagem selecionada';$('pb').value=p.barcode||'';$('pn').value=p.name||'';$('pbrand').value=p.brand||'';$('pc').value=p.category||'';$('pu').value=p.unit||'un';$('pcost').value=p.cost_price??0;$('pp').value=p.price??0;$('pstock').value=p.stock??0;$('pmin').value=p.min_stock??0;$('pi').value=p.image||'';if($('piUrl'))$('piUrl').value=(p.image&&!/^data:image\//i.test(String(p.image)))?p.image:'';$('pd').value=p.description||'';$('psite').checked=p.print_site===undefined||p.print_site===null||p.print_site===true||p.print_site===1;$('pcommand').checked=(p.print_command===true||p.print_command===1)||(p.print_command===undefined&&(p.prepare_kitchen===true||p.prepare_kitchen===1));if($('salePreset'))$('salePreset').value=inferSalePreset(p);renderSaleOptionRows(editingSaleOptions);$('saveBtn').textContent='SALVAR ALTERAÇÕES';window.scrollTo({top:0,behavior:'smooth'});}
 async function editProduct(id){const a=await api('/api/admin/products?type=all');const p=a.find(x=>Number(x.id)===Number(id));if(p)fill(p)}
@@ -192,30 +187,13 @@ function renderCommandDetails(c,activeProducts){
  view.innerHTML=`<div class="command-detail-head"><div><h2>Comanda ${esc(c.number)}</h2><b>${esc(c.customer||'Consumidor não identificado')}</b></div><button class="command-save" onclick="closeCommandDetails()">← VOLTAR</button></div><div class="command-detail-total"><span>Total acumulado</span><strong>${money(c.total)}</strong></div><h3>Produtos</h3>${itemHtml}<h3>Adicionar produto</h3><div class="command-search-wrap"><input id="cmdProductSearch" class="command-product-search" type="search" placeholder="🔎 Digite o nome, marca ou código..." oninput="filterCommandProducts()" onkeydown="commandSearchKeydown(event)" autocomplete="off" aria-label="Pesquisar produtos"><div id="cmdProductSuggestions" class="command-product-suggestions" role="listbox" hidden></div></div><div class="row command-product-controls" style="margin-top:0"><select id="cmdProductCurrent" aria-label="Produto selecionado" onchange="updateCommandSaleOptions();updateCommandPrepNotesVisibility()">${activeProducts.map(p=>`<option value="${p.id}">${esc(p.name)} — ${money(p.price)}</option>`).join('')}</select><select id="cmdSaleOption" aria-label="Apresentação de venda" style="min-width:150px"></select><label class="command-qty-label" for="cmdQtyCurrent">Qtd.<input id="cmdQtyCurrent" type="number" min="0.01" step="0.01" value="1" aria-label="Quantidade" placeholder="Qtd."></label></div><div id="cmdPrepNotesWrap" hidden style="margin-top:8px"><label for="cmdItemPrepNotes" style="display:block;font-weight:800;margin-bottom:4px">Observação do preparo (opcional)</label><textarea id="cmdItemPrepNotes" maxlength="240" rows="2" placeholder="Ex.: sem cebola, sem molho..." style="width:100%;box-sizing:border-box;padding:10px;border-radius:8px"></textarea></div><button class="primary" style="width:100%;margin-top:7px;padding:10px" onclick="addCurrentCommandItem(${c.id})">＋ LANÇAR PRODUTO</button><div class="command-detail-actions"><button class="command-save" onclick="closeCommandDetails()">GUARDAR E VOLTAR</button><button type="button" onclick="openCommandDocument(${c.id},'a4')">COMANDA A4 / PDF</button><button type="button" class="command-save" onclick="printCommand(${c.id},'conferencia')">CONFERIR CONTA / IMPRIMIR</button><button class="command-finalize" type="button" onclick="showCommandPayment()">FINALIZAR E PAGAR</button></div><div id="commandPaymentBox" class="command-payment-box" data-total="${Number(c.total||0).toFixed(2)}"><b>Formas de pagamento</b><p style="margin:4px 0 10px;color:#e8d9b8">Total da comanda: <strong>${money(c.total)}</strong></p><div id="cmdPaymentRows"></div><button type="button" class="command-save" style="width:100%;margin:7px 0" onclick="addCommandPaymentRow()">＋ ADICIONAR OUTRA FORMA</button><div id="cmdPaymentSummary" style="padding:9px;border-radius:8px;background:#211e1a;margin:7px 0;font-weight:700"></div><button class="command-finalize" style="width:100%" onclick="finalizeCommand(${c.id})">CONFIRMAR FINALIZAÇÃO</button></div>`;updateCommandSaleOptions();updateCommandPrepNotesVisibility();
  addCommandPaymentRow(Number(c.total||0));
 }
-let commandFiadoCustomers=null;
-async function loadCommandFiadoCustomers(){
- if(commandFiadoCustomers)return commandFiadoCustomers;
- const rows=await api('/api/admin/customers');
- commandFiadoCustomers=rows.filter(c=>c.active===true||c.active===1);
- return commandFiadoCustomers;
-}
-async function updateCommandFiadoCustomer(row){
- const method=row.querySelector('.cmdPayMethod'),select=row.querySelector('.cmdPayCustomer');
- if(!method||!select)return;
- const isFiado=method.value==='fiado';select.style.display=isFiado?'':'none';
- if(!isFiado){select.value='';return;}
- select.disabled=true;select.innerHTML='<option value="">Carregando clientes...</option>';
- try{const customers=await loadCommandFiadoCustomers();select.innerHTML='<option value="">Selecione o responsável pelo fiado</option>'+customers.map(c=>`<option value="${escAttr(c.name)}">${esc(c.name)}${(c.fiado_authorized===true||c.fiado_authorized===1)?' — autorizado':' — sem autorização'}</option>`).join('');}
- catch(e){select.innerHTML='<option value="">Erro ao carregar clientes</option>';alert('Não foi possível carregar os clientes para o fiado: '+e.message);}
- finally{select.disabled=false;}
-}
 function addCommandPaymentRow(defaultAmount=''){
  const box=$('cmdPaymentRows');if(!box)return;
  const row=document.createElement('div');row.className='cmd-payment-row';row.style.cssText='display:grid;grid-template-columns:minmax(0,1fr) minmax(105px,.8fr) auto;gap:7px;align-items:center;margin:7px 0';
- row.innerHTML='<select class="cmdPayMethod" aria-label="Forma de pagamento"><option value="pix">Pix</option><option value="dinheiro">Dinheiro</option><option value="debito">Cartão de débito</option><option value="credito">Cartão de crédito</option><option value="fiado">Fiado / promissória</option></select><input class="cmdPayAmount" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="Valor (R$)" aria-label="Valor do pagamento"><button type="button" class="danger cmdPayRemove" style="padding:8px 10px" aria-label="Remover forma de pagamento">✕</button><select class="cmdPayCustomer" aria-label="Responsável pelo fiado" style="display:none;grid-column:1/-1;width:100%"><option value="">Selecione o responsável pelo fiado</option></select>';
+ row.innerHTML='<select class="cmdPayMethod" aria-label="Forma de pagamento"><option value="pix">Pix</option><option value="dinheiro">Dinheiro</option><option value="debito">Cartão de débito</option><option value="credito">Cartão de crédito</option><option value="fiado">Fiado / promissória</option></select><input class="cmdPayAmount" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="Valor (R$)" aria-label="Valor do pagamento"><button type="button" class="danger cmdPayRemove" style="padding:8px 10px" aria-label="Remover forma de pagamento">✕</button>';
  const amount=row.querySelector('.cmdPayAmount');if(defaultAmount!==''&&defaultAmount!==null)amount.value=Number(defaultAmount).toFixed(2);
  row.querySelector('.cmdPayRemove').addEventListener('click',()=>{row.remove();updateCommandPaymentTotal()});
- row.querySelector('.cmdPayMethod').addEventListener('change',()=>{updateCommandPaymentTotal();updateCommandFiadoCustomer(row)});amount.addEventListener('input',updateCommandPaymentTotal);
+ row.querySelector('.cmdPayMethod').addEventListener('change',updateCommandPaymentTotal);amount.addEventListener('input',updateCommandPaymentTotal);
  box.appendChild(row);updateCommandPaymentTotal();
 }
 function updateCommandPaymentTotal(){
@@ -242,8 +220,7 @@ async function addCurrentCommandItem(id){const product_id=Number($('cmdProductCu
 async function deleteCommandItem(commandId,itemId){if(!confirm('Confirma excluir este produto da comanda aberta? Se for o último produto, a comanda também será removida automaticamente.'))return;try{const result=await api('/api/admin/commands/'+commandId+'/items/'+itemId,{method:'DELETE'});if(result.commandDeleted){currentCommandId=null;$('commandDetailView').style.display='none';$('commandDetailView').innerHTML='';$('commandsBoardView').style.display='block';await loadCommands();alert('Último produto excluído. A comanda vazia foi removida automaticamente.');return;}const [rows,products]=await Promise.all([api('/api/admin/commands'),api('/api/admin/products')]);const c=rows.find(x=>Number(x.id)===Number(commandId));if(!c){currentCommandId=null;$('commandDetailView').style.display='none';$('commandDetailView').innerHTML='';$('commandsBoardView').style.display='block';await loadCommands();return;}renderCommandDetails(c,products.filter(p=>p.active===true||p.active===1));}catch(e){alert(e.message)}}
 async function finalizeCommand(id){
  const box=$('commandPaymentBox');
- const payments=[...box.querySelectorAll('.cmd-payment-row')].map(row=>({payment:row.querySelector('.cmdPayMethod').value,amount:Number(row.querySelector('.cmdPayAmount').value),customer:row.querySelector('.cmdPayMethod').value==='fiado'?row.querySelector('.cmdPayCustomer')?.value||'':''}));
- if(payments.some(p=>p.payment==='fiado'&&!p.customer))return alert('Selecione o cliente responsável por cada lançamento de fiado.');
+ const payments=[...box.querySelectorAll('.cmd-payment-row')].map(row=>({payment:row.querySelector('.cmdPayMethod').value,amount:Number(row.querySelector('.cmdPayAmount').value)}));
  if(!payments.length||payments.some(p=>!Number.isFinite(p.amount)||p.amount<=0))return alert('Informe um valor maior que zero em cada forma de pagamento.');
  const expected=Math.round(Number(box.dataset.total||0)*100),sum=payments.reduce((n,p)=>n+Math.round(p.amount*100),0);
  if(sum!==expected)return alert('A soma dos pagamentos precisa ser exatamente igual ao total da comanda.');
@@ -381,6 +358,12 @@ function xmlText(node,tag){
   const el=Array.from(node.getElementsByTagName('*')).find(x=>x.localName===tag);
   return el?String(el.textContent||'').trim():'';
 }
+function xmlNum(node,tag){const raw=xmlText(node,tag);const n=Number(raw);return Number.isFinite(n)?n:0;}
+function xmlLineAcquisitionCost(l){
+  // Custo de aquisição: produto - desconto + despesas/frete/seguro + ICMS-ST + FCP-ST + IPI.
+  // ICMS próprio, PIS/COFINS e vTotTrib são exibidos para conferência, mas não somados novamente.
+  return Math.max(0,Number(l.product_value||0)-Number(l.discount||0)+Number(l.freight||0)+Number(l.insurance||0)+Number(l.other_expenses||0)+Number(l.icms_st||0)+Number(l.fcp_st||0)+Number(l.ipi||0));
+}
 function parsePurchaseXml(input){
   const file=input.files&&input.files[0];if(!file)return;
   const reader=new FileReader();
@@ -394,28 +377,43 @@ function parsePurchaseXml(input){
       if(!/^\d{44}$/.test(key))throw Error('Não encontrei a chave de acesso de 44 dígitos. Use o XML autorizado da NF-e.');
       const products=await api('/api/admin/products?type=all');
       const dets=Array.from(doc.getElementsByTagName('det'));
-      purchaseDraft={access_key:key,xml_content:String(reader.result||''),invoice_number:xmlText(ide,'nNF'),series:xmlText(ide,'serie'),supplier_name:xmlText(emit,'xNome'),supplier_cnpj:xmlText(emit,'CNPJ')||xmlText(emit,'CPF'),issue_date:xmlText(ide,'dhEmi')||xmlText(ide,'dEmi'),total:Number(xmlText(total,'vNF'))||0,lines:[]};
+      const invoiceTotals={};
+      ['vProd','vDesc','vFrete','vSeg','vOutro','vBC','vICMS','vBCST','vST','vFCPST','vIPI','vPIS','vCOFINS','vII','vNF','vTotTrib'].forEach(k=>invoiceTotals[k]=xmlNum(total,k));
+      purchaseDraft={access_key:key,xml_content:String(reader.result||''),invoice_number:xmlText(ide,'nNF'),series:xmlText(ide,'serie'),supplier_name:xmlText(emit,'xNome'),supplier_cnpj:xmlText(emit,'CNPJ')||xmlText(emit,'CPF'),issue_date:xmlText(ide,'dhEmi')||xmlText(ide,'dEmi'),total:invoiceTotals.vNF,invoice_totals:invoiceTotals,lines:[]};
       purchaseDraft.lines=dets.map((det,i)=>{
-        const prod=det.getElementsByTagName('prod')[0],qty=Number(xmlText(prod,'qCom'))||0,unit=xmlText(prod,'uCom')||'un',unitPrice=Number(xmlText(prod,'vUnCom'))||0,lineTotal=Number(xmlText(prod,'vProd'))||qty*unitPrice;
-        return {index:i,product_name:xmlText(prod,'xProd'),code:xmlText(prod,'cProd'),barcode:(xmlText(prod,'cEAN')||xmlText(prod,'cEANTrib')||'').replace(/\D/g,''),purchase_qty:qty,purchase_unit:unit,purchase_unit_price:unitPrice,line_total:lineTotal,stock_qty:qty,stock_unit:unit,units_per_pack:detectUnitsPerPack(xmlText(prod,'xProd')+' '+unit),unit_cost:lineTotal/Math.max(1,qty),product_id:'',products};
+        const prod=det.getElementsByTagName('prod')[0],tax=det.getElementsByTagName('imposto')[0];
+        const qty=xmlNum(prod,'qCom'),unit=xmlText(prod,'uCom')||'un',unitPrice=xmlNum(prod,'vUnCom'),productValue=xmlNum(prod,'vProd')||(qty*unitPrice);
+        const line={index:i,product_name:xmlText(prod,'xProd'),code:xmlText(prod,'cProd'),barcode:(xmlText(prod,'cEAN')||xmlText(prod,'cEANTrib')||'').replace(/\D/g,''),purchase_qty:qty,purchase_unit:unit,purchase_unit_price:unitPrice,product_value:productValue,discount:xmlNum(prod,'vDesc'),freight:xmlNum(prod,'vFrete'),insurance:xmlNum(prod,'vSeg'),other_expenses:xmlNum(prod,'vOutro'),icms_base:xmlNum(tax,'vBC'),icms:xmlNum(tax,'vICMS'),icms_st:xmlNum(tax,'vICMSST'),icms_st_base:xmlNum(tax,'vBCST'),fcp_st:xmlNum(tax,'vFCPST'),ipi:xmlNum(tax,'vIPI'),pis:xmlNum(tax,'vPIS'),cofins:xmlNum(tax,'vCOFINS'),total_taxes_info:xmlNum(tax,'vTotTrib'),ibs:xmlNum(tax,'vIBS'),cbs:xmlNum(tax,'vCBS'),product_id:'',products};
+        line.line_total=xmlLineAcquisitionCost(line);
+        line.stock_qty=qty;line.stock_unit=unit;line.units_per_pack=detectUnitsPerPack(xmlText(prod,'xProd')+' '+unit);line.unit_cost=line.line_total/Math.max(1,qty);
+        return line;
       });
+      // Frete/seguro destacados apenas no total da NF-e são rateados proporcionalmente ao valor dos produtos.
+      for(const field of ['freight','insurance']){
+        const totalField=field==='freight'?'vFrete':'vSeg',already=purchaseDraft.lines.reduce((a,l)=>a+Number(l[field]||0),0),missing=Math.max(0,invoiceTotals[totalField]-already);
+        if(missing>0){const base=purchaseDraft.lines.reduce((a,l)=>a+Number(l.product_value||0),0);purchaseDraft.lines.forEach(l=>{l[field]+=base>0?missing*Number(l.product_value||0)/base:missing/purchaseDraft.lines.length;l.line_total=xmlLineAcquisitionCost(l);});}
+      }
       for(const line of purchaseDraft.lines){const match=await api('/api/admin/products/xml-match',{method:'POST',body:JSON.stringify({supplier_cnpj:purchaseDraft.supplier_cnpj,supplier_code:line.code,barcode:line.barcode,name:line.product_name})});if(match.found){line.product_id=String(match.product.id);line.match_reason=match.reason;}}
-      $('purchaseInvoiceInfo').innerHTML=`<b>NF-e ${esc(purchaseDraft.invoice_number)}</b> · ${esc(purchaseDraft.supplier_name)} · Total: ${money(purchaseDraft.total)}<br><small>Produtos reconhecidos automaticamente aparecem pré-selecionados. Confira todos antes de confirmar.</small>`;
+      const t=invoiceTotals;
+      $('purchaseInvoiceInfo').innerHTML=`<b>NF-e ${esc(purchaseDraft.invoice_number)}</b> · ${esc(purchaseDraft.supplier_name)} · <b>Total da nota: ${money(purchaseDraft.total)}</b><br><small>Produtos: ${money(t.vProd)} · Descontos: ${money(t.vDesc)} · ICMS-ST: ${money(t.vST)} · FCP-ST: ${money(t.vFCPST)} · IPI: ${money(t.vIPI)} · Outras despesas: ${money(t.vOutro)}<br>Confira os valores fiscais item por item abaixo. O XML original será preservado.</small>`;
       renderPurchaseLines();$('receivePurchaseBtn').disabled=!purchaseDraft.lines.length;
     }catch(e){purchaseDraft=null;$('receivePurchaseBtn').disabled=true;$('purchaseInvoiceInfo').textContent='Erro ao ler XML: '+e.message;alert(e.message);}
   };
   reader.readAsText(file);
 }
-function installXmlCompactStyles(){if($('xmlCompactStyles'))return;const s=document.createElement('style');s.id='xmlCompactStyles';s.textContent=`#purchaseInvoiceInfo{padding:8px 10px!important;margin:8px 0!important;font-size:.88rem}#purchaseInvoiceInfo br+*{display:none}.xml-compact-wrap{overflow-x:auto;border:1px solid rgba(255,255,255,.12);border-radius:10px}.xml-compact-table{width:100%;border-collapse:collapse;min-width:850px;font-size:.82rem}.xml-compact-table th,.xml-compact-table td{padding:7px 8px!important;vertical-align:middle;border-bottom:1px solid rgba(255,255,255,.1);white-space:nowrap}.xml-compact-table th{font-size:.72rem;letter-spacing:.03em}.xml-product-desc{white-space:normal!important;min-width:210px;max-width:270px}.xml-product-desc small{display:block;opacity:.72;font-size:.72rem;margin-top:3px}.xml-units-input{width:66px!important;min-width:66px!important;padding:6px!important}.xml-product-select{width:175px!important;min-width:175px!important;padding:6px!important}.xml-register-btn{padding:6px 8px!important;margin-left:4px;font-size:.72rem!important;white-space:nowrap}#purchases>p.muted{display:none}#productFormArea>.hint{display:none}`;document.head.appendChild(s);}
+function installXmlCompactStyles(){if($('xmlCompactStyles'))return;const s=document.createElement('style');s.id='xmlCompactStyles';s.textContent=`#purchaseInvoiceInfo{padding:8px 10px!important;margin:8px 0!important;font-size:.88rem}#purchaseInvoiceInfo br+*{display:none}.xml-compact-wrap{overflow-x:auto;border:1px solid rgba(255,255,255,.12);border-radius:10px}.xml-compact-table{width:100%;border-collapse:collapse;min-width:850px;font-size:.82rem}.xml-compact-table th,.xml-compact-table td{padding:7px 8px!important;vertical-align:middle;border-bottom:1px solid rgba(255,255,255,.1);white-space:nowrap}.xml-compact-table th{font-size:.72rem;letter-spacing:.03em}.xml-product-desc{white-space:normal!important;min-width:210px;max-width:270px}.xml-product-desc small{display:block;opacity:.72;font-size:.72rem;margin-top:3px}.xml-units-input{width:66px!important;min-width:66px!important;padding:6px!important}.xml-product-select{width:175px!important;min-width:175px!important;padding:6px!important}.xml-register-btn{padding:6px 8px!important;margin-left:4px;font-size:.72rem!important;white-space:nowrap}#purchases>p.muted{display:none}#productFormArea>.hint{display:none}.xml-tax-details{white-space:normal;margin-top:5px;min-width:160px}.xml-tax-details summary{cursor:pointer;color:#b8860b;font-weight:700}.xml-tax-details small{display:block;line-height:1.55;white-space:normal;margin-top:5px}.xml-tax-note{margin:10px 0;padding:10px;border:1px solid #d6b66b;border-radius:8px;background:#fff9e8;color:#493b1b;font-size:.82rem;line-height:1.5}.xml-invoice-summary{margin:12px 0;padding:12px;border:1px solid rgba(255,255,255,.16);border-radius:10px}.xml-invoice-summary h3{margin:0 0 8px}.xml-summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:6px}.xml-summary-grid>div{display:flex;justify-content:space-between;gap:6px;padding:7px;background:rgba(255,255,255,.06);border-radius:6px;font-size:.78rem}.xml-summary-grid>div:last-child{border:2px solid #c89b36;font-weight:800}`;document.head.appendChild(s);}
 function renderPurchaseLines(){
   installXmlCompactStyles();
-  const box=$('purchaseLines');if(!box||!purchaseDraft)return;
+  const box=$("purchaseLines");if(!box||!purchaseDraft)return;
   const products=purchaseDraft.lines[0]?.products||[];
-  box.innerHTML='<div class="xml-compact-wrap"><table class="xml-compact-table"><thead><tr><th>Produto da nota</th><th>Qtd. embalagens</th><th>Unid./emb.</th><th>Total un.</th><th>Valor total</th><th>Custo/un.</th><th>Produto cadastrado</th></tr></thead><tbody>'+purchaseDraft.lines.map((l,i)=>{
-    const packs=Math.max(1,Number(l.purchase_qty)||1),units=Math.max(1,Number(l.units_per_pack)||1),total=packs*units,cost=(Number(l.line_total)||0)/total;
-    return `<tr><td class="xml-product-desc"><b>${esc(l.product_name)}</b><small>Cód. ${esc(l.code||'-')} · ${esc(l.purchase_unit||'un')} · ${money(l.purchase_unit_price)} por embalagem</small></td><td>${packs}</td><td><input class="xml-units-input" id="xmlUnitsPerPack_${i}" type="number" min="1" step="1" value="${units}" onchange="setXmlUnitsPerPack(${i},this.value)"></td><td><b id="xmlTotalUnits_${i}">${total}</b></td><td>${money(l.line_total)}</td><td><b id="xmlUnitCost_${i}">${cost.toLocaleString('pt-BR',{minimumFractionDigits:4,maximumFractionDigits:4})}</b></td><td><select class="xml-product-select" id="purchaseProduct_${i}" onchange="setPurchaseLine(${i},'product_id',this.value)"><option value="">Selecione...</option>${products.map(p=>`<option value="${p.id}">${esc(p.internal_code||'')} · ${esc(p.name)}</option>`).join('')}</select><button type="button" class="xml-register-btn" onclick="startXmlProductRegistration(${i})">+ Cadastrar</button></td></tr>`;
-  }).join('')+'</tbody></table></div>';
-  purchaseDraft.lines.forEach((l,i)=>{const sel=$('purchaseProduct_'+i);if(sel)sel.value=String(l.product_id||'');updateXmlCostPreview(i);});
+  const br=v=>Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const rows=purchaseDraft.lines.map((l,i)=>{
+    const packs=Math.max(1,Number(l.purchase_qty)||1),units=Math.max(1,Number(l.units_per_pack)||1),total=packs*units,cost=Number(l.line_total||0)/total;
+    return `<tr><td class="xml-product-desc"><b>${esc(l.product_name)}</b><small>Cód. ${esc(l.code||'-')} · ${esc(l.purchase_unit||'un')} · ${money(l.purchase_unit_price)} / embalagem<br>EAN: ${esc(l.barcode||'—')}</small></td><td>${packs}</td><td><input class="xml-units-input" id="xmlUnitsPerPack_${i}" type="number" min="1" step="1" value="${units}" onchange="setXmlUnitsPerPack(${i},this.value)"></td><td><b id="xmlTotalUnits_${i}">${total}</b></td><td>${money(l.product_value)}</td><td>${money(l.discount)}</td><td>${money(l.icms_st)}</td><td>${money(l.fcp_st)}</td><td>${money(l.ipi)}</td><td>${money(Number(l.other_expenses)+Number(l.freight)+Number(l.insurance))}</td><td><b id="xmlLineCost_${i}">${money(l.line_total)}</b></td><td><b id="xmlUnitCost_${i}">${br(cost)}</b></td><td><select class="xml-product-select" id="purchaseProduct_${i}" onchange="setPurchaseLine(${i},'product_id',this.value)"><option value="">Selecione...</option>${products.map(p=>`<option value="${p.id}">${esc(p.internal_code||'')} · ${esc(p.name)}</option>`).join('')}</select><button type="button" class="xml-register-btn" onclick="startXmlProductRegistration(${i})">+ Cadastrar</button><details class="xml-tax-details"><summary>Ver impostos</summary><small>ICMS próprio: ${money(l.icms)} (informativo)<br>Base ICMS: ${money(l.icms_base)}<br>Base ICMS-ST: ${money(l.icms_st_base)}<br>PIS: ${money(l.pis)} (informativo)<br>COFINS: ${money(l.cofins)} (informativo)<br>Tributos informativos (vTotTrib): ${money(l.total_taxes_info)}<br>IBS: ${money(l.ibs)} · CBS: ${money(l.cbs)}</small></details></td></tr>`;
+  }).join('');
+  const summary=[['Produtos','vProd'],['Descontos','vDesc'],['Frete','vFrete'],['Seguro','vSeg'],['Outras despesas','vOutro'],['Base ICMS','vBC'],['ICMS próprio','vICMS'],['Base ICMS-ST','vBCST'],['ICMS-ST','vST'],['FCP-ST','vFCPST'],['IPI','vIPI'],['PIS','vPIS'],['COFINS','vCOFINS'],['Tributos informativos','vTotTrib'],['TOTAL DA NOTA','vNF']].map(([label,key])=>`<div><span>${label}</span><b>${money(purchaseDraft.invoice_totals?.[key]||0)}</b></div>`).join('');
+  box.innerHTML='<div class="xml-compact-wrap"><table class="xml-compact-table"><thead><tr><th>Produto / código</th><th>Qtd. emb.</th><th>Unid./emb.</th><th>Total un.</th><th>Produtos</th><th>Desc.</th><th>ICMS-ST</th><th>FCP-ST</th><th>IPI</th><th>Outras desp.</th><th>Custo final linha</th><th>Custo/un.</th><th>Vincular produto</th></tr></thead><tbody>'+rows+'</tbody></table></div><div class="xml-tax-note"><b>Critério do custo de aquisição:</b> produtos − desconto + frete + seguro + outras despesas + ICMS-ST + FCP-ST + IPI. ICMS próprio, PIS, COFINS, vTotTrib, IBS e CBS ficam discriminados para conferência e não são somados novamente ao custo nesta versão. Confira o tratamento tributário com sua contabilidade.</div><div class="xml-invoice-summary"><h3>Resumo fiscal da NF-e</h3><div class="xml-summary-grid">'+summary+'</div></div>';
+  purchaseDraft.lines.forEach((l,i)=>{const sel=$("purchaseProduct_"+i);if(sel)sel.value=String(l.product_id||'');updateXmlCostPreview(i);});
 }
 function setPurchaseLine(i,k,v){if(purchaseDraft&&purchaseDraft.lines[i])purchaseDraft.lines[i][k]=k==='stock_qty'?Number(v):v;}
 function setXmlUnitsPerPack(i,v){
@@ -427,9 +425,9 @@ function setXmlUnitsPerPack(i,v){
 function updateXmlCostPreview(i){
   if(!purchaseDraft||!purchaseDraft.lines[i])return;
   const l=purchaseDraft.lines[i],totalUnits=Math.max(1,Number(l.purchase_qty)||1)*Math.max(1,Number(l.units_per_pack)||1);
-  l.stock_qty=totalUnits;l.stock_unit='un';l.unit_cost=(Number(l.line_total)||0)/totalUnits;
+  l.line_total=xmlLineAcquisitionCost(l);l.stock_qty=totalUnits;l.stock_unit='un';l.unit_cost=(Number(l.line_total)||0)/totalUnits;
   const el=$('xmlUnitCost_'+i);
-  if(el)el.textContent=Number(l.unit_cost).toLocaleString('pt-BR',{minimumFractionDigits:4,maximumFractionDigits:4});const totalEl=$('xmlTotalUnits_'+i);if(totalEl)totalEl.textContent=totalUnits;
+  if(el)el.textContent=Number(l.unit_cost).toLocaleString('pt-BR',{minimumFractionDigits:4,maximumFractionDigits:4});const lineCostEl=$('xmlLineCost_'+i);if(lineCostEl)lineCostEl.textContent=money(l.line_total);const totalEl=$('xmlTotalUnits_'+i);if(totalEl)totalEl.textContent=totalUnits;
   const cost=$('newXmlCost_'+i);if(cost&&!cost.dataset.touched)cost.value=l.unit_cost.toFixed(4);
   updateXmlMarkup(i);
 }
@@ -446,7 +444,7 @@ async function receivePurchaseXml(){
   if(!purchaseDraft)return alert('Carregue primeiro o XML da NF-e.');
   if(purchaseDraft.lines.some(l=>!Number(l.product_id)||!(Number(l.stock_qty)>0)||!String(l.stock_unit||'').trim()))return alert('Vincule todos os itens a um produto cadastrado e confira as quantidades.');
   if(!confirm('Confirma a entrada desta NF-e? O estoque dos produtos vinculados será atualizado.'))return;
-  const payload={...purchaseDraft,lines:purchaseDraft.lines.map(({products,index,...l})=>{const product=(products||[]).find(p=>Number(p.id)===Number(l.product_id));const baseUnit=String(product?.unit||l.stock_unit||'un');const received=Math.max(1,Number(l.purchase_qty)||1)*Math.max(1,Number(l.units_per_pack)||1);return {...l,package_qty:Number(l.purchase_qty)||0,package_unit:l.purchase_unit,total_units:received,units_per_pack:Math.max(1,Number(l.units_per_pack)||1),stock_qty:received,stock_unit:baseUnit,unit_cost:(Number(l.line_total)||0)/received}})};
+  const payload={...purchaseDraft,lines:purchaseDraft.lines.map(({products,index,...l})=>{const product=(products||[]).find(p=>Number(p.id)===Number(l.product_id));const baseUnit=String(product?.unit||l.stock_unit||'un');const received=Math.max(1,Number(l.purchase_qty)||1)*Math.max(1,Number(l.units_per_pack)||1);return {...l,package_qty:Number(l.purchase_qty)||0,package_unit:l.purchase_unit,total_units:received,units_per_pack:Math.max(1,Number(l.units_per_pack)||1),stock_qty:received,stock_unit:baseUnit,unit_cost:(Number(l.line_total)||0)/received,acquisition_total:Number(l.line_total)||0,product_value:Number(l.product_value)||0,discount:Number(l.discount)||0,freight:Number(l.freight)||0,insurance:Number(l.insurance)||0,other_expenses:Number(l.other_expenses)||0,icms:Number(l.icms)||0,icms_st:Number(l.icms_st)||0,fcp_st:Number(l.fcp_st)||0,ipi:Number(l.ipi)||0,pis:Number(l.pis)||0,cofins:Number(l.cofins)||0,total_taxes_info:Number(l.total_taxes_info)||0}})};
   try{const d=await api('/api/admin/purchases/receive',{method:'POST',body:JSON.stringify(payload)});alert(d.message||'Entrada registrada.');purchaseDraft=null;$('purchaseLines').innerHTML='';$('purchaseInvoiceInfo').textContent='Nota recebida com sucesso.';$('receivePurchaseBtn').disabled=true;await loadPurchaseHistory();await loadProducts();}
   catch(e){alert(e.message);}
 }
@@ -500,76 +498,3 @@ window.addEventListener('popstate',function(){
 });
 
 
-// ===== Limpeza segura dos dados de teste =====
-function installTestCleanupPanel(){
-  const section=$('settings');
-  if(!section||$('testDataCleanupPanel'))return;
-  const panel=document.createElement('div');
-  panel.id='testDataCleanupPanel';
-  panel.style.cssText='margin-top:24px;padding:16px;border:1px solid #b42318;border-radius:12px;background:rgba(180,35,24,.08)';
-  panel.innerHTML=`
-    <h3 style="margin-top:0;color:#b42318">Limpeza geral dos dados de teste</h3>
-    <p>Esta rotina apaga comandas, itens de comandas, pedidos do site, pagamentos, registros de fiado, caixa, filas de impressão e movimentações de estoque. Também zera as quantidades dos estoques principal e secundário.</p>
-    <p><b>Serão preservados:</b> cadastro de produtos, preços, códigos, categorias, unidades, clientes, limites e autorizações de fiado, fornecedores, notas fiscais, configurações e fichas técnicas.</p>
-    <p style="font-weight:800;color:#b42318">Atenção: a operação é definitiva. Confira se o backup está guardado antes de continuar.</p>
-    <button type="button" id="checkTestDataCleanup" style="background:#555;color:#fff;border:0;border-radius:8px;padding:11px 15px;font-weight:900;cursor:pointer;margin-right:8px" onclick="checkTestDataCleanup()">VERIFICAR BANCO ANTES</button>\n    <button type="button" id="runTestDataCleanup" style="background:#b42318;color:#fff;border:0;border-radius:8px;padding:11px 15px;font-weight:900;cursor:pointer" onclick="runTestDataCleanup()">LIMPAR DADOS DE TESTE</button>
-    <p id="testDataCleanupStatus" class="muted" role="status"></p>
-  `;
-  section.appendChild(panel);
-}
-async function checkTestDataCleanup(){
-  const status=$('testDataCleanupStatus'),button=$('checkTestDataCleanup');
-  if(button)button.disabled=true;
-  if(status)status.textContent='Consultando a estrutura do banco. Nenhum dado será alterado...';
-  try{
-    const result=await api('/api/admin/test-data/clean-check');
-    if(!result.ready){
-      const detail=[...(result.missing_tables||[]).map(x=>'Tabela ausente: '+x),...(result.missing_product_columns||[]).map(x=>'Coluna ausente: products.'+x)].join('\\n');
-      if(status)status.textContent='VERIFICAÇÃO NÃO APROVADA. '+detail;
-      alert('Não execute a limpeza. Foram encontrados itens ausentes:\\n'+detail);
-      return;
-    }
-    const refs=result.external_foreign_key_references||[];
-    if(refs.length){
-      const detail=refs.join(', ');
-      if(status)status.textContent='ATENÇÃO: existem referências adicionais: '+detail;
-      alert('A estrutura principal foi encontrada, mas há tabelas adicionais ligadas por chaves estrangeiras: '+detail+'\\n\\nNão execute a limpeza ainda. Precisamos revisar essas dependências.');
-      return;
-    }
-    if(status)status.textContent='VERIFICAÇÃO ESTRUTURAL APROVADA · '+result.database+' · '+result.present_tables+'/'+result.required_tables+' tabelas. Nenhum dado foi alterado.';
-    alert('Verificação estrutural aprovada. Banco: '+result.database+'. Tabelas verificadas: '+result.present_tables+'/'+result.required_tables+'.\\n\\nNenhum dado foi alterado. Aguarde a conferência final antes de clicar em LIMPAR.');
-  }catch(e){
-    if(status)status.textContent='Não foi possível verificar: '+e.message;
-    alert('Verificação não concluída: '+e.message+'\\nNenhum dado foi alterado.');
-  }finally{if(button)button.disabled=false;}
-}
-async function runTestDataCleanup(){
-  const button=$('runTestDataCleanup'),status=$('testDataCleanupStatus');
-  const check=await api('/api/admin/test-data/clean-check').catch(e=>({ok:false,error:e.message}));
-  if(!check.ok||!check.ready||(check.external_foreign_key_references||[]).length){
-    alert('A limpeza foi bloqueada porque a verificação prévia não está aprovada. Nenhum dado foi apagado.\\n'+(check.error||'Verifique as tabelas e dependências do banco.'));
-    if(status)status.textContent='Limpeza bloqueada: verificação prévia não aprovada.';
-    return;
-  }
-  if(!confirm('CONFIRMA A LIMPEZA GERAL? Serão apagados os dados operacionais de teste e todo o estoque principal e secundário será zerado. Os cadastros e configurações serão preservados. Esta ação não pode ser desfeita.'))return;
-  const phrase=prompt('Para autorizar, digite exatamente: LIMPAR TESTES ESPETINHO');
-  if(phrase!=='LIMPAR TESTES ESPETINHO'){
-    alert('Confirmação não reconhecida. Nenhum dado foi apagado.');
-    return;
-  }
-  if(button)button.disabled=true;
-  if(status)status.textContent='Executando limpeza. Aguarde e não feche esta página...';
-  try{
-    const result=await api('/api/admin/test-data/clean',{
-      method:'POST',
-      body:JSON.stringify({confirm:'LIMPAR_TESTES_ESPETINHO'})
-    });
-    if(status)status.textContent='Limpeza concluída com sucesso.';
-    alert(result.message||'Limpeza concluída. Os dados operacionais de teste foram apagados e as quantidades de estoque foram zeradas. Os cadastros preservados continuam no sistema.');
-  }catch(e){
-    if(status)status.textContent='A limpeza não foi confirmada pelo servidor: '+e.message;
-    alert('Não foi possível concluir a limpeza: '+e.message+'\\n\\nNenhuma confirmação de sucesso foi recebida. Não tente repetir antes de verificar o estado do sistema.');
-  }finally{
-    if(button)button.disabled=false;
-  }
-}
