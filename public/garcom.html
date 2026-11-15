@@ -66,24 +66,15 @@
     </section>
 
     <section id="fichas" class="panel tabbody hidden">
-      <h2>Retirada de fichas — Eventos</h2>
-      <p class="muted">Confirme cada ficha somente depois de entregar uma unidade ao cliente. Cada ficha pode ser retirada uma única vez.</p>
-      <div class="ticket-stats" id="ticketStats">
-        <div><small>Fichas</small><strong id="ticketCount">0</strong></div>
-        <div><small>Pendentes</small><strong id="ticketPending">0</strong></div>
-        <div><small>Retiradas</small><strong id="ticketRedeemed">0</strong></div>
-      </div>
+      <h2>Vendas por ficha — Eventos</h2>
+      <p class="muted">Consulte as vendas. Para conferir ou registrar a entrega, abra a venda e veja suas fichas.</p>
       <div class="scan-tools ticket-search">
-        <input id="ticketSearch" placeholder="Buscar venda, cliente ou código da ficha" autocomplete="off">
+        <input id="ticketSearch" placeholder="Buscar venda ou cliente" autocomplete="off">
         <button id="ticketSearchBtn" class="scan-btn" type="button">BUSCAR</button>
       </div>
-      <div class="ticket-filters">
-        <button id="ticketPendingBtn" class="ticket-filter active" type="button">PENDENTES</button>
-        <button id="ticketAllBtn" class="ticket-filter" type="button">TODAS</button>
-        <button id="ticketRefreshBtn" class="ghost" type="button">ATUALIZAR</button>
-      </div>
+      <div class="ticket-toolbar"><span id="ticketSummary" class="muted">Carregando vendas...</span><button id="ticketRefreshBtn" class="ghost" type="button">ATUALIZAR</button></div>
       <p id="ticketMsg" class="msg" role="status"></p>
-      <div id="ticketList"><p class="muted">Abra esta aba para carregar as fichas.</p></div>
+      <div id="ticketList"><p class="muted">Abra esta aba para carregar as vendas.</p></div>
     </section>
   </section>
 </main>
@@ -93,8 +84,9 @@
 <script>
 (()=> {
  const $=id=>document.getElementById(id);
- let ticketRows=[], ticketFilter='pending', ticketBusy=false;
+ let ticketRows=[],sales=[],ticketBusy=false,activeSale=null;
  const token=()=>localStorage.getItem('er_waiter_token')||'';
+ const money=n=>Number(n||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
  async function ticketApi(url,options={}) {
    const headers={...(options.headers||{}),'Content-Type':'application/json','x-waiter-token':token()};
    const response=await fetch(url,{...options,headers});
@@ -103,92 +95,66 @@
    return data;
  }
  const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
- function setTicketFilter(filter){
-   ticketFilter=filter;
-   $('ticketPendingBtn').classList.toggle('active',filter==='pending');
-   $('ticketAllBtn').classList.toggle('active',filter==='all');
-   renderTickets();
+ function groupSales(rows){
+   const map=new Map();
+   rows.forEach(t=>{
+     const key=String(t.sale_number);
+     if(!map.has(key))map.set(key,{sale_number:t.sale_number,customer:t.customer||'Não identificado',payment:t.payment||'',total:Number(t.sale_total||0),tickets:[]});
+     map.get(key).tickets.push(t);
+   });
+   return [...map.values()].sort((a,b)=>Number(b.sale_number)-Number(a.sale_number));
  }
- function renderTickets(){
-   const pending=ticketRows.filter(t=>t.status==='pending').length;
-   $('ticketCount').textContent=ticketRows.length;
-   $('ticketPending').textContent=pending;
-   $('ticketRedeemed').textContent=ticketRows.length-pending;
-   const rows=ticketFilter==='pending'?ticketRows.filter(t=>t.status==='pending'):ticketRows;
-   $('ticketList').innerHTML=rows.length?rows.map(t=>`
-    <article class="ticket-card ${t.status==='redeemed'?'redeemed':'pending'}">
-      <div class="ticket-info">
-        <strong>Venda nº ${esc(String(t.sale_number).padStart(3,'0'))} · Ficha ${esc(t.ticket_no)} de ${esc(t.ticket_total)}</strong>
-        <b class="ticket-product">${esc(t.product_name)}</b>
-        <span>Cliente: ${esc(t.customer||'Não identificado')}</span>
-        <small>Pagamento: ${esc(t.payment||'')}</small>
-        <small>Código da ficha: ${esc(t.id)}${t.status==='redeemed'?' · Retirada por '+esc(t.redeemed_by||'garçom'):''}</small>
-      </div>
-      ${t.status==='pending'?`<button class="ticket-confirm" type="button" data-redeem="${Number(t.id)}">CONFIRMAR RETIRADA</button>`:'<span class="ticket-done">RETIRADA</span>'}
-    </article>`).join(''):'<div class="empty-state">Nenhuma ficha '+(ticketFilter==='pending'?'pendente':'encontrada')+'.</div>';
-   $('ticketList').querySelectorAll('[data-redeem]').forEach(btn=>btn.addEventListener('click',()=>redeemTicket(Number(btn.dataset.redeem),btn)));
+ function renderSales(){
+   $('ticketSummary').textContent=sales.length+' venda(s)';
+   $('ticketList').innerHTML=sales.length?sales.map((s,i)=>{
+     const pending=s.tickets.filter(t=>t.status==='pending').length;
+     const total=s.tickets.length;
+     return `<article class="sale-card"><div class="sale-main"><strong>Venda nº ${esc(String(s.sale_number).padStart(3,'0'))}</strong><b class="sale-value">${money(s.total)}</b></div><div class="sale-meta">${esc(s.customer)} · ${esc(s.payment)} · ${total} ficha(s)</div><div class="sale-bottom"><span class="sale-pending">${pending} pendente(s) · ${total-pending} retirada(s)</span><button class="sale-open" type="button" data-sale="${i}">CONFERIR FICHAS</button></div></article>`;
+   }).join(''):'<div class="empty-state">Nenhuma venda por ficha encontrada.</div>';
+   $('ticketList').querySelectorAll('[data-sale]').forEach(btn=>btn.addEventListener('click',()=>openSale(sales[Number(btn.dataset.sale)])));
  }
  async function loadTickets(){
    if(ticketBusy)return;
-   ticketBusy=true;$('ticketRefreshBtn').disabled=true;$('ticketMsg').textContent='Atualizando fichas...';
+   ticketBusy=true;$('ticketRefreshBtn').disabled=true;$('ticketMsg').textContent='Atualizando vendas...';
    try{
      ticketRows=await ticketApi('/api/garcom/pickup-tickets?search='+encodeURIComponent($('ticketSearch').value.trim()));
-     renderTickets();$('ticketMsg').textContent='';
+     sales=groupSales(ticketRows);renderSales();$('ticketMsg').textContent='';
+     if(activeSale){const updated=sales.find(s=>String(s.sale_number)===String(activeSale.sale_number));if(updated){activeSale=updated;renderSaleModal();}else closeSale();}
    }catch(e){$('ticketMsg').textContent=e.message;}
    finally{ticketBusy=false;$('ticketRefreshBtn').disabled=false;}
  }
+ function ensureModal(){
+   if($('saleTicketModal'))return;
+   const dialog=document.createElement('dialog');dialog.id='saleTicketModal';dialog.className='sale-modal';dialog.innerHTML=`<div class="modal-head"><div><small>CONFERÊNCIA DA VENDA</small><h2 id="modalSaleTitle">Venda</h2></div><button type="button" id="modalClose" class="modal-close" aria-label="Fechar">×</button></div><div id="modalSaleMeta" class="modal-meta"></div><div id="modalTicketList"></div>`;
+   document.body.appendChild(dialog);$('modalClose').addEventListener('click',closeSale);dialog.addEventListener('click',e=>{if(e.target===dialog)closeSale();});
+ }
+ function openSale(sale){ensureModal();activeSale=sale;renderSaleModal();$('saleTicketModal').showModal();}
+ function closeSale(){if($('saleTicketModal')?.open)$('saleTicketModal').close();activeSale=null;}
+ function renderSaleModal(){
+   if(!activeSale)return;
+   $('modalSaleTitle').textContent='Venda nº '+String(activeSale.sale_number).padStart(3,'0');
+   $('modalSaleMeta').textContent=activeSale.customer+' · '+activeSale.payment+' · '+money(activeSale.total);
+   $('modalTicketList').innerHTML=activeSale.tickets.map(t=>`<article class="modal-ticket ${t.status==='redeemed'?'done':''}"><div><strong>${esc(t.product_name)}</strong><span>Ficha ${esc(t.ticket_no)} de ${esc(t.ticket_total)} · Código ${esc(t.id)}</span><small>${t.status==='pending'?'PENDENTE DE RETIRADA':'RETIRADA'+(t.redeemed_by?' por '+esc(t.redeemed_by):'')}</small></div>${t.status==='pending'?`<button class="ticket-confirm" type="button" data-redeem="${Number(t.id)}">CONFIRMAR ENTREGA</button>`:'<b class="ticket-done">ENTREGUE</b>'}</article>`).join('')||'<p class="muted">Esta venda não possui fichas.</p>';
+   $('modalTicketList').querySelectorAll('[data-redeem]').forEach(btn=>btn.addEventListener('click',()=>redeemTicket(Number(btn.dataset.redeem),btn)));
+ }
  async function redeemTicket(id,button){
-   if(!confirm('Confirma a entrega desta unidade? Esta ficha não poderá ser utilizada novamente.'))return;
+   if(!confirm('Confirma que esta unidade foi entregue ao cliente?'))return;
    button.disabled=true;
-   try{
-     await ticketApi('/api/garcom/pickup-tickets/'+id+'/redeem',{method:'POST',body:'{}'});
-     $('ticketMsg').textContent='Retirada confirmada com sucesso.';
-     await loadTickets();
-   }catch(e){$('ticketMsg').textContent=e.message;button.disabled=false;await loadTickets();}
+   try{await ticketApi('/api/garcom/pickup-tickets/'+id+'/redeem',{method:'POST',body:'{}'});await loadTickets();}
+   catch(e){alert(e.message);button.disabled=false;}
  }
  $('ticketSearchBtn').addEventListener('click',loadTickets);
  $('ticketSearch').addEventListener('keydown',e=>{if(e.key==='Enter')loadTickets();});
- $('ticketPendingBtn').addEventListener('click',()=>setTicketFilter('pending'));
- $('ticketAllBtn').addEventListener('click',()=>setTicketFilter('all'));
  $('ticketRefreshBtn').addEventListener('click',loadTickets);
  document.querySelector('[data-tab="fichas"]').addEventListener('click',loadTickets);
- // A navegação do painel original permanece controlada por garcom.js.
- if('serviceWorker' in navigator) window.addEventListener('load',()=>navigator.serviceWorker.register('/garcom-sw.js').catch(()=>{}));
+ if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('/garcom-sw.js').catch(()=>{}));
 })();
 </script>
 <style>
-.ticket-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:14px 0}
-.ticket-stats>div{background:#e8eee9;border:1px solid #d6e0d8;border-radius:12px;padding:11px;text-align:center}
-.ticket-stats small{display:block;color:#42564a;font-size:12px}
-.ticket-stats strong{display:block;color:#14251e;font-size:23px;margin-top:3px}
-.ticket-search{margin:12px 0}
-.ticket-filters{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
-.ticket-filters button{flex:1;min-width:90px}
-.ticket-filters .ticket-filter{background:#e2e9e3;color:#294334}
-.ticket-filters .ticket-filter.active{background:#176b43;color:#fff}
-.ticket-card{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px;margin:10px 0;border:1px solid #dce4dd;border-left:5px solid #d18b00;border-radius:13px;background:#fff}
-.ticket-card.redeemed{border-left-color:#238044;background:#f5fbf6}
-.ticket-info{min-width:0;display:grid;gap:5px;color:#17231d}
-.ticket-info strong{font-size:14px;color:#14251e}
-.ticket-product{font-size:17px;overflow-wrap:anywhere}
-.ticket-info span,.ticket-info small{color:#4d5d53;font-size:13px}
-.ticket-confirm{background:#176b43;color:#fff;max-width:180px;flex:0 0 auto}
-.ticket-done{font-weight:800;color:#238044;font-size:13px}
-.empty-state{background:#f5f7f5;border:1px dashed #cbd5cd;border-radius:12px;padding:18px;text-align:center;color:#4d5d53}
-button:disabled{opacity:.55;cursor:wait}
-@media(max-width:520px){
- body{font-size:15px}
- header{padding:14px 12px}
- header h1{font-size:19px}
- main{margin:12px auto;padding:0 10px 28px}
- .panel{padding:14px}
- .tabs{gap:5px}
- .tab{padding:11px 7px;font-size:12px}
- .ticket-card{align-items:stretch;flex-direction:column}
- .ticket-confirm{width:100%;max-width:none;min-height:44px}
- .ticket-stats>div{padding:9px 5px}
- .ticket-stats strong{font-size:20px}
-}
+.ticket-search{margin:14px 0}.ticket-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:10px 0}.ticket-toolbar button{flex:0 0 auto}
+.sale-card{background:#fff;border:1px solid #dce4dd;border-radius:13px;padding:15px;margin:10px 0;box-shadow:0 2px 8px #15251a0a}.sale-main{display:flex;align-items:center;justify-content:space-between;gap:12px}.sale-main strong{font-size:17px;color:#14251e}.sale-value{font-size:20px;color:#176b43;white-space:nowrap}.sale-meta{color:#59685f;font-size:14px;margin-top:7px}.sale-bottom{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px}.sale-pending{font-size:13px;color:#58675e}.sale-open{background:#176b43;color:#fff;padding:10px 13px;font-size:13px;white-space:nowrap}
+.sale-modal{border:0;border-radius:17px;padding:18px;width:min(94vw,620px);max-height:86vh;overflow:auto;box-shadow:0 18px 60px #0005}.sale-modal::backdrop{background:#10201899}.modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.modal-head small{font-size:11px;letter-spacing:1px;color:#637269}.modal-head h2{margin:3px 0 0}.modal-close{background:#e8eee9;color:#17231d;font-size:25px;line-height:1;padding:6px 12px}.modal-meta{color:#58675e;font-size:14px;margin:10px 0 16px;padding-bottom:12px;border-bottom:1px solid #e4e9e5}.modal-ticket{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid #e7ece8}.modal-ticket>div{display:grid;gap:4px;min-width:0}.modal-ticket strong{color:#17231d}.modal-ticket span,.modal-ticket small{color:#59685f;font-size:13px}.modal-ticket.done{opacity:.8}.ticket-confirm{background:#176b43;color:#fff;padding:10px 12px;font-size:12px;flex:0 0 auto}.ticket-done{color:#238044;font-size:12px;white-space:nowrap}.empty-state{background:#f5f7f5;border:1px dashed #cbd5cd;border-radius:12px;padding:18px;text-align:center;color:#4d5d53}button:disabled{opacity:.55;cursor:wait}
+@media(max-width:520px){.sale-main strong{font-size:16px}.sale-value{font-size:18px}.sale-bottom{align-items:stretch;flex-direction:column}.sale-open{width:100%;min-height:44px}.sale-modal{padding:14px}.modal-ticket{align-items:stretch;flex-direction:column}.ticket-confirm{width:100%;min-height:44px}}
 </style>
 </body>
 </html>
