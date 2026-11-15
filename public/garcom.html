@@ -1,17 +1,194 @@
 <!doctype html>
-<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Retirada de Fichas — Espetinho do Reinaldo</title><link rel="stylesheet" href="/style.css"><style>
-body{background:#f3f4f6;margin:0;padding:14px}.wrap{max-width:900px;margin:auto}.box{background:white;border-radius:14px;padding:16px;margin:12px 0}.row{display:flex;gap:8px;flex-wrap:wrap}.row input{flex:1;min-width:120px;padding:12px;border:1px solid #bbb;border-radius:8px;font-size:16px}.btn{padding:11px 14px;border:0;border-radius:8px;background:#222;color:#fff;font-weight:700}.ticket{border:1px solid #ddd;border-radius:10px;padding:12px;margin:9px 0;display:flex;justify-content:space-between;gap:12px;align-items:center}.ticket.pending{border-left:5px solid #d18b00}.ticket.redeemed{border-left:5px solid #238044;background:#f5fbf6}.ticket small{display:block;color:#666;margin-top:4px}.stats{display:flex;gap:10px;flex-wrap:wrap}.stats b{background:#eee;padding:8px 12px;border-radius:8px}.hide{display:none}
-</style></head><body><main class="wrap"><h1>ESPETINHO DO REINALDO</h1><h2>Retirada de Fichas — Eventos</h2>
-<section id="login" class="box"><h3>Acesso do garçom</h3><div class="row"><input id="number" value="01" placeholder="Número"><input id="pin" type="password" inputmode="numeric" placeholder="PIN"></div><button class="btn" onclick="login()" style="margin-top:10px">ENTRAR</button><p id="loginMsg"></p></section>
-<section id="app" class="hide"><div class="box"><div class="row"><strong id="who"></strong><button class="btn" onclick="logout()">SAIR</button></div><div class="stats" id="stats"></div><div class="row" style="margin-top:12px"><input id="search" placeholder="Buscar venda, cliente ou número da ficha"><button class="btn" onclick="loadTickets()">BUSCAR</button></div><div class="row" style="margin-top:8px"><button class="btn" onclick="filter='pending';render()">PENDENTES</button><button class="btn" onclick="filter='all';render()">TODAS</button><button class="btn" onclick="loadTickets()">ATUALIZAR</button></div></div><div id="tickets"></div></section>
-</main><script>
-let token=localStorage.getItem('waiter_token')||'',tickets=[],filter='pending';const $=id=>document.getElementById(id);
-async function call(url,opt={}){opt.headers={...(opt.headers||{}),'x-waiter-token':token,'Content-Type':'application/json'};const r=await fetch(url,opt),d=await r.json();if(!r.ok)throw Error(d.error||'Erro');return d}
-async function login(){try{const r=await fetch('/api/garcom/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({number:$('number').value,pin:$('pin').value})}),d=await r.json();if(!r.ok)throw Error(d.error);token=d.token;localStorage.setItem('waiter_token',token);await start(d.waiter);}catch(e){$('loginMsg').textContent=e.message;}}
-async function start(waiter){$('login').classList.add('hide');$('app').classList.remove('hide');$('who').textContent='Garçom: '+(waiter?.name||'');try{const me=await call('/api/garcom/me');$('who').textContent='Garçom: '+me.waiter.name;await loadTickets();}catch(e){logout();$('loginMsg').textContent=e.message;}}
-function logout(){token='';localStorage.removeItem('waiter_token');$('app').classList.add('hide');$('login').classList.remove('hide');}
-async function loadTickets(){try{tickets=await call('/api/garcom/pickup-tickets?search='+encodeURIComponent($('search').value||''));render();}catch(e){alert(e.message);}}
-function render(){const pending=tickets.filter(x=>x.status==='pending').length,done=tickets.length-pending;$('stats').innerHTML='<b>Fichas: '+tickets.length+'</b><b>Pendentes: '+pending+'</b><b>Retiradas: '+done+'</b>';const rows=filter==='pending'?tickets.filter(x=>x.status==='pending'):tickets;$('tickets').innerHTML=rows.length?rows.map(t=>`<article class="ticket ${t.status}"><div><strong>Venda nº ${String(t.sale_number).padStart(3,'0')} — Ficha ${t.ticket_no}/${t.ticket_total}</strong><div>${t.product_name}</div><small>Cliente: ${t.customer||'Não identificado'} | Pagamento: ${t.payment}</small><small>Código da ficha: ${t.id} ${t.status==='redeemed'?'| Retirada por '+t.redeemed_by:''}</small></div>${t.status==='pending'?`<button class="btn" onclick="redeem(${t.id})">CONFIRMAR RETIRADA</button>`:'<strong>RETIRADA</strong>'}</article>`).join(''):'<div class="box">Nenhuma ficha encontrada.</div>';}
-async function redeem(id){if(!confirm('Confirmar a entrega desta unidade?'))return;try{await call('/api/garcom/pickup-tickets/'+id+'/redeem',{method:'POST',body:'{}'});await loadTickets();}catch(e){alert(e.message);}}
-if(token)start(null);
-</script></body></html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#14251e">
+<title>Painel do Garçom — Espetinho do Reinaldo</title>
+<link rel="manifest" href="/garcom.webmanifest">
+<link rel="stylesheet" href="/garcom.css">
+</head>
+<body>
+<header>
+  <div><small>ESPETINHO DO REINALDO</small><h1>Painel do Garçom</h1></div>
+  <button id="logout" class="ghost hidden" type="button">SAIR</button>
+</header>
+<main>
+  <section id="login" class="panel">
+    <h2>Acesso do garçom</h2>
+    <label>Número do garçom<input id="number" value="01" autocomplete="username" inputmode="numeric"></label>
+    <label>PIN<input id="pin" type="password" inputmode="numeric" autocomplete="current-password"></label>
+    <button id="loginBtn" class="primary" type="button">ENTRAR</button>
+    <p id="loginMsg" class="msg" role="alert"></p>
+  </section>
+
+  <section id="app" class="hidden">
+    <div class="welcome">
+      <div><strong>Olá, <span id="who">Garçom</span></strong><span>Atendimento e retirada de fichas</span></div>
+      <button id="refresh" class="ghost" type="button">ATUALIZAR</button>
+    </div>
+
+    <nav class="tabs" aria-label="Menu do garçom">
+      <button class="tab active" data-tab="orders" type="button">COMANDAS</button>
+      <button class="tab" data-tab="new" type="button">NOVA COMANDA</button>
+      <button class="tab" data-tab="fichas" type="button">RETIRADA DE FICHAS</button>
+    </nav>
+
+    <section id="orders" class="panel tabbody">
+      <h2>Comandas abertas</h2>
+      <p class="muted">Selecione uma comanda para lançar produtos e acompanhar o atendimento.</p>
+      <div id="commandList"><p class="muted">Carregando comandas...</p></div>
+    </section>
+
+    <section id="new" class="panel tabbody hidden">
+      <h2>Abrir nova comanda</h2>
+      <label>Nome do cliente (opcional)<input id="customer" placeholder="Nome do cliente" autocomplete="off"></label>
+      <label>Mesa / identificação (opcional)<input id="table" placeholder="Ex.: Mesa 3, balcão..." autocomplete="off"></label>
+      <button id="openCommand" class="primary" type="button">ABRIR COMANDA</button>
+      <p id="newMsg" class="msg" role="status"></p>
+    </section>
+
+    <section id="detail" class="panel hidden">
+      <button id="back" class="ghost" type="button">← VOLTAR ÀS COMANDAS</button>
+      <h2 id="commandTitle">Comanda</h2>
+      <p id="commandMeta" class="muted"></p>
+      <h3>Itens lançados</h3>
+      <div id="itemList"></div>
+      <div id="commandTotal" class="total">Total: R$ 0,00</div>
+      <hr>
+      <h3>Adicionar produtos</h3>
+      <label>Pesquisar produto<input id="search" placeholder="Digite o nome, código ou código de barras..." autocomplete="off"></label>
+      <div id="categories" class="categories"></div>
+      <div id="products" class="products"></div>
+      <div id="cart" class="cart"></div>
+      <button id="sendItems" class="primary" type="button" disabled>LANÇAR PRODUTOS</button>
+      <button id="requestClose" class="ghost" type="button">Solicitar fechamento da conta</button>
+    </section>
+
+    <section id="fichas" class="panel tabbody hidden">
+      <h2>Retirada de fichas — Eventos</h2>
+      <p class="muted">Confirme cada ficha somente depois de entregar uma unidade ao cliente. Cada ficha pode ser retirada uma única vez.</p>
+      <div class="ticket-stats" id="ticketStats">
+        <div><small>Fichas</small><strong id="ticketCount">0</strong></div>
+        <div><small>Pendentes</small><strong id="ticketPending">0</strong></div>
+        <div><small>Retiradas</small><strong id="ticketRedeemed">0</strong></div>
+      </div>
+      <div class="scan-tools ticket-search">
+        <input id="ticketSearch" placeholder="Buscar venda, cliente ou código da ficha" autocomplete="off">
+        <button id="ticketSearchBtn" class="scan-btn" type="button">BUSCAR</button>
+      </div>
+      <div class="ticket-filters">
+        <button id="ticketPendingBtn" class="ticket-filter active" type="button">PENDENTES</button>
+        <button id="ticketAllBtn" class="ticket-filter" type="button">TODAS</button>
+        <button id="ticketRefreshBtn" class="ghost" type="button">ATUALIZAR</button>
+      </div>
+      <p id="ticketMsg" class="msg" role="status"></p>
+      <div id="ticketList"><p class="muted">Abra esta aba para carregar as fichas.</p></div>
+    </section>
+  </section>
+</main>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="/garcom.js"></script>
+<script>
+(()=> {
+ const $=id=>document.getElementById(id);
+ let ticketRows=[], ticketFilter='pending', ticketBusy=false;
+ const token=()=>localStorage.getItem('er_waiter_token')||'';
+ async function ticketApi(url,options={}) {
+   const headers={...(options.headers||{}),'Content-Type':'application/json','x-waiter-token':token()};
+   const response=await fetch(url,{...options,headers});
+   const data=await response.json().catch(()=>({error:'Resposta inválida do servidor.'}));
+   if(!response.ok) throw new Error(data.error||'Não foi possível carregar as fichas.');
+   return data;
+ }
+ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ function setTicketFilter(filter){
+   ticketFilter=filter;
+   $('ticketPendingBtn').classList.toggle('active',filter==='pending');
+   $('ticketAllBtn').classList.toggle('active',filter==='all');
+   renderTickets();
+ }
+ function renderTickets(){
+   const pending=ticketRows.filter(t=>t.status==='pending').length;
+   $('ticketCount').textContent=ticketRows.length;
+   $('ticketPending').textContent=pending;
+   $('ticketRedeemed').textContent=ticketRows.length-pending;
+   const rows=ticketFilter==='pending'?ticketRows.filter(t=>t.status==='pending'):ticketRows;
+   $('ticketList').innerHTML=rows.length?rows.map(t=>`
+    <article class="ticket-card ${t.status==='redeemed'?'redeemed':'pending'}">
+      <div class="ticket-info">
+        <strong>Venda nº ${esc(String(t.sale_number).padStart(3,'0'))} · Ficha ${esc(t.ticket_no)} de ${esc(t.ticket_total)}</strong>
+        <b class="ticket-product">${esc(t.product_name)}</b>
+        <span>Cliente: ${esc(t.customer||'Não identificado')}</span>
+        <small>Pagamento: ${esc(t.payment||'')}</small>
+        <small>Código da ficha: ${esc(t.id)}${t.status==='redeemed'?' · Retirada por '+esc(t.redeemed_by||'garçom'):''}</small>
+      </div>
+      ${t.status==='pending'?`<button class="ticket-confirm" type="button" data-redeem="${Number(t.id)}">CONFIRMAR RETIRADA</button>`:'<span class="ticket-done">RETIRADA</span>'}
+    </article>`).join(''):'<div class="empty-state">Nenhuma ficha '+(ticketFilter==='pending'?'pendente':'encontrada')+'.</div>';
+   $('ticketList').querySelectorAll('[data-redeem]').forEach(btn=>btn.addEventListener('click',()=>redeemTicket(Number(btn.dataset.redeem),btn)));
+ }
+ async function loadTickets(){
+   if(ticketBusy)return;
+   ticketBusy=true;$('ticketRefreshBtn').disabled=true;$('ticketMsg').textContent='Atualizando fichas...';
+   try{
+     ticketRows=await ticketApi('/api/garcom/pickup-tickets?search='+encodeURIComponent($('ticketSearch').value.trim()));
+     renderTickets();$('ticketMsg').textContent='';
+   }catch(e){$('ticketMsg').textContent=e.message;}
+   finally{ticketBusy=false;$('ticketRefreshBtn').disabled=false;}
+ }
+ async function redeemTicket(id,button){
+   if(!confirm('Confirma a entrega desta unidade? Esta ficha não poderá ser utilizada novamente.'))return;
+   button.disabled=true;
+   try{
+     await ticketApi('/api/garcom/pickup-tickets/'+id+'/redeem',{method:'POST',body:'{}'});
+     $('ticketMsg').textContent='Retirada confirmada com sucesso.';
+     await loadTickets();
+   }catch(e){$('ticketMsg').textContent=e.message;button.disabled=false;await loadTickets();}
+ }
+ $('ticketSearchBtn').addEventListener('click',loadTickets);
+ $('ticketSearch').addEventListener('keydown',e=>{if(e.key==='Enter')loadTickets();});
+ $('ticketPendingBtn').addEventListener('click',()=>setTicketFilter('pending'));
+ $('ticketAllBtn').addEventListener('click',()=>setTicketFilter('all'));
+ $('ticketRefreshBtn').addEventListener('click',loadTickets);
+ document.querySelector('[data-tab="fichas"]').addEventListener('click',loadTickets);
+ // A navegação do painel original permanece controlada por garcom.js.
+ if('serviceWorker' in navigator) window.addEventListener('load',()=>navigator.serviceWorker.register('/garcom-sw.js').catch(()=>{}));
+})();
+</script>
+<style>
+.ticket-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:14px 0}
+.ticket-stats>div{background:#e8eee9;border:1px solid #d6e0d8;border-radius:12px;padding:11px;text-align:center}
+.ticket-stats small{display:block;color:#42564a;font-size:12px}
+.ticket-stats strong{display:block;color:#14251e;font-size:23px;margin-top:3px}
+.ticket-search{margin:12px 0}
+.ticket-filters{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.ticket-filters button{flex:1;min-width:90px}
+.ticket-filters .ticket-filter{background:#e2e9e3;color:#294334}
+.ticket-filters .ticket-filter.active{background:#176b43;color:#fff}
+.ticket-card{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px;margin:10px 0;border:1px solid #dce4dd;border-left:5px solid #d18b00;border-radius:13px;background:#fff}
+.ticket-card.redeemed{border-left-color:#238044;background:#f5fbf6}
+.ticket-info{min-width:0;display:grid;gap:5px;color:#17231d}
+.ticket-info strong{font-size:14px;color:#14251e}
+.ticket-product{font-size:17px;overflow-wrap:anywhere}
+.ticket-info span,.ticket-info small{color:#4d5d53;font-size:13px}
+.ticket-confirm{background:#176b43;color:#fff;max-width:180px;flex:0 0 auto}
+.ticket-done{font-weight:800;color:#238044;font-size:13px}
+.empty-state{background:#f5f7f5;border:1px dashed #cbd5cd;border-radius:12px;padding:18px;text-align:center;color:#4d5d53}
+button:disabled{opacity:.55;cursor:wait}
+@media(max-width:520px){
+ body{font-size:15px}
+ header{padding:14px 12px}
+ header h1{font-size:19px}
+ main{margin:12px auto;padding:0 10px 28px}
+ .panel{padding:14px}
+ .tabs{gap:5px}
+ .tab{padding:11px 7px;font-size:12px}
+ .ticket-card{align-items:stretch;flex-direction:column}
+ .ticket-confirm{width:100%;max-width:none;min-height:44px}
+ .ticket-stats>div{padding:9px 5px}
+ .ticket-stats strong{font-size:20px}
+}
+</style>
+</body>
+</html>
