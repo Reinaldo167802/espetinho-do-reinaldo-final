@@ -1,4 +1,4 @@
-const CACHE_NAME = 'er-garcom-shell-v2';
+const CACHE_NAME = 'er-garcom-shell-v3';
 const APP_SHELL = [
   '/garcom',
   '/garcom.html',

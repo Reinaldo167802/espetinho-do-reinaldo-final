@@ -6,11 +6,14 @@ function renderProducts(){
  $('categoryFilter').onchange=e=>{category=e.target.value;renderProducts()};
  const term=normalizeSearch($('search').value);
  if(!term){$('products').innerHTML='';$('cart').innerHTML='';$('sendItems').disabled=true;return}
- const rows=products.filter(p=>(category==='Todas'||(p.category||'Outros')===category)&&[p.name,p.brand,p.internal_code,p.barcode].some(v=>normalizeSearch(v).includes(term)));
+ const rows=products.filter(p=>(category==='Todas'||(p.category||'Outros')===category)&&[p.name,p.brand,p.internal_code,p.barcode,p.description].some(v=>normalizeSearch(v).includes(term)));
  $('products').innerHTML=rows.map(p=>{
    const opts=parseOpts(p);
    const choices=opts.length?opts:[{key:'',label:'Unidade',price:Number(p.price||0)}];
-   return choices.map(o=>`<div class="product presentation-row" style="display:grid!important;grid-template-columns:minmax(0,1fr) auto 46px!important;align-items:center;gap:10px;width:100%;box-sizing:border-box;text-align:left;padding:12px;border:1px solid #e5e7eb;background:#fff;border-radius:9px;margin:6px 0;min-width:0"><div style="min-width:0;overflow-wrap:anywhere;word-break:normal"><b>${esc(p.name)}${o.label?' — '+esc(o.label):''}</b><small style="display:block">${esc(p.internal_code||'')}</small></div><strong style="white-space:nowrap;font-weight:700">${money(o.price)}</strong><button type="button" class="primary" style="display:inline-flex!important;width:44px!important;min-width:44px!important;max-width:44px!important;flex:none!important;height:44px;align-items:center;justify-content:center;padding:0!important;border-radius:9px" onclick="window.addWaiterPresentation(${p.id},'${String(o.key||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')">＋</button></div>`).join('');
+   const image=String(p.image||'').trim();
+   const photo=image?`<div class="waiter-product-photo"><img src="${esc(image)}" alt="${esc(p.name)}" loading="lazy" onerror="this.closest('.waiter-product-photo').classList.add('no-photo')"></div>`:'<div class="waiter-product-photo no-photo" aria-hidden="true"><span>Imagem não cadastrada</span></div>';
+   const presentations=choices.map(o=>`<div class="waiter-presentation"><span>${esc(o.label||'Unidade')}</span><strong>${money(o.price)}</strong><button type="button" class="waiter-add" aria-label="Adicionar ${esc(p.name)} ${esc(o.label||'Unidade')}" onclick="window.addWaiterPresentation(${p.id},'${String(o.key||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')">＋</button></div>`).join('');
+   return `<article class="waiter-product-card">${photo}<div class="waiter-product-info"><h3>${esc(p.name)}</h3>${p.description?`<p class="waiter-product-description">${esc(p.description)}</p>`:''}${p.internal_code?`<small class="waiter-product-code">${esc(p.internal_code)}</small>`:''}</div><div class="waiter-presentations">${presentations}</div></article>`;
  }).join('')||'<p class="muted">Nenhum produto encontrado.</p>';
  $('cart').innerHTML='';
  $('sendItems').disabled=true;
