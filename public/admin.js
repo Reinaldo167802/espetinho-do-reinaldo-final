@@ -4,7 +4,7 @@ const toNumber=v=>{if(v===undefined||v===null||String(v).trim()==='')return 0;co
 const $=id=>document.getElementById(id);
 const api=async(url,opt={})=>{opt.headers={...(opt.headers||{}),'x-admin-password':pass,'Content-Type':'application/json'};const r=await fetch(url,opt);const raw=await r.text();let d;try{d=JSON.parse(raw)}catch(_){throw Error('O servidor respondeu uma página HTML em vez de JSON. Confira a implantação do sistema.')}if(!r.ok)throw Error(d.error||d.message||'Erro');return d};
 function login(){const pw=$('pw');pass=pw.value.trim();if(!pass){alert('Digite a senha administrativa.');return}api('/api/admin/orders').then(()=>{$('login').style.display='none';$('app').style.display='block';loadAll()}).catch(err=>alert('Erro ao entrar: '+err.message));}
-function tab(id){['orders','products','purchases','suppliers','cash','commands','customers','fiado','pickupSales','settings'].forEach(x=>{if($(x))$(x).style.display=x===id?'block':'none'});if(id==='orders')loadOrders();if(id==='products'&&xmlReturnLine===null)loadProducts();if(id==='purchases'){loadPurchaseHistory();}if(id==='suppliers')loadSuppliers();if(id==='cash')loadCash();if(id==='commands')loadCommands();if(id==='customers')loadCustomers();if(id==='fiado')loadFiado();if(id==='pickupSales')pickupInit();if(id==='settings'){installTestCleanupPanel();loadSettings().catch(()=>{});loadSandwichCapacity();}}
+function tab(id){['orders','products','purchases','suppliers','cash','reports','commands','customers','fiado','pickupSales','settings'].forEach(x=>{if($(x))$(x).style.display=x===id?'block':'none'});if(id==='orders')loadOrders();if(id==='products'&&xmlReturnLine===null)loadProducts();if(id==='purchases'){loadPurchaseHistory();}if(id==='suppliers')loadSuppliers();if(id==='cash')loadCash();if(id==='reports')loadReports();if(id==='commands')loadCommands();if(id==='customers')loadCustomers();if(id==='fiado')loadFiado();if(id==='pickupSales')pickupInit();if(id==='settings'){installTestCleanupPanel();loadSettings().catch(()=>{});loadSandwichCapacity();}}
 async function loadAll(){loadOrders();loadCustomerOptions()}
 function installCompactOrderStyles(){
   if(document.getElementById('compact-order-card-styles')) return;
@@ -153,6 +153,26 @@ async function loadCash(options={}){
  }catch(e){$('cashSummary').innerHTML=`<p>Erro ao carregar o caixa: ${esc(e.message)}</p>`}
 }
 async function addCash(){await api('/api/admin/cash',{method:'POST',body:JSON.stringify({type:$('ct').value,description:$('cd').value,value:$('cv').value,payment:$('cp').value})});$('cd').value='';$('cv').value='';loadCash()}
+
+function setReportPeriod(period){const now=new Date(),end=localDateKey(now);let start=end;if(period==='week'){const day=(now.getDay()+6)%7;const monday=new Date(now.getFullYear(),now.getMonth(),now.getDate()-day);start=localDateKey(monday);}else if(period==='month'){start=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;}if($('reportFrom'))$('reportFrom').value=start;if($('reportTo'))$('reportTo').value=end;loadReports();}
+async function loadReports(){
+ const fromEl=$('reportFrom'),toEl=$('reportTo');if(!fromEl||!toEl)return;
+ const today=localDateKey();if(!fromEl.value)fromEl.value=today;if(!toEl.value)toEl.value=today;
+ const from=fromEl.value,to=toEl.value;if(!from||!to||from>to)return alert('Confira as datas do relatório.');
+ const fmt=v=>money(Number(v)||0),safe=v=>esc(String(v||''));
+ $('reportsSummary').innerHTML='<p class="muted">Carregando informações...</p>';
+ try{
+  const d=await api('/api/admin/reports/performance?from='+encodeURIComponent(from)+'&to='+encodeURIComponent(to));
+  $('reportsSummary').innerHTML=`<div class="cash-kpis"><div class="cash-card primary-total"><span>FATURAMENTO DE VENDAS FECHADAS</span><strong>${fmt(d.salesRevenue)}</strong></div><div class="cash-card"><span>RECEBIDO NO PERÍODO</span><strong>${fmt(d.received)}</strong></div><div class="cash-card"><span>FIADO / PENDENTE DAS VENDAS</span><strong>${fmt(d.outstanding)}</strong></div><div class="cash-card"><span>LUCRO BRUTO ESTIMADO</span><strong>${fmt(d.grossProfit)}</strong></div><div class="cash-card"><span>VENDAS FECHADAS</span><strong>${Number(d.saleCount)||0}</strong></div><div class="cash-card"><span>TICKET MÉDIO</span><strong>${fmt(d.averageTicket)}</strong></div></div><p class="muted">Período: ${safe(from)} a ${safe(to)} · ${Number(d.commandCount)||0} comandas, ${Number(d.orderCount)||0} pedidos pagos e ${Number(d.pickupCount)||0} vendas de fichas.</p>`;
+  const labels={dinheiro:'Dinheiro',pix:'Pix',debito:'Cartão de débito',credito:'Cartão de crédito',fiado:'Fiado lançado',outros:'Outros'};
+  $('reportsPayments').innerHTML=Object.entries(labels).map(([k,label])=>`<div class="cash-method"><span>${label}</span><strong>${fmt(d.payments?.[k])}</strong></div>`).join('')+`<div class="cash-method"><span>Fiado recebido no período</span><strong>${fmt(d.fiadoReceived)}</strong></div>`;
+  const rows=(arr)=>arr?.length?'<div class="table"><table><thead><tr><th>Produto</th><th>Quantidade</th><th>Faturamento</th></tr></thead><tbody>'+arr.map(x=>`<tr><td>${safe(x.name)}</td><td>${Number(x.quantity||0).toLocaleString('pt-BR')}</td><td>${fmt(x.revenue)}</td></tr>`).join('')+'</tbody></table></div>':'<p class="muted">Nenhuma venda encontrada no período.</p>';
+  $('reportsQuantity').innerHTML=rows(d.topQuantity);$('reportsRevenue').innerHTML=rows(d.topRevenue);
+  $('reportsWeekdays').innerHTML=(d.weekdays||[]).map(x=>`<div><b>${safe(x.day)}</b><br>${fmt(x.revenue)} <small>· ${Number(x.count)||0} venda(s)</small></div>`).join('')||'<p class="muted">Sem vendas no período.</p>';
+  $('reportsProfitNote').textContent=`Lucro bruto estimado: faturamento dos produtos menos o custo atualmente cadastrado. ${Number(d.itemsWithoutCost)||0} item(ns) vendido(s) não possuem custo cadastrado e não entram no cálculo do lucro. Não inclui despesas fixas, taxas de cartão ou outros custos operacionais.`;
+ }catch(e){$('reportsSummary').innerHTML=`<p class="hint">Não foi possível gerar o relatório: ${safe(e.message)}</p>`;}
+}
+
 async function loadCustomerOptions(selected=''){
  try{const rows=await api('/api/admin/customers');const select=$('cc');if(!select)return;const current=selected||select.value;const active=rows.filter(c=>c.active===true||c.active===1);select.innerHTML='<option value="">Consumidor não identificado (sem cadastro)</option>'+active.map(c=>`<option value="${esc(c.name)}">${esc(c.name)}${(c.fiado_authorized===true||c.fiado_authorized===1)?' — fiado autorizado':' — sem autorização de fiado'}</option>`).join('');if(current&&active.some(c=>c.name===current))select.value=current;}catch(e){if($('cc'))$('cc').innerHTML='<option value="">Não foi possível carregar clientes</option>';console.error(e)}
 }
