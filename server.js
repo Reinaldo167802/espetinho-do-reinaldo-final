@@ -1240,6 +1240,64 @@ app.put('/api/admin/commands/:id/pay',auth,async(req,res)=>{
  }catch(e){console.error('Erro ao registrar pagamento da comanda:',e);res.status(500).json({error:'Não foi possível registrar o pagamento.'})}
 });
 
+
+app.get('/api/admin/reports/performance',auth,async(req,res)=>{
+ try{
+  const from=String(req.query.from||'').slice(0,10),to=String(req.query.to||'').slice(0,10);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from>to)return res.status(400).json({error:'Informe um período válido.'});
+  const dateKey=v=>{if(!v)return '';const m=String(v).match(/^(\d{4}-\d{2}-\d{2})/);return m?m[1]:''};
+  const normalize=v=>{const n=String(v||'outros').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim().replace(/[^a-z0-9]/g,'');if(['debit','cartaodedebito','cartaoemdebito'].includes(n))return 'debito';if(['credit','cartaodecredito','cartaoemcredito'].includes(n))return 'credito';if(['cash','dinheiro'].includes(n))return 'dinheiro';return n||'outros';};
+  const inRange=v=>{const k=dateKey(v);return k>=from&&k<=to};
+  const commands=await q("SELECT * FROM commands WHERE status='fechada'");
+  const orders=await q('SELECT * FROM orders WHERE payment_confirmed='+(isPg?'TRUE':'1'));
+  const pickupSales=await q("SELECT * FROM pickup_sales WHERE status='paid'");
+  const products=await q('SELECT id,name,cost_price FROM products');
+  const productById=new Map(products.map(p=>[String(p.id),p]));
+  const allCommandItems=await q('SELECT * FROM command_items');
+  const allCommandPayments=await q('SELECT * FROM command_payments');
+  const allOrderItems=await q('SELECT * FROM order_items');
+  const allPickupItems=await q('SELECT * FROM pickup_sale_items');
+  const fiadoRows=await q('SELECT * FROM fiado_payments');
+  const cashRows=await q("SELECT * FROM cash WHERE type='entrada'");
+  const itemsByCommand=new Map(),paymentsByCommand=new Map(),itemsByOrder=new Map(),itemsByPickup=new Map();
+  for(const x of allCommandItems){if(!itemsByCommand.has(String(x.command_id)))itemsByCommand.set(String(x.command_id),[]);itemsByCommand.get(String(x.command_id)).push(x)}
+  for(const x of allCommandPayments){if(!paymentsByCommand.has(String(x.command_id)))paymentsByCommand.set(String(x.command_id),[]);paymentsByCommand.get(String(x.command_id)).push(x)}
+  for(const x of allOrderItems){if(!itemsByOrder.has(String(x.order_id)))itemsByOrder.set(String(x.order_id),[]);itemsByOrder.get(String(x.order_id)).push(x)}
+  for(const x of allPickupItems){if(!itemsByPickup.has(String(x.sale_id)))itemsByPickup.set(String(x.sale_id),[]);itemsByPickup.get(String(x.sale_id)).push({product_id:x.product_id,name:x.product_name,qty:x.qty,unit_price:x.unit_price,total:x.total});}
+  const cashByOrder=new Map();for(const x of cashRows){if(x.order_id!=null)cashByOrder.set(String(x.order_id),x)}
+  const methods={dinheiro:0,pix:0,debito:0,credito:0,fiado:0,outros:0};
+  const fiadoPaidByCommand=new Map();for(const row of fiadoRows){fiadoPaidByCommand.set(String(row.command_id),(fiadoPaidByCommand.get(String(row.command_id))||0)+(Number(row.amount)||0));}
+  const productMap=new Map();let salesRevenue=0,received=0,outstanding=0,grossProfit=0,itemsWithoutCost=0,commandCount=0,orderCount=0,pickupCount=0;
+  const weekdayNames=['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
+  const weekdayMap=new Map(weekdayNames.map(day=>[day,{day,revenue:0,count:0}]));
+  const addProducts=(rows)=>{for(const it of rows){const qty=Number(it.qty)||0,rev=Number(it.total)||qty*(Number(it.unit_price)||0);const key=String(it.product_id||it.name||'produto');const p=productById.get(String(it.product_id));const row=productMap.get(key)||{name:it.name||p?.name||'Produto',quantity:0,revenue:0};row.quantity+=qty;row.revenue+=rev;productMap.set(key,row);if(p&&Number(p.cost_price)>0)grossProfit+=rev-qty*Number(p.cost_price);else{itemsWithoutCost+=1;}}};
+  const addWeekday=(date,amount)=>{const k=dateKey(date);if(!k)return;const [y,m,d]=k.split('-').map(Number);const idx=new Date(y,m-1,d).getDay();const row=weekdayMap.get(weekdayNames[idx]);row.revenue+=amount;row.count+=1;};
+  for(const c of commands){
+   const date=c.closed_at||c.created_at,saleInRange=inRange(date),total=Number(c.total)||0;
+   const pays=paymentsByCommand.get(String(c.id))||[];
+   if(saleInRange){commandCount++;salesRevenue+=total;addWeekday(date,total);addProducts(itemsByCommand.get(String(c.id))||[]);}
+   if(pays.length){let fiadoOriginal=0;for(const pay of pays){const amount=Number(pay.amount)||0;let method=normalize(pay.payment);if(!Object.prototype.hasOwnProperty.call(methods,method))method='outros';if(method==='fiado'){fiadoOriginal+=amount;if(saleInRange)methods.fiado+=amount;}else if(inRange(pay.created_at||date)){methods[method]+=amount;received+=amount;}}
+    if(saleInRange)outstanding+=Math.max(0,fiadoOriginal-(fiadoPaidByCommand.get(String(c.id))||0));
+   }else{
+    const method=normalize(c.payment);
+    if(saleInRange&&method==='pendente')outstanding+=total;
+    else if(saleInRange&&method==='fiado'){methods.fiado+=total;outstanding+=Math.max(0,total-(fiadoPaidByCommand.get(String(c.id))||0));}
+    else if(method&&method!=='pendente'){
+     const commandLabel='Comanda '+String(c.number);const cash=cashRows.find(x=>{const label=String(x.description||'');return label===commandLabel||label.startsWith(commandLabel+' -');});
+     if(inRange(cash?.created_at||date)){const amount=cash?Number(cash.value)||total:total;const key=Object.prototype.hasOwnProperty.call(methods,method)?method:'outros';methods[key]+=amount;received+=amount;}
+    }
+   }
+  }
+  for(const o of orders){if(String(o.status||'').toLowerCase()==='cancelado')continue;const cash=cashByOrder.get(String(o.id));const date=cash?.created_at||o.created_at;if(!inRange(date))continue;orderCount++;const total=Number(o.total)||0;salesRevenue+=total;received+=total;addWeekday(date,total);let method=normalize(cash?.payment||o.payment);if(!Object.prototype.hasOwnProperty.call(methods,method))method='outros';methods[method]+=total;addProducts(itemsByOrder.get(String(o.id))||[]);}
+  for(const sale of pickupSales){if(!inRange(sale.created_at))continue;pickupCount++;const total=Number(sale.total)||0;salesRevenue+=total;received+=total;addWeekday(sale.created_at,total);let method=normalize(sale.payment);if(!Object.prototype.hasOwnProperty.call(methods,method))method='outros';methods[method]+=total;addProducts(itemsByPickup.get(String(sale.id))||[]);}
+  let fiadoReceived=0;for(const row of fiadoRows){if(inRange(row.created_at)){const amount=Number(row.amount)||0;fiadoReceived+=amount;received+=amount;let method=normalize(row.payment);if(!Object.prototype.hasOwnProperty.call(methods,method)||method==='fiado')method='outros';methods[method]+=amount;}}
+  const topQuantity=[...productMap.values()].sort((a,b)=>b.quantity-a.quantity).slice(0,10);
+  const topRevenue=[...productMap.values()].sort((a,b)=>b.revenue-a.revenue).slice(0,10);
+  const saleCount=commandCount+orderCount+pickupCount;
+  res.json({from,to,salesRevenue,received,outstanding,grossProfit,itemsWithoutCost,commandCount,orderCount,pickupCount,saleCount,averageTicket:saleCount?salesRevenue/saleCount:0,payments:methods,fiadoReceived,topQuantity,topRevenue,weekdays:[...weekdayMap.values()]});
+ }catch(e){console.error('Erro no relatório de desempenho:',e);res.status(500).json({error:'Erro ao calcular o relatório de desempenho.'});}
+});
+
 app.get('/garcom',(req,res)=>res.sendFile(path.join(__dirname,'public','garcom.html')));
 app.use(express.static(path.join(__dirname,'public')));
 app.get('/*splat',(req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
