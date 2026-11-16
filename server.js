@@ -1298,6 +1298,29 @@ app.get('/api/admin/reports/performance',auth,async(req,res)=>{
  }catch(e){console.error('Erro no relatório de desempenho:',e);res.status(500).json({error:'Erro ao calcular o relatório de desempenho.'});}
 });
 
+
+app.get('/api/admin/reports/sales',auth,async(req,res)=>{
+ try{
+  const from=String(req.query.from||'').slice(0,10),to=String(req.query.to||'').slice(0,10);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from>to)return res.status(400).json({error:'Informe um período válido.'});
+  const dateKey=v=>{if(!v)return '';if(v instanceof Date&&!Number.isNaN(v.getTime()))return new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'}).format(v);const m=String(v).match(/^(\d{4}-\d{2}-\d{2})/);return m?m[1]:'';};
+  const inRange=v=>{const k=dateKey(v);return k>=from&&k<=to;};
+  const dateLabel=v=>{if(!v)return '';const d=new Date(v);return Number.isNaN(d.getTime())?String(v):d.toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'});};
+  const methodLabel=v=>({pix:'Pix',dinheiro:'Dinheiro',debito:'Cartão de débito',credito:'Cartão de crédito',fiado:'Fiado',pendente:'Pendente',outros:'Outros'})[String(v||'').toLowerCase()]||String(v||'Não informado');
+  const out=[];
+  const commands=await q("SELECT * FROM commands WHERE status='fechada'");
+  const cmdPays=await q('SELECT * FROM command_payments');
+  const fiado=await q('SELECT * FROM fiado_payments');
+  for(const c of commands){const date=c.closed_at||c.created_at;if(!inRange(date))continue;const items=await q('SELECT * FROM command_items WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[c.id]);let pays=cmdPays.filter(x=>String(x.command_id)===String(c.id)).map(x=>({payment:x.payment,amount:Number(x.amount)||0,customer:x.customer||'',payment_label:methodLabel(x.payment)}));const legacy=String(c.payment||'').toLowerCase();if(!pays.length&&legacy&&legacy!=='pendente')pays=[{payment:legacy,amount:Number(c.total)||0,customer:'',payment_label:methodLabel(legacy)}];for(const f of fiado.filter(x=>String(x.command_id)===String(c.id)))pays.push({payment:f.payment,amount:Number(f.amount)||0,customer:f.customer||'',payment_label:methodLabel(f.payment)+' (recebimento de fiado)'});const subtotal=items.reduce((n,it)=>n+(Number(it.total)||0),0);out.push({source:'command',id:c.id,reference:'Comanda '+c.number,customer:c.customer||'',type_label:'Comanda',date,date_label:dateLabel(date),total:Number(c.total)||0,subtotal:Math.max(0,subtotal),delivery_fee:Math.max(0,Number(c.delivery_fee)||0),payment_label:pays.map(x=>x.payment_label).filter(Boolean).join(', ')||methodLabel(c.payment),payments:pays,status_label:legacy==='pendente'?'Fechada — aguardando pagamento':'Fechada',items:items.map(it=>({...it,name:it.name||'Produto'}))});}
+  const orders=await q('SELECT * FROM orders WHERE payment_confirmed='+(isPg?'TRUE':'1'));
+  const cashRows=await q("SELECT * FROM cash WHERE type='entrada'");
+  for(const o of orders){if(String(o.status||'').toLowerCase()==='cancelado')continue;const cash=cashRows.find(x=>String(x.order_id)===String(o.id))||cashRows.find(x=>String(x.description||'')==='Pedido #'+o.id);const date=cash?.created_at||o.created_at;if(!inRange(date))continue;const items=await q('SELECT * FROM order_items WHERE order_id='+(isPg?'$1':'?')+' ORDER BY id',[o.id]);const subtotal=items.reduce((n,it)=>n+(Number(it.total)||0),0);const fee=Math.max(0,(Number(o.total)||0)-subtotal);const pay= cash?.payment||o.payment||'';out.push({source:'order',id:o.id,reference:'Pedido #'+o.id,customer:o.customer_name||'',type_label:o.type==='entrega'?'Pedido — entrega':'Pedido online/balcão',date,date_label:dateLabel(date),total:Number(o.total)||0,subtotal,delivery_fee:fee,payment_label:methodLabel(pay),payments:pay?[{payment:pay,amount:Number(o.total)||0,customer:'',payment_label:methodLabel(pay)}]:[],status_label:'Pagamento confirmado',notes:o.notes||'',items:items.map(it=>({...it}))});}
+  const pickups=await q("SELECT * FROM pickup_sales WHERE status='paid'");
+  for(const sale of pickups){if(!inRange(sale.created_at))continue;const items=await q('SELECT * FROM pickup_sale_items WHERE sale_id='+(isPg?'$1':'?')+' ORDER BY id',[sale.id]);const pay=sale.payment||'';out.push({source:'pickup',id:sale.id,reference:'Venda de fichas '+String(sale.sale_number).padStart(3,'0'),customer:sale.customer||'',type_label:'Central de fichas',date:sale.created_at,date_label:dateLabel(sale.created_at),total:Number(sale.total)||0,subtotal:Number(sale.total)||0,delivery_fee:0,payment_label:methodLabel(pay),payments:pay?[{payment:pay,amount:Number(sale.total)||0,customer:'',payment_label:methodLabel(pay)}]:[],status_label:'Paga',items:items.map(it=>({name:it.product_name,product_name:it.product_name,qty:it.qty,unit_price:it.unit_price,total:it.total,sale_label:it.sale_label||''}))});}
+  out.sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))||Number(b.id)-Number(a.id));res.json(out);
+ }catch(e){console.error('Erro ao listar vendas do relatório:',e);res.status(500).json({error:'Não foi possível consultar as vendas do período.'});}
+});
+
 app.get('/garcom',(req,res)=>res.sendFile(path.join(__dirname,'public','garcom.html')));
 app.use(express.static(path.join(__dirname,'public')));
 app.get('/*splat',(req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
