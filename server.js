@@ -935,6 +935,43 @@ app.delete('/api/admin/commands/:id/empty',auth,async(req,res)=>{
 });
 
 
+// LIMPEZA CIRÚRGICA — somente vendas por ficha 001, 002 e 003 de teste.
+// Não altera comandas, pedidos, cadastros, configurações ou outras vendas.
+app.post('/api/admin/pickup-sales/clean-test-001-003',auth,async(req,res)=>{
+ if(req.body?.confirm!=='LIMPAR SOMENTE FICHAS 001 002 003')return res.status(400).json({error:'Confirmação inválida. Nenhum dado foi alterado.'});
+ try{
+  const sales=await q('SELECT * FROM pickup_sales WHERE sale_number IN (1,2,3) ORDER BY sale_number');
+  if(!sales.length)return res.json({ok:true,message:'As vendas de teste 001, 002 e 003 já não existem.',deleted_sales:0,restored_units:0});
+  const found=sales.map(x=>Number(x.sale_number));
+  if(found.length!==3||![1,2,3].every(n=>found.includes(n)))return res.status(409).json({error:'A limpeza foi bloqueada: não foram encontradas exatamente as três vendas 001, 002 e 003. Nenhum registro foi apagado.'});
+  let restored=0;
+  for(const sale of sales){
+   const tickets=await q('SELECT * FROM pickup_tickets WHERE sale_id='+(isPg?'$1':'?')+' ORDER BY id',[sale.id]);
+   for(const ticket of tickets){
+    const item=await one('SELECT * FROM pickup_sale_items WHERE id='+(isPg?'$1':'?'),[ticket.sale_item_id]);
+    if(!item)throw new Error('Item da ficha '+ticket.id+' não encontrado. Limpeza interrompida antes da exclusão.');
+    const result=await restoreSaleInventory(Number(ticket.product_id),Number(item.stock_qty||0)/Math.max(1,Number(item.qty||1)),item.stock_unit||'un','pickup_ticket',Number(ticket.id),'Venda por ficha nº '+String(sale.sale_number).padStart(3,'0'));
+    if(result==='restored'||result==='product_legacy')restored++;
+    else if(result==='legacy_unknown_no_restore')throw new Error('Não foi possível determinar com segurança a baixa de estoque da venda '+String(sale.sale_number).padStart(3,'0')+'. Nenhum registro dessa venda foi excluído.');
+   }
+  }
+  for(const sale of sales){
+   const tickets=await q('SELECT id FROM pickup_tickets WHERE sale_id='+(isPg?'$1':'?'),[sale.id]);
+   for(const t of tickets){
+    await run('DELETE FROM print_jobs WHERE job_key='+(isPg?'$1':'?')+' OR job_key LIKE '+(isPg?'$2':'?'),['pickup-ticket-'+t.id,'pickup-reprint-'+t.id+'-%']);
+    await run('DELETE FROM recipe_stock_movements WHERE source_type='+(isPg?'$1':'?')+' AND source_item_id='+(isPg?'$2':'?'),['pickup_ticket',t.id]);
+   }
+   await run('DELETE FROM cash WHERE description='+(isPg?'$1':'?'),['Venda por ficha nº '+String(sale.sale_number).padStart(3,'0')]);
+   await run('DELETE FROM pickup_tickets WHERE sale_id='+(isPg?'$1':'?'),[sale.id]);
+   await run('DELETE FROM pickup_sale_items WHERE sale_id='+(isPg?'$1':'?'),[sale.id]);
+   await run('DELETE FROM pickup_sales WHERE id='+(isPg?'$1':'?'),[sale.id]);
+  }
+  // Remove somente os lançamentos de estoque identificados pelas descrições destas três vendas e seus estornos.
+  for(const n of [1,2,3]){const label='Venda por ficha nº '+String(n).padStart(3,'0');await run('DELETE FROM inventory_movements WHERE description LIKE '+(isPg?'$1':'?'),['%'+label+'%']);}
+  res.json({ok:true,message:'Limpeza seletiva concluída: somente as vendas por ficha 001, 002 e 003, seus QR Codes, leituras, impressões e entradas de caixa foram removidos. O estoque foi recomposto conforme os movimentos rastreados.',deleted_sales:sales.length,restored_units:restored});
+ }catch(e){console.error('Limpeza seletiva das fichas de teste:',e);res.status(500).json({error:'Limpeza interrompida por segurança: '+e.message+' Confira os registros antes de tentar novamente.'});}
+});
+
 // CENTRAL DE FICHAS — venda de evento integrada ao caixa e estoque existentes.
 app.get('/api/admin/pickup-sales',auth,async(req,res)=>{try{const rows=await q('SELECT * FROM pickup_sales ORDER BY id DESC LIMIT 100');for(const x of rows){x.items=await q('SELECT * FROM pickup_sale_items WHERE sale_id='+(isPg?'$1':'?')+' ORDER BY id',[x.id]);x.tickets=await q('SELECT status,COUNT(*) AS qty FROM pickup_tickets WHERE sale_id='+(isPg?'$1':'?')+' GROUP BY status',[x.id]);}res.json(rows);}catch(e){console.error(e);res.status(500).json({error:'Não foi possível carregar as vendas por ficha.'})}});
 app.post('/api/admin/pickup-sales',auth,async(req,res)=>{let saleId=null;try{
