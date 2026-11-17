@@ -155,6 +155,23 @@ async function loadCash(options={}){
 async function addCash(){await api('/api/admin/cash',{method:'POST',body:JSON.stringify({type:$('ct').value,description:$('cd').value,value:$('cv').value,payment:$('cp').value})});$('cd').value='';$('cv').value='';loadCash()}
 
 let reportSalesCache=[];
+const reportFolderTitles={billing:'FATURAMENTO',period:'VENDAS POR PERÍODO',quantity:'PRODUTOS MAIS VENDIDOS',revenue:'PRODUTOS POR FATURAMENTO'};
+function openReportFolder(key){
+ const title=reportFolderTitles[key];if(!title)return;
+ const index=$('reportFolderIndex'),screen=$('reportFolderScreen');
+ if(index)index.hidden=true;if(screen)screen.hidden=false;
+ Object.keys(reportFolderTitles).forEach(k=>{const section=$('reportContent'+k.charAt(0).toUpperCase()+k.slice(1));if(section)section.hidden=k!==key;});
+ const heading=$('reportFolderTitle');if(heading)heading.textContent=title;
+ const detail=$('reportSaleDetail');if(detail&&key!=='period'){detail.hidden=true;detail.innerHTML='';}
+ if(screen)screen.scrollIntoView({behavior:'smooth',block:'start'});
+}
+function closeReportFolder(){
+ const index=$('reportFolderIndex'),screen=$('reportFolderScreen');
+ if(screen)screen.hidden=true;if(index)index.hidden=false;
+ Object.keys(reportFolderTitles).forEach(k=>{const section=$('reportContent'+k.charAt(0).toUpperCase()+k.slice(1));if(section)section.hidden=true;});
+ const detail=$('reportSaleDetail');if(detail){detail.hidden=true;detail.innerHTML='';}
+ if(index)index.scrollIntoView({behavior:'smooth',block:'start'});
+}
 function setReportPeriod(period){const now=new Date(),end=localDateKey(now);let start=end;if(period==='week'){const day=(now.getDay()+6)%7;const monday=new Date(now.getFullYear(),now.getMonth(),now.getDate()-day);start=localDateKey(monday);}else if(period==='month'){start=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;}if($('reportFrom'))$('reportFrom').value=start;if($('reportTo'))$('reportTo').value=end;loadReports();}
 async function loadReports(){
  const fromEl=$('reportFrom'),toEl=$('reportTo');if(!fromEl||!toEl)return;
