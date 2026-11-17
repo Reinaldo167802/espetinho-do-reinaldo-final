@@ -351,7 +351,7 @@ async function openCommandDocument(id,mode='a4'){
   const rows=await api('/api/admin/commands');
   const c=rows.find(x=>Number(x.id)===Number(id));
   if(!c)throw Error('Comanda não encontrada.');
-  const data={number:c.number,command:c.number,customer:c.customer||'',payment:c.payment||'Pendente',status:c.status||'',created_at:c.closed_at||c.created_at||new Date().toISOString(),items:(c.items||[]).map(i=>({name:i.name,qty:Number(i.qty||1),unit_price:Number(i.unit_price||0),total:Number(i.total||0)})),subtotal:Math.max(0,Number(c.total||0)-Number(c.delivery_fee||0)),delivery_fee:Number(c.delivery_fee||0),total:Number(c.total||0),notes:c.notes||''};
+  const data={number:c.number,command:c.number,customer:c.customer||'',payment:c.payment||'Pendente',status:c.status||'',created_at:c.closed_at||c.created_at||new Date().toISOString(),items:(c.items||[]).map(i=>({name:i.name,qty:Number(i.qty||1),unit_price:Number(i.unit_price||0),total:Number(i.total||0)})),payment_details:Array.isArray(c.payment_details)?c.payment_details.map(p=>({customer:p.customer||'',payment:p.payment||'',amount:Number(p.amount||0)})):[],subtotal:Math.max(0,Number(c.total||0)-Number(c.delivery_fee||0)),delivery_fee:Number(c.delivery_fee||0),total:Number(c.total||0),notes:c.notes||''};
   const key='esp-reinaldo-command-'+Date.now()+'-'+Math.random().toString(36).slice(2,8);
   localStorage.setItem(key,JSON.stringify(data));
   win.location.href='/comanda-fiado.html?key='+encodeURIComponent(key)+'&mode='+encodeURIComponent(mode);
