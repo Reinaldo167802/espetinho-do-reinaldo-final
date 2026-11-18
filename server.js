@@ -1204,7 +1204,7 @@ app.put('/api/admin/commands/:id/close',auth,async(req,res)=>{
    const cents=Math.round(Number(row?.amount)*100);
    if(!methods.includes(method))return res.status(400).json({error:'Escolha uma forma de pagamento válida em cada lançamento.'});
    if(!Number.isFinite(cents)||cents<=0)return res.status(400).json({error:'Informe um valor maior que zero para cada forma de pagamento.'});
-   const customer=method==='fiado'?String(row?.customer||'').trim():'';
+   const customer=String(row?.customer||'').trim();
    if(method==='fiado'&&!customer)return res.status(400).json({error:'Selecione um cliente para cada lançamento de fiado.'});
    normalized.push({payment:method,amount:cents/100,cents,customer});
   }
@@ -1236,7 +1236,7 @@ app.put('/api/admin/commands/:id/close',auth,async(req,res)=>{
   if(!changed.changes)return res.status(409).json({error:'Esta comanda já foi finalizada. Atualize a tela.'});
   for(const part of normalized){
    await run('INSERT INTO command_payments(command_id,payment,amount,customer) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?')+')',[id,part.payment,part.amount,part.customer||'']);
-   const description=part.payment==='fiado'?'Comanda '+c.number+' - Fiado - Cliente: '+part.customer:'Comanda '+c.number+' - Pagamento '+part.payment;
+   const description=part.payment==='fiado'?'Comanda '+c.number+' - Fiado - Cliente: '+part.customer:'Comanda '+c.number+' - Pagamento '+part.payment+(part.customer?' - Responsável: '+part.customer:'');
    await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?)'),[part.payment==='fiado'?'fiado':'entrada',description,part.amount,part.payment]);
   }
   const updated=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[id]);
@@ -1247,7 +1247,7 @@ app.put('/api/admin/commands/:id/close',auth,async(req,res)=>{
 // Confirma o pagamento de uma conta fechada que ainda estava pendente. Rejeita duplicação.
 app.put('/api/admin/commands/:id/pay',auth,async(req,res)=>{
  try{
-  const id=Number(req.params.id);const payment=String(req.body.payment||'').trim().toLowerCase();
+  const id=Number(req.params.id);const payment=String(req.body.payment||'').trim().toLowerCase();const customer=String(req.body.customer||'').trim();
   if(!['pix','dinheiro','debito','credito'].includes(payment))return res.status(400).json({error:'Escolha uma forma de pagamento válida.'});
   const c=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[id]);
   if(!c)return res.status(404).json({error:'Comanda não encontrada.'});
@@ -1261,9 +1261,10 @@ app.put('/api/admin/commands/:id/pay',auth,async(req,res)=>{
   );
   if(!changed.changes)return res.status(409).json({error:'Esta conta já foi paga ou deixou de estar pendente. Atualize a tela antes de tentar novamente.'});
   const description='Comanda '+c.number;
+  await run('INSERT INTO command_payments(command_id,payment,amount,customer) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?')+')',[id,payment,Number(c.total),customer]);
   // Só a requisição que alterou o estado pode lançar a entrada no caixa.
   const exists=await one('SELECT id FROM cash WHERE description='+(isPg?'$1':'?'),[description]);
-  if(!exists)await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?)'),['entrada',description,Number(c.total),payment]);
+  if(!exists)await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?)'),['entrada',description+(customer?' - Responsável: '+customer:''),Number(c.total),payment]);
   const updated=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[id]);res.json({ok:true,command:updated});
  }catch(e){console.error('Erro ao registrar pagamento da comanda:',e);res.status(500).json({error:'Não foi possível registrar o pagamento.'})}
 });
