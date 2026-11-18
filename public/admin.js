@@ -288,23 +288,27 @@ async function loadCommandFiadoCustomers(){
  return commandFiadoCustomers;
 }
 async function updateCommandFiadoCustomer(row){
- const method=row.querySelector('.cmdPayMethod'),select=row.querySelector('.cmdPayCustomer');
- if(!method||!select)return;
- const isFiado=method.value==='fiado';select.style.display=isFiado?'':'none';
- if(!isFiado){select.value='';return;}
- select.disabled=true;select.innerHTML='<option value="">Carregando clientes...</option>';
- try{const customers=await loadCommandFiadoCustomers();select.innerHTML='<option value="">Selecione o responsável pelo fiado</option>'+customers.map(c=>`<option value="${escAttr(c.name)}">${esc(c.name)}${(c.fiado_authorized===true||c.fiado_authorized===1)?' — autorizado':' — sem autorização'}</option>`).join('');}
- catch(e){select.innerHTML='<option value="">Erro ao carregar clientes</option>';alert('Não foi possível carregar os clientes para o fiado: '+e.message);}
- finally{select.disabled=false;}
+ const method=row.querySelector('.cmdPayMethod'),input=row.querySelector('.cmdPayCustomer');
+ if(!method||!input)return;
+ const isFiado=method.value==='fiado';
+ input.placeholder=isFiado?'Cliente cadastrado responsável pelo fiado':'Nome do responsável pelo pagamento';
+ input.setAttribute('aria-label',isFiado?'Cliente responsável pelo fiado':'Responsável pelo pagamento');
+ try{
+  const customers=await loadCommandFiadoCustomers();
+  let list=document.getElementById('cmdPaymentCustomerOptions');
+  if(!list){list=document.createElement('datalist');list.id='cmdPaymentCustomerOptions';document.body.appendChild(list);}
+  list.innerHTML=customers.map(c=>`<option value="${escAttr(c.name)}"></option>`).join('');
+  input.setAttribute('list',list.id);
+ }catch(e){console.error('Não foi possível carregar sugestões de clientes:',e);}
 }
 function addCommandPaymentRow(defaultAmount=''){
  const box=$('cmdPaymentRows');if(!box)return;
  const row=document.createElement('div');row.className='cmd-payment-row';row.style.cssText='display:grid;grid-template-columns:minmax(0,1fr) minmax(105px,.8fr) auto;gap:7px;align-items:center;margin:7px 0';
- row.innerHTML='<select class="cmdPayMethod" aria-label="Forma de pagamento"><option value="pix">Pix</option><option value="dinheiro">Dinheiro</option><option value="debito">Cartão de débito</option><option value="credito">Cartão de crédito</option><option value="fiado">Fiado / promissória</option></select><input class="cmdPayAmount" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="Valor (R$)" aria-label="Valor do pagamento"><button type="button" class="danger cmdPayRemove" style="padding:8px 10px" aria-label="Remover forma de pagamento">✕</button><select class="cmdPayCustomer" aria-label="Responsável pelo fiado" style="display:none;grid-column:1/-1;width:100%"><option value="">Selecione o responsável pelo fiado</option></select>';
+ row.innerHTML='<select class="cmdPayMethod" aria-label="Forma de pagamento"><option value="pix">Pix</option><option value="dinheiro">Dinheiro</option><option value="debito">Cartão de débito</option><option value="credito">Cartão de crédito</option><option value="fiado">Fiado / promissória</option></select><input class="cmdPayAmount" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="Valor (R$)" aria-label="Valor do pagamento"><button type="button" class="danger cmdPayRemove" style="padding:8px 10px" aria-label="Remover forma de pagamento">✕</button><input class="cmdPayCustomer" type="text" maxlength="120" autocomplete="off" placeholder="Responsável pelo pagamento (opcional)" aria-label="Responsável pelo pagamento" style="grid-column:1/-1;width:100%;box-sizing:border-box">';
  const amount=row.querySelector('.cmdPayAmount');if(defaultAmount!==''&&defaultAmount!==null)amount.value=Number(defaultAmount).toFixed(2);
  row.querySelector('.cmdPayRemove').addEventListener('click',()=>{row.remove();updateCommandPaymentTotal()});
  row.querySelector('.cmdPayMethod').addEventListener('change',()=>{updateCommandPaymentTotal();updateCommandFiadoCustomer(row)});amount.addEventListener('input',updateCommandPaymentTotal);
- box.appendChild(row);updateCommandPaymentTotal();
+ box.appendChild(row);updateCommandPaymentTotal();updateCommandFiadoCustomer(row);
 }
 function updateCommandPaymentTotal(){
  const box=$('commandPaymentBox');if(!box)return;
@@ -331,8 +335,8 @@ async function addCurrentCommandItem(id){const product_id=Number($('cmdProductCu
 async function deleteCommandItem(commandId,itemId){if(!confirm('Confirma excluir este produto da comanda aberta? Se for o último produto, a comanda também será removida automaticamente.'))return;try{const result=await api('/api/admin/commands/'+commandId+'/items/'+itemId,{method:'DELETE'});if(result.commandDeleted){currentCommandId=null;$('commandDetailView').style.display='none';$('commandDetailView').innerHTML='';$('commandsBoardView').style.display='block';await loadCommands();alert('Último produto excluído. A comanda vazia foi removida automaticamente.');return;}const [rows,products]=await Promise.all([api('/api/admin/commands'),api('/api/admin/products')]);const c=rows.find(x=>Number(x.id)===Number(commandId));if(!c){currentCommandId=null;$('commandDetailView').style.display='none';$('commandDetailView').innerHTML='';$('commandsBoardView').style.display='block';await loadCommands();return;}renderCommandDetails(c,products.filter(p=>p.active===true||p.active===1));}catch(e){alert(e.message)}}
 async function finalizeCommand(id){
  const box=$('commandPaymentBox');
- const payments=[...box.querySelectorAll('.cmd-payment-row')].map(row=>({payment:row.querySelector('.cmdPayMethod').value,amount:Number(row.querySelector('.cmdPayAmount').value),customer:row.querySelector('.cmdPayMethod').value==='fiado'?row.querySelector('.cmdPayCustomer')?.value||'':''}));
- if(payments.some(p=>p.payment==='fiado'&&!p.customer))return alert('Selecione o cliente responsável por cada lançamento de fiado.');
+ const payments=[...box.querySelectorAll('.cmd-payment-row')].map(row=>({payment:row.querySelector('.cmdPayMethod').value,amount:Number(row.querySelector('.cmdPayAmount').value),customer:String(row.querySelector('.cmdPayCustomer')?.value||'').trim()}));
+ if(payments.some(p=>!p.customer))return alert('Informe o responsável por cada forma de pagamento. Para fiado, selecione um cliente cadastrado e autorizado.');
  if(!payments.length||payments.some(p=>!Number.isFinite(p.amount)||p.amount<=0))return alert('Informe um valor maior que zero em cada forma de pagamento.');
  const expected=Math.round(Number(box.dataset.total||0)*100),sum=payments.reduce((n,p)=>n+Math.round(p.amount*100),0);
  if(sum!==expected)return alert('A soma dos pagamentos precisa ser exatamente igual ao total da comanda.');
@@ -340,7 +344,7 @@ async function finalizeCommand(id){
  if(!confirm('Confirma finalizar a comanda com: '+summary+'?'))return;
  try{await api('/api/admin/commands/'+id+'/close',{method:'PUT',body:JSON.stringify({payments})});currentCommandId=null;$('commandDetailView').style.display='none';$('commandDetailView').innerHTML='';$('commandsBoardView').style.display='block';await loadCommands();if($('cash').style.display!=='none')await loadCash();printCommand(id,'paga');const hasFiado=payments.some(p=>p.payment==='fiado');alert(hasFiado?'Venda finalizada. Os recebimentos foram lançados no caixa e a parcela fiada foi registrada para o cliente.':'Venda finalizada e recebimentos registrados no caixa.');}catch(e){alert(e.message)}
 }
-async function payClosedCommand(id){const payment=prompt('Forma de pagamento: pix, dinheiro, debito ou credito','pix');if(!payment)return;const normalized=payment.toLowerCase().trim();if(!['pix','dinheiro','debito','credito'].includes(normalized))return alert('Informe pix, dinheiro, debito ou credito.');try{await api('/api/admin/commands/'+id+'/pay',{method:'PUT',body:JSON.stringify({payment:normalized})});await loadCommands();if($('cash').style.display!=='none')await loadCash();printCommand(id,'paga');}catch(e){alert(e.message)}}
+async function payClosedCommand(id){const payment=prompt('Forma de pagamento: pix, dinheiro, debito ou credito','pix');if(!payment)return;const normalized=payment.toLowerCase().trim();if(!['pix','dinheiro','debito','credito'].includes(normalized))return alert('Informe pix, dinheiro, debito ou credito.');const customer=prompt('Nome do responsável por este pagamento:','');if(customer===null||!customer.trim())return alert('Informe o responsável pelo pagamento.');try{await api('/api/admin/commands/'+id+'/pay',{method:'PUT',body:JSON.stringify({payment:normalized,customer:customer.trim()})});await loadCommands();if($('cash').style.display!=='none')await loadCash();printCommand(id,'paga');}catch(e){alert(e.message)}}
 async function closeCommand(id){return finalizeCommand(id)}
 async function payCommand(id){return payClosedCommand(id)}
 async function openCommandDocument(id,mode='a4'){
