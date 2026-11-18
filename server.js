@@ -721,15 +721,29 @@ app.post('/api/admin/orders/:id/confirm-payment',auth,async(req,res)=>{try{const
 
 app.get('/api/admin/cash',auth,async(req,res)=>{
  try{
-  // Garante que comandas antigas fechadas no fiado também apareçam no movimento.
+  // Garante que comandas antigas fechadas no fiado apareçam uma única vez.
+  // Se já existir o lançamento identificado com o cliente, não cria outro genérico.
   const fiadoCommands=await q("SELECT * FROM commands WHERE status='fechada' AND LOWER(payment)='fiado'");
   for(const command of fiadoCommands){
    const description='Comanda '+command.number+' - Fiado';
-   const exists=await one('SELECT id FROM cash WHERE description='+(isPg?'$1':'?'),[description]);
-   if(!exists)await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?)'),['fiado',description,Number(command.total)||0,'fiado']);
+   const related=await q(
+    'SELECT id,description FROM cash WHERE type='+(isPg?'$1':'?')+' AND LOWER(payment)='+(isPg?'$2':'?'),
+    ['fiado','fiado']
+   );
+   const alreadyListed=related.some(row=>{
+    const current=String(row.description||'');
+    return current===description || current.startsWith(description+' - Cliente:');
+   });
+   if(!alreadyListed)await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?)'),['fiado',description,Number(command.total)||0,'fiado']);
   }
-  // Mantém os lançamentos e os totais históricos existentes para não quebrar a tela atual.
-  const rows=await q('SELECT * FROM cash ORDER BY id DESC');
+  // Oculta somente a linha genérica quando a mesma comanda já tem linha identificada.
+  // Não apaga nem altera registros; os demais movimentos permanecem intactos.
+  let rows=await q('SELECT * FROM cash ORDER BY id DESC');
+  const detailedFiadoCommands=new Set(
+   rows.filter(row=>row.type==='fiado' && String(row.description||'').includes(' - Fiado - Cliente:'))
+       .map(row=>String(row.description||'').split(' - Fiado - Cliente:')[0]+' - Fiado')
+  );
+  rows=rows.filter(row=>!(row.type==='fiado' && detailedFiadoCommands.has(String(row.description||''))));
   // Fiado/promissória é pendência, não dinheiro recebido; fica fora das entradas e do saldo.
   const normalizePayment=value=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim().replace(/[^a-z0-9]/g,'');
   let totalEntradas=0,totalSaidas=0;
