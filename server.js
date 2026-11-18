@@ -150,7 +150,18 @@ async function commandFiadoBalance(command, customerName=''){
  const mixed=String(command.payment||'').toLowerCase()==='misto';
  const target=normalizeFiadoCustomer(customerName||command.customer||'');
  let original=0;
- if(legacy){ if(!target || target===normalizeFiadoCustomer(command.customer||'')) original=Number(command.total||0); }
+ if(legacy){
+  // Mesmo quando a comanda tem um único pagamento fiado, o responsável
+  // selecionado fica registrado em command_payments.customer. O campo
+  // commands.customer pode conter apenas o nome de quem abriu a comanda.
+  const parts=await q('SELECT amount,customer FROM command_payments WHERE command_id='+(isPg?'$1':'?')+" AND LOWER(payment)='fiado'",[command.id]);
+  if(parts.length){
+   original=parts.filter(row=>!target || normalizeFiadoCustomer(row.customer||command.customer||'')===target).reduce((sum,row)=>sum+Number(row.amount||0),0);
+  }else if(!target || target===normalizeFiadoCustomer(command.customer||'')){
+   // Compatibilidade com comandas antigas sem detalhamento em command_payments.
+   original=Number(command.total||0);
+  }
+ }
  else if(mixed){
   const parts=await q('SELECT amount,customer FROM command_payments WHERE command_id='+(isPg?'$1':'?')+" AND LOWER(payment)='fiado'",[command.id]);
   original=parts.filter(row=>!target || normalizeFiadoCustomer(row.customer||command.customer||'')===target).reduce((sum,row)=>sum+Number(row.amount||0),0);
