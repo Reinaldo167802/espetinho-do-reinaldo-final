@@ -369,8 +369,22 @@ let customerEditingId=null;
 async function loadCustomers(){
  try{
   const rows=await api('/api/admin/customers');
-  $('customersList').innerHTML=rows.length?'<div class="table"><table><tr><th>Cliente</th><th>Contato</th><th>Limite total</th><th>Utilizado</th><th>Disponível</th><th>Autorização</th><th>Situação</th><th>Ações</th></tr>'+rows.map(c=>`<tr><td><b>${esc(c.name)}</b><br><span class="small">${esc(c.address||'')}</span></td><td>${esc(c.phone||'-')}</td><td>${money(c.credit_limit)}</td><td>${money(c.credit_used||0)}</td><td><b>${money(c.credit_available===undefined?c.credit_limit:c.credit_available)}</b></td><td>${(c.fiado_authorized===true||c.fiado_authorized===1)?'Autorizado':'Não autorizado'}</td><td>${(c.active===true||c.active===1)?'Ativo':'Inativo'}</td><td><button onclick="editCustomer(${c.id})">Editar</button></td></tr>`).join('')+'</table></div>':'<p>Nenhum cliente cadastrado ainda.</p>';
+  $('customersList').innerHTML=(rows.length?'<div class="table"><table><tr><th>Cliente</th><th>Contato</th><th>Limite total</th><th>Utilizado</th><th>Disponível</th><th>Autorização</th><th>Situação</th><th>Ações</th></tr>'+rows.map(c=>`<tr><td><b>${esc(c.name)}</b><br><span class="small">${esc(c.address||'')}</span></td><td>${esc(c.phone||'-')}</td><td>${money(c.credit_limit)}</td><td>${money(c.credit_used||0)}</td><td><b>${money(c.credit_available===undefined?c.credit_limit:c.credit_available)}</b></td><td>${(c.fiado_authorized===true||c.fiado_authorized===1)?'Autorizado':'Não autorizado'}</td><td>${(c.active===true||c.active===1)?'Ativo':'Inativo'}</td><td><button onclick="editCustomer(${c.id})">Editar</button> <button onclick="loadCustomerReceipts(${Number(c.id)})">Comprovantes</button></td></tr>`).join('')+'</table></div>':'<p>Nenhum cliente cadastrado ainda.</p>')+'<div id="customerReceiptsPanel" style="margin-top:16px"></div>';
  }catch(e){$('customersList').innerHTML='<p>Erro ao carregar clientes: '+esc(e.message)+'</p>'}
+}
+async function loadCustomerReceipts(id){
+ const panel=$('customerReceiptsPanel');
+ if(!panel)return;
+ panel.innerHTML='<p>Carregando comprovantes...</p>';
+ try{
+  const rows=await api('/api/admin/customers/'+Number(id)+'/receipts');
+  const name=rows[0]?.customer_name||'Cliente';
+  panel.innerHTML='<div class="panel"><h3>Comprovantes de fiado — '+esc(name)+'</h3>'+(rows.length?'<div class="table"><table><tr><th>Data</th><th>Comanda</th><th>Valor</th><th>Ação</th></tr>'+rows.map(r=>`<tr><td>${esc(r.created_at||'-')}</td><td>${esc(r.payload?.command??r.command_id)}</td><td>${money(r.fiado_amount)}</td><td><button onclick="printCustomerReceipt(${Number(id)},${Number(r.id)})">Reimprimir</button></td></tr>`).join('')+'</table></div>':'<p>Nenhum comprovante arquivado para este cliente.</p>')+'</div>';
+ }catch(e){panel.innerHTML='<div class="panel"><p>Erro ao carregar comprovantes: '+esc(e.message)+'</p></div>'}
+}
+async function printCustomerReceipt(customerId,receiptId){
+ try{await api('/api/admin/customers/'+Number(customerId)+'/receipts/'+Number(receiptId)+'/print',{method:'POST',body:JSON.stringify({})});alert('Comprovante enviado para a impressora.');}
+ catch(e){alert('Não foi possível reimprimir o comprovante: '+e.message)}
 }
 function clearCustomerForm(){customerEditingId=null;['customerId','customerName','customerPhone','customerAddress','customerNotes'].forEach(id=>$(id).value='');$('customerLimit').value='0';$('customerFiado').checked=false;$('customerActive').checked=true;$('customerSaveBtn').textContent='CADASTRAR CLIENTE';}
 async function editCustomer(id){
