@@ -375,16 +375,26 @@ async function loadCustomers(){
 async function loadCustomerReceipts(id){
  const panel=$('customerReceiptsPanel');
  if(!panel)return;
- panel.innerHTML='<p>Carregando comprovantes...</p>';
+ panel.innerHTML='<p>Carregando contas arquivadas...</p>';
  try{
   const rows=await api('/api/admin/customers/'+Number(id)+'/receipts');
   const name=rows[0]?.customer_name||'Cliente';
-  panel.innerHTML='<div class="panel"><h3>Comprovantes de fiado — '+esc(name)+'</h3>'+(rows.length?'<div class="table"><table><tr><th>Data</th><th>Comanda</th><th>Valor</th><th>Ação</th></tr>'+rows.map(r=>`<tr><td>${esc(r.created_at||'-')}</td><td>${esc(r.payload?.command??r.command_id)}</td><td>${money(r.fiado_amount)}</td><td><button onclick="printCustomerReceipt(${Number(id)},${Number(r.id)})">Reimprimir</button></td></tr>`).join('')+'</table></div>':'<p>Nenhum comprovante arquivado para este cliente.</p>')+'</div>';
- }catch(e){panel.innerHTML='<div class="panel"><p>Erro ao carregar comprovantes: '+esc(e.message)+'</p></div>'}
+  panel.innerHTML='<div class="panel"><h3>Contas de fiado — '+esc(name)+'</h3>'+(rows.length?'<div class="table"><table><tr><th>Data</th><th>Comanda</th><th>Valor</th><th>Ação</th></tr>'+rows.map(r=>`<tr><td>${esc(r.created_at||'-')}</td><td>${esc(r.payload?.command??r.command_id)}</td><td>${money(r.fiado_amount)}</td><td><button onclick="openCustomerReceiptA4(${Number(id)},${Number(r.id)})">Abrir comanda A4 / PDF</button></td></tr>`).join('')+'</table></div>':'<p>Nenhuma conta de fiado arquivada para este cliente.</p>')+'</div>';
+ }catch(e){panel.innerHTML='<div class="panel"><p>Erro ao carregar contas: '+esc(e.message)+'</p></div>'}
 }
-async function printCustomerReceipt(customerId,receiptId){
- try{await api('/api/admin/customers/'+Number(customerId)+'/receipts/'+Number(receiptId)+'/print',{method:'POST',body:JSON.stringify({})});alert('Comprovante enviado para a impressora.');}
- catch(e){alert('Não foi possível reimprimir o comprovante: '+e.message)}
+async function openCustomerReceiptA4(customerId,receiptId){
+ let win=null;
+ try{
+  win=window.open('about:blank','_blank');
+  if(!win){alert('O navegador bloqueou a nova janela. Permita pop-ups para este site e tente novamente.');return;}
+  const rows=await api('/api/admin/customers/'+Number(customerId)+'/receipts');
+  const receipt=rows.find(r=>Number(r.id)===Number(receiptId));
+  if(!receipt)throw Error('A conta arquivada não foi encontrada.');
+  const data={...receipt.payload,number:receipt.payload?.number??receipt.payload?.command,command:receipt.payload?.command??receipt.command_id};
+  const key='esp-reinaldo-customer-receipt-'+Number(customerId)+'-'+Number(receiptId)+'-'+Date.now();
+  localStorage.setItem(key,JSON.stringify(data));
+  win.location.href='/comanda-fiado.html?key='+encodeURIComponent(key)+'&mode=a4';
+ }catch(e){if(win)win.close();alert('Não foi possível abrir a conta A4/PDF: '+e.message)}
 }
 function clearCustomerForm(){customerEditingId=null;['customerId','customerName','customerPhone','customerAddress','customerNotes'].forEach(id=>$(id).value='');$('customerLimit').value='0';$('customerFiado').checked=false;$('customerActive').checked=true;$('customerSaveBtn').textContent='CADASTRAR CLIENTE';}
 async function editCustomer(id){
