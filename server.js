@@ -143,18 +143,21 @@ async function one(sql,args=[]){if(isPg){const r=await db.query(sql,args);return
 async function run(sql,args=[]){if(isPg){const r=await db.query(sql,args.map(v=>v===undefined?null:v));return {lastID:r.rows[0]?.id,changes:r.rowCount};}const safeArgs=args.map(v=>v===undefined?null:(typeof v==='boolean'?(v?1:0):(typeof v==='number'&&!Number.isFinite(v)?null:v)));const r=db.prepare(sql).run(...safeArgs);return {lastID:r.lastInsertRowid,changes:r.changes};}
 function placeholders(n,start=1){return Array.from({length:n},(_,i)=>'$'+(i+start)).join(',');}
 async function commandFiadoBalance(command, customerName=''){
+ // Normalização restrita ao cálculo do fiado: remove acentos e espaços excedentes
+ // sem alterar a função normText usada pelas demais partes do sistema.
+ const normalizeFiadoCustomer=value=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim().replace(/\s+/g,' ');
  const legacy=String(command.payment||'').toLowerCase()==='fiado';
  const mixed=String(command.payment||'').toLowerCase()==='misto';
- const target=String(customerName||command.customer||'').trim();
+ const target=normalizeFiadoCustomer(customerName||command.customer||'');
  let original=0;
- if(legacy){ if(!target || normText(target)===normText(command.customer||'')) original=Number(command.total||0); }
+ if(legacy){ if(!target || target===normalizeFiadoCustomer(command.customer||'')) original=Number(command.total||0); }
  else if(mixed){
   const parts=await q('SELECT amount,customer FROM command_payments WHERE command_id='+(isPg?'$1':'?')+" AND LOWER(payment)='fiado'",[command.id]);
-  original=parts.filter(row=>!target || normText(row.customer||command.customer||'')===normText(target)).reduce((sum,row)=>sum+Number(row.amount||0),0);
+  original=parts.filter(row=>!target || normalizeFiadoCustomer(row.customer||command.customer||'')===target).reduce((sum,row)=>sum+Number(row.amount||0),0);
  }
  if(original<=0)return 0;
  const received=await q('SELECT amount,customer FROM fiado_payments WHERE command_id='+(isPg?'$1':'?'),[command.id]);
- const receivedForCustomer=received.filter(row=>!target || normText(row.customer||command.customer||'')===normText(target)).reduce((sum,row)=>sum+Number(row.amount||0),0);
+ const receivedForCustomer=received.filter(row=>!target || normalizeFiadoCustomer(row.customer||command.customer||'')===target).reduce((sum,row)=>sum+Number(row.amount||0),0);
  return Math.max(0,Math.round((original-receivedForCustomer)*100)/100);
 }
 function normText(value){return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();}
