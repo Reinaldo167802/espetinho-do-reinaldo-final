@@ -277,7 +277,24 @@ async function enqueuePrint(jobKey,kind,payload){try{const key=String(jobKey),pr
 function bridgeAuth(req,res,next){if(!PRINTER_BRIDGE_TOKEN)return res.status(503).json({error:'PRINTER_BRIDGE_TOKEN não configurado no servidor'});if(String(req.headers['x-printer-token']||'')!==PRINTER_BRIDGE_TOKEN)return res.status(401).json({error:'Token da impressora inválido'});next()}
 app.get('/api/printer/next',bridgeAuth,async(req,res)=>{try{let job;if(isPg){const r=await db.query("UPDATE print_jobs SET status='printing',attempts=attempts+1,claimed_at=CURRENT_TIMESTAMP WHERE id=(SELECT id FROM print_jobs WHERE status='pending' ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING *");job=r.rows[0]}else{const candidate=await one("SELECT * FROM print_jobs WHERE status='pending' ORDER BY id LIMIT 1");if(candidate){await run("UPDATE print_jobs SET status='printing',attempts=attempts+1,claimed_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'",[candidate.id]);job=await one("SELECT * FROM print_jobs WHERE id=? AND status='printing'",[candidate.id])}}if(!job)return res.status(204).end();res.json({...job,payload:JSON.parse(job.payload)})}catch(e){console.error('Fila de impressão:',e);res.status(500).json({error:'Falha ao consultar fila'})}});
 app.post('/api/printer/:id/ack',bridgeAuth,async(req,res)=>{try{const id=Number(req.params.id),ok=req.body.ok===true,status=ok?'printed':'pending',error=String(req.body.error||'').slice(0,500);if(isPg)await db.query('UPDATE print_jobs SET status=$1,printed_at=CASE WHEN $2 THEN CURRENT_TIMESTAMP ELSE printed_at END,last_error=$3 WHERE id=$4',[status,ok,error,id]);else await run('UPDATE print_jobs SET status=?,printed_at=CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE printed_at END,last_error=? WHERE id=?',[status,ok?1:0,error,id]);res.json({ok:true})}catch(e){res.status(500).json({error:'Falha ao confirmar impressão'})}});
-app.get('/api/admin/customers/:id/receipts',auth,async(req,res)=>{try{const id=Number(req.params.id);const customer=await one('SELECT * FROM customers WHERE id='+(isPg?'$1':'?'),[id]);if(!customer)return res.status(404).json({error:'Cliente não encontrado.'});const rows=await q('SELECT id,command_id,customer_name,fiado_amount,payload,created_at FROM command_receipts WHERE customer_id='+(isPg?'$1':'?')+' ORDER BY id DESC',[id]);res.json(rows.map(r=>({...r,payload:JSON.parse(r.payload)})));}catch(e){console.error(e);res.status(500).json({error:'Não foi possível carregar os comprovantes do cliente.'})}});
+app.get('/api/admin/customers/:id/receipts',auth,async(req,res)=>{try{
+ const id=Number(req.params.id),customer=await one('SELECT * FROM customers WHERE id='+(isPg?'$1':'?'),[id]);
+ if(!customer)return res.status(404).json({error:'Cliente não encontrado.'});
+ const rows=await q('SELECT id,command_id,customer_name,fiado_amount,payload,created_at FROM command_receipts WHERE customer_id='+(isPg?'$1':'?')+' ORDER BY id DESC',[id]);
+ const result=[];
+ for(const r of rows){
+  const payload=JSON.parse(r.payload);
+  // A conta individual mantém todos os produtos da comanda original, mas atribui
+  // somente a parcela de fiado deste cliente, nunca o total pago por terceiros.
+  const parts=await q('SELECT payment,amount,customer FROM command_payments WHERE command_id='+(isPg?'$1':'?')+' ORDER BY id',[r.command_id]);
+  const ownFiado=parts.filter(p=>String(p.payment||'').toLowerCase()==='fiado'&&normText(p.customer||'')===normText(r.customer_name||customer.name));
+  const amount=ownFiado.length?ownFiado.reduce((sum,p)=>sum+Number(p.amount||0),0):Number(r.fiado_amount||0);
+  payload.receiptType='fiado_individual';payload.fiadoCustomer=r.customer_name||customer.name;payload.fiadoAmount=amount;payload.responsibility_amount=amount;payload.payment='fiado';
+  payload.payment_details=[{payment:'fiado',amount,customer:r.customer_name||customer.name}];
+  result.push({...r,fiado_amount:amount,payload});
+ }
+ res.json(result);
+}catch(e){console.error(e);res.status(500).json({error:'Não foi possível carregar os comprovantes do cliente.'})}});
 app.post('/api/admin/customers/:id/receipts/:receiptId/print',auth,async(req,res)=>{try{const customerId=Number(req.params.id),receiptId=Number(req.params.receiptId);const row=await one('SELECT * FROM command_receipts WHERE id='+(isPg?'$1':'?')+' AND customer_id='+(isPg?'$2':'?'),[receiptId,customerId]);if(!row)return res.status(404).json({error:'Comprovante não encontrado.'});const payload=JSON.parse(row.payload);await enqueuePrint('reprint-customer-receipt-'+row.id+'-'+Date.now(),'receipt',payload);res.json({ok:true});}catch(e){console.error(e);res.status(500).json({error:'Não foi possível reimprimir o comprovante.'})}});
 app.post('/api/admin/print/command/:id',auth,async(req,res)=>{try{
  const id=Number(req.params.id),c=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[id]);
@@ -296,7 +313,7 @@ app.post('/api/admin/print/command/:id',auth,async(req,res)=>{try{
   for(const part of fiadoParts){
    const customer=customers.find(x=>normText(x.name)===normText(part.customer));
    if(!customer)continue;
-   const individual={...basePayload,receiptType:'fiado_individual',fiadoCustomer:customer.name,fiadoAmount:Number(part.amount||0),title:'COMPROVANTE INDIVIDUAL DE FIADO'};
+   const individual={...basePayload,receiptType:'fiado_individual',fiadoCustomer:customer.name,fiadoAmount:Number(part.amount||0),responsibility_amount:Number(part.amount||0),payment:'fiado',payment_details:[{payment:'fiado',amount:Number(part.amount||0),customer:customer.name}],title:'COMPROVANTE INDIVIDUAL DE FIADO'};
    const archived=await one('SELECT id FROM command_receipts WHERE command_id='+(isPg?'$1':'?')+' AND customer_id='+(isPg?'$2':'?'),[id,customer.id]);
    if(!archived)await run('INSERT INTO command_receipts(command_id,customer_id,customer_name,fiado_amount,payload) VALUES('+(isPg?'$1,$2,$3,$4,$5':'?,?,?,?,?')+')',[id,customer.id,customer.name,Number(part.amount||0),JSON.stringify(individual)]);
    await enqueuePrint('command-'+id+'-fiado-customer-'+customer.id+'-'+Date.now(),'receipt',individual);
