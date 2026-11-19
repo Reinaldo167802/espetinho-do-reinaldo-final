@@ -4,7 +4,7 @@ const toNumber=v=>{if(v===undefined||v===null||String(v).trim()==='')return 0;co
 const $=id=>document.getElementById(id);
 const api=async(url,opt={})=>{opt.headers={...(opt.headers||{}),'x-admin-password':pass,'Content-Type':'application/json'};const r=await fetch(url,opt);const raw=await r.text();let d;try{d=JSON.parse(raw)}catch(_){throw Error('O servidor respondeu uma página HTML em vez de JSON. Confira a implantação do sistema.')}if(!r.ok)throw Error(d.error||d.message||'Erro');return d};
 function login(){const pw=$('pw');pass=pw.value.trim();if(!pass){alert('Digite a senha administrativa.');return}api('/api/admin/orders').then(()=>{$('login').style.display='none';$('app').style.display='block';loadAll()}).catch(err=>alert('Erro ao entrar: '+err.message));}
-function tab(id){['orders','products','purchases','suppliers','cash','reports','commands','customers','fiado','pickupSales','settings'].forEach(x=>{if($(x))$(x).style.display=x===id?'block':'none'});if(id==='orders')loadOrders();if(id==='products'&&xmlReturnLine===null)loadProducts();if(id==='purchases'){loadPurchaseHistory();}if(id==='suppliers')loadSuppliers();if(id==='cash')loadCash();if(id==='reports')loadReports();if(id==='commands')loadCommands();if(id==='customers')loadCustomers();if(id==='fiado')loadFiado();if(id==='pickupSales')pickupInit();if(id==='settings'){installTestCleanupPanel();loadSettings().catch(()=>{});loadSandwichCapacity();}}
+function tab(id){['orders','products','purchases','suppliers','cash','reports','commands','customers','pickupSales','settings'].forEach(x=>{if($(x))$(x).style.display=x===id?'block':'none'});if(id==='orders')loadOrders();if(id==='products'&&xmlReturnLine===null)loadProducts();if(id==='purchases'){loadPurchaseHistory();}if(id==='suppliers')loadSuppliers();if(id==='cash')loadCash();if(id==='reports')loadReports();if(id==='commands')loadCommands();if(id==='customers')loadCustomers();if(id==='pickupSales')pickupInit();if(id==='settings'){installTestCleanupPanel();loadSettings().catch(()=>{});loadSandwichCapacity();}}
 async function loadAll(){loadOrders();loadCustomerOptions()}
 function installCompactOrderStyles(){
   if(document.getElementById('compact-order-card-styles')) return;
@@ -393,9 +393,73 @@ let customerEditingId=null;
 async function loadCustomers(){
  try{
   const rows=await api('/api/admin/customers');
-  $('customersList').innerHTML=(rows.length?'<div class="table"><table><tr><th>Cliente</th><th>Contato</th><th>Limite total</th><th>Utilizado</th><th>Disponível</th><th>Autorização</th><th>Situação</th><th>Ações</th></tr>'+rows.map(c=>`<tr><td><b>${esc(c.name)}</b><br><span class="small">${esc(c.address||'')}</span></td><td>${esc(c.phone||'-')}</td><td>${money(c.credit_limit)}</td><td>${money(c.credit_used||0)}</td><td><b>${money(c.credit_available===undefined?c.credit_limit:c.credit_available)}</b></td><td>${(c.fiado_authorized===true||c.fiado_authorized===1)?'Autorizado':'Não autorizado'}</td><td>${(c.active===true||c.active===1)?'Ativo':'Inativo'}</td><td><button onclick="editCustomer(${c.id})">Editar</button> <button onclick="loadCustomerReceipts(${Number(c.id)})">Comprovantes</button></td></tr>`).join('')+'</table></div>':'<p>Nenhum cliente cadastrado ainda.</p>')+'<div id="customerReceiptsPanel" style="margin-top:16px"></div>';
+  $('customersList').innerHTML=(rows.length?'<div class="table"><table><tr><th>Cliente</th><th>Contato</th><th>Limite total</th><th>Utilizado</th><th>Disponível</th><th>Autorização</th><th>Situação</th><th>Ações</th></tr>'+rows.map(c=>`<tr><td><b>${esc(c.name)}</b><br><span class="small">${esc(c.address||'')}</span></td><td>${esc(c.phone||'-')}</td><td>${money(c.credit_limit)}</td><td>${money(c.credit_used||0)}</td><td><b>${money(c.credit_available===undefined?c.credit_limit:c.credit_available)}</b></td><td>${(c.fiado_authorized===true||c.fiado_authorized===1)?'Autorizado':'Não autorizado'}</td><td>${(c.active===true||c.active===1)?'Ativo':'Inativo'}</td><td><button onclick="editCustomer(${c.id})">Editar</button> <button onclick="loadCustomerReceipts(${Number(c.id)})">Comprovantes</button> <button class="primary" onclick="openCustomerFiado(${Number(c.id)},decodeURIComponent('${encodeURIComponent(c.name||'')}'))">FIADO / RECEBER</button></td></tr>`).join('')+'</table></div>':'<p>Nenhum cliente cadastrado ainda.</p>')+'<div id="customerReceiptsPanel" style="margin-top:16px"></div><div id="customerFiadoPanel" style="margin-top:16px"></div>';
  }catch(e){$('customersList').innerHTML='<p>Erro ao carregar clientes: '+esc(e.message)+'</p>'}
 }
+
+let customerFiadoContext=null;
+function normalizeFiadoCustomerName(value){
+ return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim().toLowerCase();
+}
+async function openCustomerFiado(id,name){
+ customerFiadoContext={id:Number(id),name:String(name||'').trim()};
+ const panel=$('customerFiadoPanel');
+ if(!panel)return;
+ panel.innerHTML='<div class="panel"><p>Carregando contas pendentes de '+esc(customerFiadoContext.name)+'...</p></div>';
+ await loadCustomerFiado();
+ panel.scrollIntoView({behavior:'smooth',block:'start'});
+}
+async function loadCustomerFiado(){
+ const panel=$('customerFiadoPanel');
+ if(!panel||!customerFiadoContext)return;
+ const customerName=customerFiadoContext.name;
+ panel.innerHTML='<div class="panel"><p>Atualizando fiado...</p></div>';
+ try{
+  const [allRows,allHistory]=await Promise.all([api('/api/admin/fiado'),api('/api/admin/fiado/history')]);
+  const key=normalizeFiadoCustomerName(customerName);
+  const rows=allRows.filter(row=>normalizeFiadoCustomerName(row.customer)===key);
+  const history=allHistory.filter(row=>normalizeFiadoCustomerName(row.customer)===key);
+  panel.innerHTML=`<div class="panel" id="customerFiadoWorkspace">
+   <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+    <h3 style="margin:0">Fiado de ${esc(customerName)}</h3>
+    <button type="button" onclick="closeCustomerFiado()">FECHAR</button>
+   </div>
+   <p>Selecione as comandas que o cliente deseja pagar. Você pode quitar uma conta ou dividir o recebimento entre várias comandas deste mesmo cliente.</p>
+   <div class="row" style="margin:10px 0">
+    <label>Forma de pagamento
+     <select id="customerFiadoPayment"><option value="pix">Pix</option><option value="dinheiro">Dinheiro</option><option value="debito">Cartão de Débito</option><option value="credito">Cartão de Crédito</option></select>
+    </label>
+    <button type="button" class="primary" onclick="receiveCustomerFiado()">REGISTRAR RECEBIMENTO MARCADO</button>
+   </div>
+   <h4>Contas pendentes</h4>
+   ${rows.length?'<div class="table"><table><tr><th>Marcar</th><th>Comanda</th><th>Total original</th><th>Já pago</th><th>Saldo pendente</th><th>Valor a receber (R$)</th></tr>'+rows.map(c=>`<tr><td><input type="checkbox" class="customerFiadoCheck" data-id="${Number(c.id)}" data-customer="${escAttr(c.customer||customerName)}" style="width:auto"></td><td>${esc(c.number)}</td><td>${money(c.total)}</td><td>${money(c.paid)}</td><td><b>${money(c.remaining)}</b></td><td><input type="number" min="0.01" max="${Number(c.remaining).toFixed(2)}" step="0.01" id="customerFiadoAmount${Number(c.id)}" value="${Number(c.remaining).toFixed(2)}" style="width:125px"></td></tr>`).join('')+'</table></div>':'<p>Este cliente não possui comandas pendentes no fiado.</p>'}
+   <h4>Histórico de recebimentos</h4>
+   ${history.length?'<div class="table"><table><tr><th>Data</th><th>Comanda</th><th>Valor recebido</th><th>Forma</th></tr>'+history.map(h=>`<tr><td>${esc(h.created_at||'-')}</td><td>${esc(h.command_number||h.command_id)}</td><td>${money(h.amount)}</td><td>${esc(h.payment||'-')}</td></tr>`).join('')+'</table></div>':'<p>Nenhum recebimento registrado para este cliente.</p>'}
+  </div>`;
+ }catch(e){
+  panel.innerHTML='<div class="panel"><p>Erro ao carregar o fiado: '+esc(e.message)+'</p></div>';
+ }
+}
+function closeCustomerFiado(){
+ customerFiadoContext=null;
+ const panel=$('customerFiadoPanel');
+ if(panel)panel.innerHTML='';
+}
+async function receiveCustomerFiado(){
+ const marked=[...document.querySelectorAll('.customerFiadoCheck:checked')];
+ if(!marked.length)return alert('Marque pelo menos uma comanda pendente.');
+ const allocations=marked.map(box=>({command_id:Number(box.dataset.id),customer:box.dataset.customer,amount:Number($('customerFiadoAmount'+box.dataset.id).value)}));
+ if(allocations.some(a=>!Number.isFinite(a.amount)||a.amount<=0))return alert('Informe um valor maior que zero para cada comanda marcada.');
+ if(!confirm('Confirma registrar o recebimento parcial ou total das comandas selecionadas?'))return;
+ try{
+  const result=await api('/api/admin/fiado/payments',{method:'POST',body:JSON.stringify({payment:$('customerFiadoPayment').value,allocations})});
+  alert('Recebimento registrado: '+money(result.total)+'. O valor foi lançado no caixa.');
+  await Promise.all([loadCustomers(),loadCustomerOptions(),loadCommands()]);
+  await loadCustomerFiado();
+  if($('cash')&&$('cash').style.display!=='none')await loadCash();
+ }catch(e){alert(e.message)}
+}
+
 async function loadCustomerReceipts(id){
  const panel=$('customerReceiptsPanel');
  if(!panel)return;
