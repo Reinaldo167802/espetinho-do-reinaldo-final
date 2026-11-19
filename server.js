@@ -1179,14 +1179,10 @@ async function fiadoCommandRows(){
  const out=[];
  for(const c of commands){
   let customers=[];
-  const fiadoParts=await q("SELECT amount,customer FROM command_payments WHERE command_id="+(isPg?'$1':'?')+" AND LOWER(payment)='fiado'",[c.id]);
-  if(String(c.payment||'').toLowerCase()==='fiado'){
-   customers=fiadoParts.length?fiadoParts.map(x=>String(x.customer||c.customer||'').trim()).filter(Boolean):[String(c.customer||'').trim()];
-  }else{
-   customers=fiadoParts.map(x=>String(x.customer||c.customer||'').trim()).filter(Boolean);
-  }
+  if(String(c.payment||'').toLowerCase()==='fiado') customers=[String(c.customer||'').trim()];
+  else { const parts=await q("SELECT DISTINCT customer FROM command_payments WHERE command_id="+(isPg?'$1':'?')+" AND LOWER(payment)='fiado'",[c.id]); customers=parts.map(x=>String(x.customer||c.customer||'').trim()).filter(Boolean); }
   for(const customer of [...new Set(customers)]){
-   const original=fiadoParts.length?fiadoParts.filter(x=>normText(x.customer||c.customer||'')===normText(customer)).reduce((sum,row)=>sum+Number(row.amount||0),0): (String(c.payment||'').toLowerCase()==='fiado'&&normText(customer)===normText(c.customer||'')?Number(c.total||0):0);
+   const original=String(c.payment||'').toLowerCase()==='fiado'?Number(c.total||0):(await q("SELECT amount,customer FROM command_payments WHERE command_id="+(isPg?'$1':'?')+" AND LOWER(payment)='fiado'",[c.id])).filter(x=>normText(x.customer||c.customer||'')===normText(customer)).reduce((sum,row)=>sum+Number(row.amount||0),0);
    const remaining=await commandFiadoBalance(c,customer); const paid=Math.max(0,Math.round((original-remaining)*100)/100);
    if(remaining>0.001)out.push({...c,customer,fiado_total:original,paid,remaining,fiado_customer:customer});
   }
@@ -1226,12 +1222,15 @@ app.post('/api/admin/fiado/payments',auth,async(req,res)=>{
    prepared.push({c,customer,amount,remaining});
   }
   const total=prepared.reduce((sum,x)=>sum+x.amount,0);
+  const receiptCommands=[];
   for(const x of prepared){
    await run('INSERT INTO fiado_payments(command_id,customer,amount,payment) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?')+')',[x.c.id,x.customer,x.amount,payment]);
    const left=Math.max(0,Math.round((x.remaining-x.amount)*100)/100);
    const description='Recebimento fiado - Cliente: '+x.customer+' - Comanda '+x.c.number+(left<=0.001?' - Quitada':' - Parcial');
    await run('INSERT INTO cash(type,description,value,payment) VALUES('+(isPg?'$1,$2,$3,$4':'?,?,?,?')+')',['entrada',description,x.amount,payment]);
+   receiptCommands.push({number:x.c.number,customer:x.customer,amount:x.amount,remaining:left});
   }
+  await enqueuePrint('fiado-receipt-'+Date.now()+'-'+Math.random().toString(36).slice(2,8),'receipt',{title:'COMPROVANTE DE RECEBIMENTO DE FIADO',customer:prepared[0]?.customer||'',payment,total,commands:receiptCommands,items:receiptCommands.map(x=>({name:'Comanda '+x.number+' — '+x.customer,qty:1,unit_price:x.amount,total:x.amount})),subtotal:total,total,notes:'Recebimento de fiado registrado. Saldo restante por comanda informado acima.',created_at:new Date().toISOString()});
   res.json({ok:true,total,commands:prepared.map(x=>({number:x.c.number,customer:x.customer,amount:x.amount}))});
  }catch(e){console.error('Erro ao registrar recebimento de fiado:',e);res.status(500).json({error:'Não foi possível registrar o recebimento.'})}
 });
