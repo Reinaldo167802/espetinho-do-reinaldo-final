@@ -4,7 +4,7 @@ const toNumber=v=>{if(v===undefined||v===null||String(v).trim()==='')return 0;co
 const $=id=>document.getElementById(id);
 const api=async(url,opt={})=>{opt.headers={...(opt.headers||{}),'x-admin-password':pass,'Content-Type':'application/json'};const r=await fetch(url,opt);const raw=await r.text();let d;try{d=JSON.parse(raw)}catch(_){throw Error('O servidor respondeu uma página HTML em vez de JSON. Confira a implantação do sistema.')}if(!r.ok)throw Error(d.error||d.message||'Erro');return d};
 function login(){const pw=$('pw');pass=pw.value.trim();if(!pass){alert('Digite a senha administrativa.');return}api('/api/admin/orders').then(()=>{$('login').style.display='none';$('app').style.display='block';loadAll()}).catch(err=>alert('Erro ao entrar: '+err.message));}
-function tab(id){['orders','products','purchases','suppliers','cash','reports','commands','customers','pickupSales','settings'].forEach(x=>{if($(x))$(x).style.display=x===id?'block':'none'});if(id==='orders')loadOrders();if(id==='products'&&xmlReturnLine===null)loadProducts();if(id==='purchases'){loadPurchaseHistory();}if(id==='suppliers')loadSuppliers();if(id==='cash')loadCash();if(id==='reports')loadReports();if(id==='commands')loadCommands();if(id==='customers')loadCustomers();if(id==='pickupSales')pickupInit();if(id==='settings'){installTestCleanupPanel();loadSettings().catch(()=>{});loadSandwichCapacity();}}
+function tab(id){['orders','products','purchases','suppliers','cash','reports','commands','customers','fiado','pickupSales','settings'].forEach(x=>{if($(x))$(x).style.display=x===id?'block':'none'});if(id==='orders')loadOrders();if(id==='products'&&xmlReturnLine===null)loadProducts();if(id==='purchases'){loadPurchaseHistory();}if(id==='suppliers')loadSuppliers();if(id==='cash')loadCash();if(id==='reports')loadReports();if(id==='commands')loadCommands();if(id==='customers')loadCustomers();if(id==='fiado')loadFiado();if(id==='pickupSales')pickupInit();if(id==='settings'){installTestCleanupPanel();loadSettings().catch(()=>{});loadSandwichCapacity();}}
 async function loadAll(){loadOrders();loadCustomerOptions()}
 function installCompactOrderStyles(){
   if(document.getElementById('compact-order-card-styles')) return;
@@ -454,7 +454,7 @@ async function receiveCustomerFiado(){
  try{
   const result=await api('/api/admin/fiado/payments',{method:'POST',body:JSON.stringify({payment:$('customerFiadoPayment').value,allocations})});
   alert('Recebimento registrado: '+money(result.total)+'. O valor foi lançado no caixa.');
-  await Promise.all([loadCustomers(),loadCustomerOptions(),loadCommands()]);
+  await Promise.all([loadCustomers(),loadCustomerOptions(),loadCommands(),loadFiado()]);
   await loadCustomerFiado();
   if($('cash')&&$('cash').style.display!=='none')await loadCash();
  }catch(e){alert(e.message)}
@@ -510,7 +510,7 @@ async function receiveFiado(){
  try{
   const result=await api('/api/admin/fiado/payments',{method:'POST',body:JSON.stringify({payment:$('fiadoPayment').value,allocations})});
   alert('Recebimento registrado: '+money(result.total)+'. O valor foi lançado no caixa.');
-  await Promise.all([loadFiado(),loadCustomers(),loadCommands()]);
+  await Promise.all([loadFiado(),loadCustomers(),loadCustomerOptions(),loadCommands()]);
   if($('cash').style.display!=='none')await loadCash();
  }catch(e){alert(e.message)}
 }
