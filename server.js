@@ -1179,10 +1179,14 @@ async function fiadoCommandRows(){
  const out=[];
  for(const c of commands){
   let customers=[];
-  if(String(c.payment||'').toLowerCase()==='fiado') customers=[String(c.customer||'').trim()];
-  else { const parts=await q("SELECT DISTINCT customer FROM command_payments WHERE command_id="+(isPg?'$1':'?')+" AND LOWER(payment)='fiado'",[c.id]); customers=parts.map(x=>String(x.customer||c.customer||'').trim()).filter(Boolean); }
+  const fiadoParts=await q("SELECT amount,customer FROM command_payments WHERE command_id="+(isPg?'$1':'?')+" AND LOWER(payment)='fiado'",[c.id]);
+  if(String(c.payment||'').toLowerCase()==='fiado'){
+   customers=fiadoParts.length?fiadoParts.map(x=>String(x.customer||c.customer||'').trim()).filter(Boolean):[String(c.customer||'').trim()];
+  }else{
+   customers=fiadoParts.map(x=>String(x.customer||c.customer||'').trim()).filter(Boolean);
+  }
   for(const customer of [...new Set(customers)]){
-   const original=String(c.payment||'').toLowerCase()==='fiado'?Number(c.total||0):(await q("SELECT amount,customer FROM command_payments WHERE command_id="+(isPg?'$1':'?')+" AND LOWER(payment)='fiado'",[c.id])).filter(x=>normText(x.customer||c.customer||'')===normText(customer)).reduce((sum,row)=>sum+Number(row.amount||0),0);
+   const original=fiadoParts.length?fiadoParts.filter(x=>normText(x.customer||c.customer||'')===normText(customer)).reduce((sum,row)=>sum+Number(row.amount||0),0): (String(c.payment||'').toLowerCase()==='fiado'&&normText(customer)===normText(c.customer||'')?Number(c.total||0):0);
    const remaining=await commandFiadoBalance(c,customer); const paid=Math.max(0,Math.round((original-remaining)*100)/100);
    if(remaining>0.001)out.push({...c,customer,fiado_total:original,paid,remaining,fiado_customer:customer});
   }
