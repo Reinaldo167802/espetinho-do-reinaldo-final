@@ -466,22 +466,47 @@ async function saveCustomer(){
  }catch(e){alert(e.message)}
 }
 
+let fiadoRowsCache=[];
+let fiadoCustomerOpen='';
+function fiadoKey(value){return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim().replace(/\s+/g,' ')}
+function installFiadoGroupedStyles(){
+ if(!$('fiadoCustomerModalHost')){const host=document.createElement('div');host.id='fiadoCustomerModalHost';$('fiadoList').insertAdjacentElement('afterend',host);}
+ if($('fiadoGroupedStyles'))return;
+ const style=document.createElement('style');style.id='fiadoGroupedStyles';style.textContent=`#fiadoList .fiado-customer-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:12px}#fiadoList .fiado-customer-card{border:1px solid rgba(212,175,55,.3);border-radius:12px;padding:14px;background:rgba(255,255,255,.035)}#fiadoList .fiado-customer-card h4{margin:0 0 8px;font-size:1.05rem}#fiadoList .fiado-customer-total{font-size:1.35rem;font-weight:900;margin:6px 0}#fiadoList .fiado-customer-card button{width:100%;margin-top:8px}#fiadoCustomerModalHost .fiado-customer-screen{position:fixed;inset:0;z-index:10000;background:#101827;color:#f8fafc;overflow:auto;padding:16px;box-sizing:border-box}#fiadoCustomerModalHost .fiado-screen-inner{max-width:1100px;margin:0 auto}#fiadoCustomerModalHost .fiado-screen-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}#fiadoCustomerModalHost .fiado-screen-head h2{margin:4px 0}#fiadoCustomerModalHost .fiado-screen-total{font-size:1.3rem;font-weight:900;margin:10px 0}#fiadoCustomerModalHost .fiado-screen-table{overflow:auto;margin:12px 0}#fiadoCustomerModalHost table{min-width:700px;width:100%;border-collapse:collapse}#fiadoCustomerModalHost th,#fiadoCustomerModalHost td{padding:8px;border-bottom:1px solid rgba(255,255,255,.15);text-align:left}#fiadoCustomerModalHost input[type=number]{width:110px;padding:7px}#fiadoCustomerModalHost .fiado-screen-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:12px 0}#fiadoCustomerModalHost select{padding:10px;min-width:150px}@media(max-width:600px){#fiadoCustomerModalHost .fiado-customer-screen{padding:10px}}`;
+ document.head.appendChild(style);
+}
+function renderFiadoCustomers(rows){
+ const groups=new Map();
+ for(const row of rows){const key=fiadoKey(row.customer);if(!key)continue;if(!groups.has(key))groups.set(key,{name:row.customer,rows:[],total:0});const g=groups.get(key);g.rows.push(row);g.total+=Number(row.remaining||0);}
+ const list=[...groups.values()].sort((a,b)=>a.name.localeCompare(b.name,'pt-BR'));
+ $('fiadoList').innerHTML=list.length?'<div class="fiado-customer-grid">'+list.map(g=>`<div class="fiado-customer-card"><h4>${esc(g.name)}</h4><div>${g.rows.length} comanda(s) pendente(s)</div><div class="fiado-customer-total">${money(g.total)}</div><button class="primary" onclick="openFiadoCustomer('${encodeURIComponent(fiadoKey(g.name)).replace(/'/g,'%27')}')">REGISTRAR RECEBIMENTO</button></div>`).join('')+'</div>':'<p>Nenhum cliente com fiado pendente.</p>';
+}
+function openFiadoCustomer(encodedKey){
+ const key=decodeURIComponent(encodedKey);fiadoCustomerOpen=key;
+ const group=fiadoRowsCache.filter(r=>fiadoKey(r.customer)===key);if(!group.length)return;
+ const name=group[0].customer,total=group.reduce((n,r)=>n+Number(r.remaining||0),0),host=$('fiadoCustomerModalHost');
+ host.innerHTML=`<div class="fiado-customer-screen"><div class="fiado-screen-inner"><div class="fiado-screen-head"><h2>Recebimento — ${esc(name)}</h2><button onclick="closeFiadoCustomer()">VOLTAR</button></div><div class="fiado-screen-total">Saldo total: ${money(total)}</div><p>Selecione uma ou mais comandas e informe o valor que será recebido em cada uma. O saldo de cada comanda será atualizado separadamente.</p><div class="fiado-screen-table"><table><thead><tr><th>Selecionar</th><th>Comanda</th><th>Fiado original</th><th>Já recebido</th><th>Saldo</th><th>Receber agora</th></tr></thead><tbody>${group.map(c=>`<tr><td><input type="checkbox" class="fiadoCheck" data-id="${Number(c.id)}" data-customer="${esc(c.customer)}"></td><td>${esc(c.number)}</td><td>${money(c.fiado_total)}</td><td>${money(c.paid)}</td><td><b>${money(c.remaining)}</b></td><td><input type="number" min="0.01" max="${Number(c.remaining).toFixed(2)}" step="0.01" id="fiadoAmount${Number(c.id)}" value="${Number(c.remaining).toFixed(2)}"></td></tr>`).join('')}</tbody></table></div><div class="fiado-screen-actions"><label>Forma de recebimento <select id="fiadoPaymentCustomer"><option value="pix">Pix</option><option value="dinheiro">Dinheiro</option><option value="debito">Débito</option><option value="credito">Crédito</option></select></label><button class="primary" onclick="receiveFiado()">CONFIRMAR RECEBIMENTO</button><button onclick="closeFiadoCustomer()">CANCELAR</button></div></div></div>`;
+}
+function closeFiadoCustomer(){fiadoCustomerOpen='';$('fiadoCustomerModalHost').innerHTML='';}
 async function loadFiado(){
  try{
   const [rows,history]=await Promise.all([api('/api/admin/fiado'),api('/api/admin/fiado/history')]);
-  $('fiadoList').innerHTML=rows.length?'<div class="table"><table><tr><th>Marcar</th><th>Cliente</th><th>Comanda</th><th>Total original</th><th>Já pago</th><th>Saldo pendente</th><th>Valor deste recebimento (R$)</th></tr>'+rows.map(c=>`<tr><td><input type="checkbox" class="fiadoCheck" data-id="${c.id}" style="width:auto"></td><td>${esc(c.customer||'Cliente não identificado')}</td><td>${esc(c.number)}</td><td>${money(c.total)}</td><td>${money(c.paid)}</td><td><b>${money(c.remaining)}</b></td><td><input type="number" min="0.01" max="${Number(c.remaining).toFixed(2)}" step="0.01" id="fiadoAmount${c.id}" value="${Number(c.remaining).toFixed(2)}" style="width:125px"></td></tr>`).join('')+'</table></div>':'<p>Nenhuma comanda com fiado pendente.</p>';
+  fiadoRowsCache=rows||[];renderFiadoCustomers(fiadoRowsCache);
   $('fiadoHistory').innerHTML=history.length?'<div class="table"><table><tr><th>Data</th><th>Cliente</th><th>Comanda</th><th>Valor recebido</th><th>Forma</th></tr>'+history.map(h=>`<tr><td>${esc(h.created_at||'-')}</td><td>${esc(h.customer||'-')}</td><td>${esc(h.command_number||h.command_id)}</td><td>${money(h.amount)}</td><td>${esc(h.payment||'-')}</td></tr>`).join('')+'</table></div>':'<p>Nenhum recebimento de fiado registrado ainda.</p>';
+  installFiadoGroupedStyles();
+  if(fiadoCustomerOpen)openFiadoCustomer(encodeURIComponent(fiadoCustomerOpen));
  }catch(e){$('fiadoList').innerHTML='<p>Erro ao carregar fiado: '+esc(e.message)+'</p>'}
 }
 async function receiveFiado(){
- const marked=[...document.querySelectorAll('.fiadoCheck:checked')];
+ const marked=[...document.querySelectorAll('#fiadoCustomerModalHost .fiadoCheck:checked')];
  if(!marked.length)return alert('Marque pelo menos uma comanda pendente.');
- const allocations=marked.map(box=>({command_id:Number(box.dataset.id),amount:Number($('fiadoAmount'+box.dataset.id).value)}));
+ const allocations=marked.map(box=>({command_id:Number(box.dataset.id),customer:box.dataset.customer,amount:Number($('fiadoAmount'+box.dataset.id).value)}));
  if(allocations.some(a=>!Number.isFinite(a.amount)||a.amount<=0))return alert('Informe um valor maior que zero para cada comanda marcada.');
  if(!confirm('Confirma registrar o recebimento parcial ou total destas comandas?'))return;
  try{
-  const result=await api('/api/admin/fiado/payments',{method:'POST',body:JSON.stringify({payment:$('fiadoPayment').value,allocations})});
-  alert('Recebimento registrado: '+money(result.total)+'. O valor foi lançado no caixa.');
+  const result=await api('/api/admin/fiado/payments',{method:'POST',body:JSON.stringify({payment:$('fiadoPaymentCustomer').value,allocations})});
+  alert('Recebimento registrado: '+money(result.total)+'. O valor foi lançado no caixa e o comprovante enviado para impressão.');
+  closeFiadoCustomer();
   await Promise.all([loadFiado(),loadCustomers(),loadCustomerOptions(),loadCommands()]);
   if($('cash').style.display!=='none')await loadCash();
  }catch(e){alert(e.message)}
