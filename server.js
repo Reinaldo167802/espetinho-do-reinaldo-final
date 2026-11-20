@@ -306,7 +306,11 @@ app.get('/api/admin/customers/:id/receipts',auth,async(req,res)=>{try{
   const amount=ownFiado.length?ownFiado.reduce((sum,p)=>sum+Number(p.amount||0),0):Number(r.fiado_amount||0);
   payload.receiptType='fiado_individual';payload.fiadoCustomer=r.customer_name||customer.name;payload.fiadoAmount=amount;payload.responsibility_amount=amount;payload.payment='fiado';
   payload.payment_details=[{payment:'fiado',amount,customer:r.customer_name||customer.name}];
-  result.push({...r,fiado_amount:amount,payload});
+  const command=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[r.command_id]);
+  const remaining=command?await commandFiadoBalance(command,r.customer_name||customer.name):amount;
+  const paid=Math.max(0,Math.round((amount-remaining)*100)/100);
+  const status=remaining<=0.01?'paga':paid>0.01?'parcial':'aberta';
+  result.push({...r,fiado_amount:amount,paid,remaining,status,payload});
  }
  res.json(result);
 }catch(e){console.error(e);res.status(500).json({error:'Não foi possível carregar os comprovantes do cliente.'})}});
