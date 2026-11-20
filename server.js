@@ -1177,14 +1177,16 @@ app.delete('/api/admin/commands/:id/items/:itemId',auth,async(req,res)=>{
 async function fiadoCommandRows(){
  const commands=await q("SELECT * FROM commands WHERE status='fechada' AND LOWER(payment) IN ('fiado','misto') ORDER BY id DESC");
  const out=[];
+ const normalizeFiadoCustomer=value=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim().replace(/\s+/g,' ');
  for(const c of commands){
-  let customers=[];
-  if(String(c.payment||'').toLowerCase()==='fiado') customers=[String(c.customer||'').trim()];
-  else { const parts=await q("SELECT DISTINCT customer FROM command_payments WHERE command_id="+(isPg?'$1':'?')+" AND LOWER(payment)='fiado'",[c.id]); customers=parts.map(x=>String(x.customer||c.customer||'').trim()).filter(Boolean); }
-  for(const customer of [...new Set(customers)]){
-   const original=String(c.payment||'').toLowerCase()==='fiado'?Number(c.total||0):(await q("SELECT amount,customer FROM command_payments WHERE command_id="+(isPg?'$1':'?')+" AND LOWER(payment)='fiado'",[c.id])).filter(x=>normText(x.customer||c.customer||'')===normText(customer)).reduce((sum,row)=>sum+Number(row.amount||0),0);
+  const parts=await q("SELECT amount,customer FROM command_payments WHERE command_id="+(isPg?'$1':'?')+" AND LOWER(payment)='fiado'",[c.id]);
+  let customers=parts.map(x=>String(x.customer||c.customer||'').trim()).filter(Boolean);
+  if(!parts.length&&String(c.payment||'').toLowerCase()==='fiado')customers=[String(c.customer||'').trim()];
+  customers=[...new Set(customers.filter(Boolean))];
+  for(const customer of customers){
+   const original=parts.length?parts.filter(x=>normalizeFiadoCustomer(x.customer||c.customer||'')===normalizeFiadoCustomer(customer)).reduce((sum,row)=>sum+Number(row.amount||0),0):Number(c.total||0);
    const remaining=await commandFiadoBalance(c,customer); const paid=Math.max(0,Math.round((original-remaining)*100)/100);
-   if(remaining>0.001)out.push({...c,customer,fiado_total:original,paid,remaining,fiado_customer:customer});
+   if(original>0&&remaining>0.001)out.push({...c,customer,fiado_total:original,paid,remaining,fiado_customer:customer});
   }
  }
  return out;
@@ -1208,15 +1210,18 @@ app.post('/api/admin/fiado/payments',auth,async(req,res)=>{
   const allocations=Array.isArray(req.body.allocations)?req.body.allocations:[];
   if(!['pix','dinheiro','debito','credito'].includes(payment))return res.status(400).json({error:'Escolha uma forma de recebimento válida.'});
   if(!allocations.length)return res.status(400).json({error:'Marque pelo menos uma comanda e informe o valor recebido.'});
-  const prepared=[];let customerKey='';
+  const prepared=[];let customerKey='';const seenAllocations=new Set();const linkedRows=await fiadoCommandRows();
   for(const a of allocations){
    const commandId=Number(a.command_id),amount=Math.round(Number(a.amount)*100)/100;
    if(!Number.isInteger(commandId)||commandId<=0||!Number.isFinite(amount)||amount<=0)return res.status(400).json({error:'Informe um valor maior que zero para cada comanda marcada.'});
    const c=await one('SELECT * FROM commands WHERE id='+(isPg?'$1':'?'),[commandId]);
    if(!c||c.status!=='fechada'||!['fiado','misto'].includes(String(c.payment||'').toLowerCase()))return res.status(400).json({error:'Uma das comandas selecionadas não está pendente no fiado.'});
-   const customer=String(a.customer||c.customer||'').trim();const key=normText(customer);
+   const customer=String(a.customer||'').trim();const key=normText(customer).trim().replace(/\s+/g,' ');
    if(!key)return res.status(400).json({error:'Selecione o cliente responsável por este fiado.'});
    if(customerKey&&customerKey!==key)return res.status(400).json({error:'Para registrar um recebimento conjunto, selecione comandas do mesmo cliente.'});customerKey=key;
+   const allocationKey=String(c.id)+'|'+key;if(seenAllocations.has(allocationKey))return res.status(400).json({error:'A mesma comanda e cliente foram selecionados mais de uma vez.'});seenAllocations.add(allocationKey);
+   const linked=linkedRows.find(row=>String(row.id)===String(c.id)&&normText(row.customer).trim().replace(/\s+/g,' ' )===key);
+   if(!linked)return res.status(400).json({error:'Esta comanda não possui saldo fiado pendente vinculado ao cliente selecionado.'});
    const remaining=await commandFiadoBalance(c,customer);
    if(amount>remaining+0.001)return res.status(400).json({error:'O valor destinado à comanda '+c.number+' é maior que o saldo pendente ('+remaining.toFixed(2)+').'});
    prepared.push({c,customer,amount,remaining});
