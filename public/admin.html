@@ -522,7 +522,49 @@ body{background:#f5f3f8;color:#20212a}header{box-shadow:0 2px 14px #211b2910}hea
 .command-payment-modal-body .command-payment-box.show{display:block!important}
 @media(max-width:520px){.command-detail-actions.command-action-row{gap:4px}.command-detail-actions.command-action-row>button{padding:7px 3px!important;font-size:.62rem!important;min-height:42px!important}}
 </style>
-</head><body><header class="admin-header"><div class="brand-lockup"><span class="brand-mark" aria-hidden="true">ER</span><div><b>PAINEL ADMINISTRATIVO</b><small>ESPETINHO DO REINALDO · GESTÃO DA CASA</small></div></div><span class="admin-live"><i></i> ÁREA DE GESTÃO</span></header><div class="admin"><div id="login" class="panel"><h2>Entrar</h2><input id="pw" type="password" placeholder="Senha administrativa" style="padding:12px;width:100%"><button class="primary" style="margin-top:10px" onclick="login()">ENTRAR</button></div><div id="app" style="display:none"><div class="nav"><button onclick="tab('orders')">Pedidos</button><button onclick="tab('products')">Produtos</button><button onclick="tab('purchases')">Entrada de Estoque XML</button><button onclick="tab('suppliers')">Fornecedores</button><button onclick="tab('cash')">Caixa</button><button onclick="tab('commands')">Comandas</button><button onclick="tab('customers')">Clientes</button><button onclick="tab('fiado')">Fiado / Receber</button><button onclick="tab('pickupSales')">Central de Fichas</button><button onclick="tab('settings')">Configurações</button></div>
+<style>
+/* Comanda — acabamento profissional e compacto (somente visual) */
+#commandDetailView{max-width:1040px!important;margin:0 auto!important;padding:6px!important;color:#f6f2eb}
+#commandDetailView .command-detail-head{padding:4px 2px 10px!important;border-bottom:1px solid rgba(218,181,104,.25)!important}
+#commandDetailView .command-detail-head h2{font-size:1.22rem!important;margin:0 0 3px!important;color:#f3d58c!important}
+#commandDetailView .command-detail-head b{font-size:.88rem!important;color:#e7dfd1!important}
+#commandDetailView .command-detail-total{margin:8px 0!important;padding:10px 14px!important;background:linear-gradient(120deg,#302a22,#24211e)!important;border:1px solid #6c5838!important;border-radius:11px!important}
+#commandDetailView .command-detail-total span{font-size:.82rem!important;color:#d7c8a8!important;font-weight:700}
+#commandDetailView .command-detail-total strong{font-size:1.45rem!important;color:#f1d17e!important}
+#commandDetailView>section{margin:8px 0 12px!important;padding:9px 11px!important;border:1px solid #51483b!important;border-radius:10px!important;background:#26231f!important}
+#commandDetailView>section h3{font-size:.86rem!important;margin:0 0 6px!important;color:#e8ca82!important}
+#commandDetailView>section label{font-size:.78rem!important;color:#ded5c5!important}
+#commandDetailView #cmdDeliveryFee{width:105px!important;padding:7px 9px!important;min-height:34px!important;background:#191817!important;color:#fff!important;border:1px solid #645641!important}
+#commandDetailView>section button{padding:7px 10px!important;min-height:34px!important;font-size:.72rem!important}
+#commandDetailView>section>div:last-child{margin-top:5px!important;font-size:.78rem!important;color:#cfc5b5!important}
+#commandDetailView h3:not(section h3){margin:10px 0 5px!important;font-size:.9rem!important;color:#e8ca82!important}
+#commandDetailView .command-detail-items{gap:6px!important;margin:6px 0 10px!important}
+#commandDetailView .command-item-card{padding:8px 10px!important;gap:8px!important;border-color:#51483b!important;background:#292521!important;border-radius:9px!important}
+#commandDetailView .command-item-card>div:first-child>div:first-child{font-size:.84rem!important;line-height:1.25!important;color:#f0d89e!important}
+#commandDetailView .command-item-card>div:first-child>div:nth-child(2){gap:8px!important;margin-top:3px!important;font-size:.76rem!important;color:#ddd!important}
+#commandDetailView .command-item-card>div:first-child>div:nth-child(2) span{white-space:nowrap}
+#commandDetailView .command-item-card>div:first-child>div:nth-child(3){margin-top:4px!important;font-size:.74rem!important;line-height:1.3!important;color:#ffd98a!important}
+#commandDetailView .command-item-delete{padding:6px 9px!important;min-height:32px!important;font-size:.68rem!important;border-radius:7px!important}
+#commandDetailView .command-search-wrap{margin:0 0 5px!important}
+#commandDetailView .command-product-search{padding:9px 11px!important;font-size:14px!important;border-radius:8px!important;background:#191817!important;color:#fff!important;border-color:#625642!important}
+#commandDetailView .command-product-controls{grid-template-columns:minmax(0,1fr) minmax(140px,.55fr) 92px!important;gap:6px!important;margin:0!important}
+#commandDetailView .command-product-controls #cmdSaleOption{padding:8px!important;min-height:35px!important;font-size:.78rem!important;background:#191817!important;color:#fff!important;border-color:#625642!important}
+#commandDetailView .command-product-controls .command-qty-label{width:92px!important;max-width:92px!important;font-size:.72rem!important;color:#d7c8a8!important}
+#commandDetailView .command-product-controls #cmdQtyCurrent{width:100%!important;max-width:100%!important;padding:7px!important;min-height:35px!important;background:#191817!important;color:#fff!important;border-color:#625642!important}
+#commandDetailView #cmdPrepNotesWrap{margin-top:6px!important}
+#commandDetailView #cmdItemPrepNotes{padding:7px 9px!important;min-height:42px!important;font-size:.8rem!important;background:#191817!important;color:#fff!important;border-color:#625642!important}
+#commandDetailView .command-launch-product{margin-top:6px!important;padding:8px 10px!important;min-height:36px!important;font-size:.76rem!important;letter-spacing:.02em!important;border-radius:8px!important}
+#commandDetailView .command-detail-actions.command-action-row{margin-top:8px!important;gap:6px!important}
+#commandDetailView .command-detail-actions.command-action-row>button{padding:7px 5px!important;min-height:36px!important;font-size:clamp(.66rem,.75vw,.76rem)!important;border-radius:8px!important;font-weight:750!important}
+@media(max-width:700px){
+ #commandDetailView .command-product-controls{grid-template-columns:minmax(0,1fr) 86px!important}
+ #commandDetailView .command-product-controls #cmdSaleOption{grid-column:1/-1}
+ #commandDetailView .command-product-controls .command-qty-label{width:86px!important;max-width:86px!important}
+ #commandDetailView .command-item-card{grid-template-columns:minmax(0,1fr) auto!important}
+ #commandDetailView .command-detail-actions.command-action-row{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important}
+ #commandDetailView .command-detail-actions.command-action-row>button{font-size:.68rem!important;min-height:38px!important}
+}
+</style></head><body><header class="admin-header"><div class="brand-lockup"><span class="brand-mark" aria-hidden="true">ER</span><div><b>PAINEL ADMINISTRATIVO</b><small>ESPETINHO DO REINALDO · GESTÃO DA CASA</small></div></div><span class="admin-live"><i></i> ÁREA DE GESTÃO</span></header><div class="admin"><div id="login" class="panel"><h2>Entrar</h2><input id="pw" type="password" placeholder="Senha administrativa" style="padding:12px;width:100%"><button class="primary" style="margin-top:10px" onclick="login()">ENTRAR</button></div><div id="app" style="display:none"><div class="nav"><button onclick="tab('orders')">Pedidos</button><button onclick="tab('products')">Produtos</button><button onclick="tab('purchases')">Entrada de Estoque XML</button><button onclick="tab('suppliers')">Fornecedores</button><button onclick="tab('cash')">Caixa</button><button onclick="tab('commands')">Comandas</button><button onclick="tab('customers')">Clientes</button><button onclick="tab('fiado')">Fiado / Receber</button><button onclick="tab('pickupSales')">Central de Fichas</button><button onclick="tab('settings')">Configurações</button></div>
 <section id="orders" class="panel"><h2>Pedidos</h2><div id="ordersList"></div></section>
 <section id="products" class="panel" style="display:none"><h2>Produtos</h2>
 <div class="toolbar" role="tablist" aria-label="Tipo de cadastro"><button type="button" class="primary" id="productModeBtn" onclick="setProductMode('venda')">PRODUTOS DE VENDA</button><button type="button" id="insumoModeBtn" onclick="setProductMode('insumo')">INSUMOS DA PRODUÇÃO</button></div>
