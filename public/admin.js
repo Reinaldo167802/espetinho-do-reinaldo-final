@@ -124,31 +124,33 @@ function returnFromXmlProduct(){
   tab('purchases');renderPurchaseLines();
 }
 function updateXmlProductPack(){if(!xmlPackContext)return;const packs=Math.max(1,Number($('xmlPackQty').value)||1),units=Math.max(1,Math.floor(Number($('xmlUnitsPerPackForm').value)||1)),total=packs*units,cost=xmlPackContext.lineTotal/total;xmlPackContext.packageUnit=$('xmlPackUnit').value||'UN';$('xmlTotalUnits').value=total;$('pcost').value=cost.toFixed(4);xmlPackContext.unitsPerPack=units;const l=purchaseDraft?.lines[xmlPackContext.lineIndex];if(l){l.units_per_pack=units;l.purchase_unit=xmlPackContext.packageUnit;l.stock_qty=total;l.stock_unit='un';l.unit_cost=cost;}updateProductProfitPreview();}
-function updateProductProfitPreview(){const c=toNumber($('pcost').value),p=toNumber($('pp').value),el=$('productProfitPreview');if(!el)return;if(c>0&&p>0)el.textContent=`Markup: ${((p/c-1)*100).toFixed(1)}% · Margem bruta: ${(((p-c)/p)*100).toFixed(1)}%`;else el.textContent='Markup: — · Margem bruta: —';}
+function updateProductProfitPreview(){
+  const c=toNumber($('pcost')?.value),p=toNumber($('pp')?.value),el=$('productProfitPreview');
+  if(!el)return;
+  const options=typeof saleOptionRows==='function'?saleOptionRows().filter(o=>o.price>0):[];
+  if(c>0&&options.length){
+    el.textContent=options.map(o=>{
+      const presentationCost=c*o.factor;
+      const markup=((o.price/presentationCost)-1)*100;
+      const margin=((o.price-presentationCost)/o.price)*100;
+      return `${o.label}: Markup ${markup.toFixed(1)}% · Margem bruta ${margin.toFixed(1)}%`;
+    }).join(' | ');
+    return;
+  }
+  if(c>0&&p>0){
+    el.textContent=`Markup: ${((p/c-1)*100).toFixed(1)}% · Margem bruta: ${(((p-c)/p)*100).toFixed(1)}%`;
+  }else{
+    el.textContent='Markup: — · Margem bruta: —';
+  }
+}
 
 
 function saleOptionRows(){return [...document.querySelectorAll('#saleOptionsRows .sale-option-row')].map((row,i)=>({key:row.querySelector('.sale-key').value.trim()||('op'+i),label:row.querySelector('.sale-label').value.trim(),factor:toNumber(row.querySelector('.sale-factor').value),price:toNumber(row.querySelector('.sale-price').value)})).filter(x=>x.label&&x.factor>0&&Number.isFinite(x.price)&&x.price>=0)}
-function renderSaleOptionRows(options=[]){const box=$('saleOptionsRows');if(!box)return;box.innerHTML=options.map((o,i)=>`<div class="sale-option-row row3" style="grid-template-columns:1.3fr .7fr .8fr .8fr auto;gap:5px;margin:5px 0"><input class="sale-key" value="${escAttr(o.key||('op'+i))}" placeholder="chave" aria-label="Chave"><input class="sale-label" value="${escAttr(o.label||'')}" placeholder="Apresentação (ex.: Fardo 12 un)"><input class="sale-factor" type="number" min="0.001" step="0.001" value="${Number(o.factor??1)}" placeholder="Baixa no estoque"><input class="sale-price" type="number" min="0" step="0.01" value="${Number(o.price||0)}" placeholder="Preço R$"><button type="button" onclick="this.parentElement.remove()">✕</button></div>`).join('')}
+function renderSaleOptionRows(options=[]){const box=$('saleOptionsRows');if(!box)return;box.innerHTML=options.map((o,i)=>`<div class="sale-option-row row3" style="grid-template-columns:1.3fr .7fr .8fr .8fr auto;gap:5px;margin:5px 0"><input class="sale-key" value="${escAttr(o.key||('op'+i))}" placeholder="chave" aria-label="Chave"><input class="sale-label" value="${escAttr(o.label||'')}" placeholder="Apresentação (ex.: Fardo 12 un)"><input class="sale-factor" type="number" min="0.001" step="0.001" value="${Number(o.factor??1)}" placeholder="Baixa no estoque"><input class="sale-price" type="number" min="0" step="0.01" value="${Number(o.price||0)}" placeholder="Preço R$"><button type="button" onclick="this.parentElement.remove()">✕</button></div>`).join('');updateProductProfitPreview();}
 function addSaleOptionRow(){const opts=saleOptionRows();opts.push({key:'op'+(opts.length+1),label:'',factor:1,price:0});renderSaleOptionRows(opts)}
 function applySalePreset(){const preset=$('salePreset');if(!preset)return;const p=preset.value;let opts=[];if(p==='cigarette'){ $('pu').value='un';$('pc').value='Cigarros e Tabacaria';opts=[{key:'un',label:'Unidade',factor:1,price:Number($('pp').value)||0},{key:'maco',label:'Maço (20 unidades)',factor:20,price:0}]}else if(p==='beer'){ $('pu').value='un';opts=[{key:'un',label:'Unidade',factor:1,price:Number($('pp').value)||0},{key:'fardo',label:'Fardo (12 unidades)',factor:12,price:0},{key:'caixa',label:'Caixa (24 unidades)',factor:24,price:0}]}else if(p==='spirit'){ $('pu').value='ml';opts=[{key:'dose',label:'Dose (50 ml)',factor:50,price:0},{key:'garrafa',label:'Garrafa (informe o volume em ml)',factor:0,price:0}]}else if(p==='cachaça'){ $('pu').value='ml';opts=[{key:'dose',label:'Dose (50 ml)',factor:50,price:0},{key:'garrafa200',label:'Garrafa 200 ml',factor:200,price:0},{key:'garrafa500',label:'Garrafa 500 ml',factor:500,price:0},{key:'garrafa1000',label:'Garrafa 1 litro',factor:1000,price:0}]}else if(p==='custom'){opts=saleOptionRows()}renderSaleOptionRows(opts)}
 function inferSalePreset(p){const o=(()=>{try{return Array.isArray(p.sale_options)?p.sale_options:JSON.parse(p.sale_options||'[]')}catch(_){return []}})();if(!o.length)return 'simple';if(o.some(x=>/ma[cç]o|20 unidades/i.test(x.label)))return 'cigarette';if(o.some(x=>/fardo|caixa/i.test(x.label)))return 'beer';if(o.some(x=>/200 ml/i.test(x.label))&&o.some(x=>/500 ml/i.test(x.label)))return 'cachaça';if(o.some(x=>/dose/i.test(x.label)))return 'spirit';return 'custom'}
 
-function positionProductPhotoPreview(){
-  const preview=$('photoPreview');
-  if(!preview)return;
-  const printRow=document.querySelector('#productFormArea .product-print-row');
-  if(printRow && preview.previousElementSibling!==printRow)printRow.insertAdjacentElement('afterend',preview);
-  Object.assign(preview.style,{
-    position:'static',float:'none',clear:'both',display:'flex',
-    flexDirection:'column',alignItems:'center',justifyContent:'center',
-    gap:'6px',boxSizing:'border-box',width:'100%',minHeight:'24px',
-    gridColumn:'1 / -1',justifySelf:'stretch',alignSelf:'center',
-    margin:'14px auto',padding:'8px 0',textAlign:'center',transform:'none'
-  });
-  let photoStyle=document.getElementById('productPhotoAlignmentStyle');
-  if(!photoStyle){photoStyle=document.createElement('style');photoStyle.id='productPhotoAlignmentStyle';document.head.appendChild(photoStyle);}
-  photoStyle.textContent='#productFormArea #photoPreview{grid-column:1 / -1!important;justify-self:stretch!important;align-self:center!important;width:100%!important;display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;float:none!important;clear:both!important;margin:14px auto!important;text-align:center!important}#productFormArea #photoPreview img{position:static!important;display:block!important;float:none!important;max-width:180px!important;max-height:150px!important;width:auto!important;height:auto!important;object-fit:contain!important;margin:0 auto!important;transform:none!important}#productFormArea #photoPreview span{display:block!important;text-align:center!important;margin:0 auto!important}';
-}
 function setProductPhotoUrl(value){const url=String(value||'').trim();$('pi').value=url;const preview=$('photoPreview');if(!preview)return;if(!url){preview.textContent='Nenhuma imagem selecionada';return;}preview.innerHTML=`<img src="${escAttr(url)}" alt="Pré-visualização da foto" onerror="this.style.display='none'"><span>Pré-visualização da imagem</span>`;} function fill(p){editingId=p.id;editingSaleOptions=(()=>{try{return Array.isArray(p.sale_options)?p.sale_options:JSON.parse(p.sale_options||'[]')}catch(_){return []}})();$('pcost').readOnly=false;$('productListScreen').style.display='none';$('productFormArea').style.display='block';if(typeof positionProductPhotoPreview==='function')positionProductPhotoPreview();$('productFormTitle').textContent='Editar Produto · '+(p.internal_code||'Código será gerado');if($('pInternalCode'))$('pInternalCode').value=p.internal_code||'';$('pfile').value='';$('photoPreview').innerHTML=p.image?`<img src="${escAttr(p.image)}" alt="Pré-visualização da foto"><span>Imagem cadastrada</span>`:'Nenhuma imagem selecionada';$('pb').value=p.barcode||'';$('pn').value=p.name||'';$('pbrand').value=p.brand||'';$('pc').value=p.category||'';$('pu').value=p.unit||'un';$('pcost').value=p.cost_price??0;$('pp').value=p.price??0;$('pstock').value=p.stock??0;$('pmin').value=p.min_stock??0;$('pi').value=p.image||'';if($('piUrl'))$('piUrl').value=(p.image&&!/^data:image\//i.test(String(p.image)))?p.image:'';$('pd').value=p.description||'';$('psite').checked=p.print_site===undefined||p.print_site===null||p.print_site===true||p.print_site===1;$('pcommand').checked=(p.print_command===true||p.print_command===1)||(p.print_command===undefined&&(p.prepare_kitchen===true||p.prepare_kitchen===1));if($('salePreset'))$('salePreset').value=inferSalePreset(p);renderSaleOptionRows(editingSaleOptions);$('saveBtn').textContent='SALVAR ALTERAÇÕES';window.scrollTo({top:0,behavior:'smooth'});}
 async function editProduct(id){
   const productId=Number(id);
@@ -198,6 +200,7 @@ async function deleteTestProduct(code){if(!confirm('Excluir definitivamente o ca
 async function markProductInternal(code){if(!confirm('Marcar '+code+' como insumo e ocultá-lo do site de pedidos? O cadastro e o estoque serão mantidos.'))return;try{await api('/api/admin/products/mark-internal/'+encodeURIComponent(code),{method:'POST',body:JSON.stringify({})});await loadProducts();alert(code+' agora é insumo e não aparece na vitrine.');}catch(e){alert(e.message)}}
 function csvRows(text){const lines=text.replace(/^\uFEFF/,'').split(/\r?\n/).filter(x=>x.trim());if(!lines.length)return[];const parse=l=>{let a=[],cur='',q=false;for(let i=0;i<l.length;i++){const c=l[i];if(c==='"'){if(q&&l[i+1]==='"'){cur+='"';i++;}else q=!q;}else if(c===','&&!q){a.push(cur);cur='';}else cur+=c;}a.push(cur);return a.map(x=>x.trim())};const h=parse(lines[0]).map(x=>x.toLowerCase());return lines.slice(1).map(l=>{const v=parse(l);const o={};h.forEach((k,i)=>o[k]=v[i]||'');return o;});}
 $('pcost')?.addEventListener('input',updateProductProfitPreview);$('pp')?.addEventListener('input',updateProductProfitPreview);
+$('saleOptionsRows')?.addEventListener('input',updateProductProfitPreview);$('saleOptionsRows')?.addEventListener('change',updateProductProfitPreview);
 
 function exportProductsExcel(){
  if(!window.XLSX){alert('A biblioteca do Excel não carregou. Atualize a página e tente novamente.');return;}
