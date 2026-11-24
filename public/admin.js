@@ -659,14 +659,21 @@ async function saveSupplierFromPanel(){
   }catch(e){$('supplierMsg').textContent=e.message;}
 }
 function xmlText(node,tag){
-  const el=Array.from(node.getElementsByTagName('*')).find(x=>x.localName===tag);
+  const el=Array.from(node?.getElementsByTagName?.('*')||[]).find(x=>x.localName===tag);
   return el?String(el.textContent||'').trim():'';
 }
 function xmlNum(node,tag){
   const raw=xmlText(node,tag);const n=Number(raw);return Number.isFinite(n)?n:0;
 }
+function xmlTextFromGroup(node,groupTag,tag){
+  const group=Array.from(node?.getElementsByTagName?.('*')||[]).find(x=>x.localName===groupTag);
+  return xmlText(group||node,tag);
+}
+function xmlNumFromGroup(node,groupTag,tag){
+  const raw=xmlTextFromGroup(node,groupTag,tag);const n=Number(raw);return Number.isFinite(n)?n:0;
+}
 function xmlLineAcquisitionCost(line){
-  // Custo de aquisição por item: produto - desconto + despesas + tributos não recuperáveis destacados.
+  // Regra atual do sistema: soma produto, despesas e tributos destacados tratados como custo de aquisição.
   return Math.max(0,
     Number(line.product_value||0)-Number(line.discount||0)+
     Number(line.freight||0)+Number(line.insurance||0)+Number(line.other_expenses||0)+
@@ -713,10 +720,17 @@ function parsePurchaseXml(input){
           taxable_qty:taxQty,taxable_unit:taxUnit,units_per_pack:unitsPerPack>0?unitsPerPack:1,
           product_value:productValue,discount:xmlNum(prod,'vDesc'),
           freight:xmlNum(prod,'vFrete'),insurance:xmlNum(prod,'vSeg'),other_expenses:xmlNum(prod,'vOutro'),
-          icms_base:xmlNum(tax,'vBC'),icms:xmlNum(tax,'vICMS'),icms_st:xmlNum(tax,'vICMSST'),
-          icms_st_base:xmlNum(tax,'vBCST'),fcp_st:xmlNum(tax,'vFCPST'),ipi:xmlNum(tax,'vIPI'),
-          import_duty:xmlNum(tax,'vII'),pis:xmlNum(tax,'vPIS'),cofins:xmlNum(tax,'vCOFINS'),
-          total_taxes_info:xmlNum(tax,'vTotTrib'),ibs:xmlNum(tax,'vIBS'),cbs:xmlNum(tax,'vCBS'),
+          icms_cst:xmlTextFromGroup(tax,'ICMS','CST'),icms_base:xmlNumFromGroup(tax,'ICMS','vBC'),icms_rate:xmlNum(tax,'pICMS'),icms:xmlNum(tax,'vICMS'),
+          icms_st_base:xmlNumFromGroup(tax,'ICMS','vBCST'),icms_st_rate:xmlNum(tax,'pICMSST'),icms_st:xmlNum(tax,'vICMSST'),
+          fcp_st_base:xmlNumFromGroup(tax,'ICMS','vBCFCPST'),fcp_st_rate:xmlNum(tax,'pFCPST'),fcp_st:xmlNum(tax,'vFCPST'),
+          ipi_cst:xmlTextFromGroup(tax,'IPI','CST'),ipi_base:xmlNumFromGroup(tax,'IPI','vBC'),ipi_rate:xmlNum(tax,'pIPI'),ipi:xmlNum(tax,'vIPI'),
+          import_duty:xmlNum(tax,'vII'),
+          pis_cst:xmlTextFromGroup(tax,'PIS','CST'),pis_base:xmlNumFromGroup(tax,'PIS','vBC'),pis_rate:xmlNum(tax,'pPIS'),pis:xmlNum(tax,'vPIS'),
+          cofins_cst:xmlTextFromGroup(tax,'COFINS','CST'),cofins_base:xmlNumFromGroup(tax,'COFINS','vBC'),cofins_rate:xmlNum(tax,'pCOFINS'),cofins:xmlNum(tax,'vCOFINS'),
+          total_taxes_info:xmlNum(tax,'vTotTrib'),
+          ibs_base:xmlNumFromGroup(tax,'IBSCBS','vBC'),ibs_uf_rate:xmlNum(tax,'pIBSUF'),ibs_uf:xmlNum(tax,'vIBSUF'),
+          ibs_mun_rate:xmlNum(tax,'pIBSMun'),ibs_mun:xmlNum(tax,'vIBSMun'),ibs:xmlNum(tax,'vIBS'),
+          cbs_rate:xmlNum(tax,'pCBS'),cbs:xmlNum(tax,'vCBS'),
           product_id:'',products
         };
         line.stock_qty=taxQty>0?taxQty:qty*line.units_per_pack;
@@ -737,22 +751,84 @@ function parsePurchaseXml(input){
       }
       for(const line of purchaseDraft.lines){const match=await api('/api/admin/products/xml-match',{method:'POST',body:JSON.stringify({supplier_cnpj:purchaseDraft.supplier_cnpj,supplier_code:line.code,barcode:line.barcode,name:line.product_name})});if(match.found){line.product_id=String(match.product.id);line.match_reason=match.reason;}}
       const t=invoiceTotals,acquisitionSum=purchaseDraft.lines.reduce((sum,line)=>sum+Number(line.line_total||0),0),reconciliation=acquisitionSum-Number(t.vNF||0);
-      $('purchaseInvoiceInfo').innerHTML=`<b>NF-e ${esc(purchaseDraft.invoice_number)}</b> · ${esc(purchaseDraft.supplier_name)} · <b>Total da nota: ${money(purchaseDraft.total)}</b><br><small>Produtos: ${money(t.vProd)} · Descontos: ${money(t.vDesc)} · ICMS-ST: ${money(t.vST)} · FCP-ST: ${money(t.vFCPST)} · IPI: ${money(t.vIPI)} · Outras despesas: ${money(t.vOutro)}<br>Custo de aquisição calculado: ${money(acquisitionSum)} · Diferença para a NF-e: ${money(reconciliation)}<br>Quantidades obtidas de qCom/qTrib e custos com tributos e despesas da nota. Confira os vínculos antes de confirmar.</small>`;
+      $('purchaseInvoiceInfo').innerHTML=`<b>NF-e ${esc(purchaseDraft.invoice_number)}</b> · ${esc(purchaseDraft.supplier_name)} · <b>Total da nota: ${money(purchaseDraft.total)}</b><br><small>Produtos: ${money(t.vProd)} · Descontos: ${money(t.vDesc)} · ICMS-ST: ${money(t.vST)} · FCP-ST: ${money(t.vFCPST)} · IPI: ${money(t.vIPI)} · Outras despesas: ${money(t.vOutro)}<br>Custo de aquisição calculado: ${money(acquisitionSum)} · Diferença para a NF-e: ${money(reconciliation)}<br>Quantidades obtidas de qCom/qTrib. Abra VER IMPOSTOS em cada produto para conferir os valores fiscais discriminados no XML.</small>`;
       renderPurchaseLines();$('receivePurchaseBtn').disabled=!purchaseDraft.lines.length;
     }catch(e){purchaseDraft=null;$('receivePurchaseBtn').disabled=true;$('purchaseInvoiceInfo').textContent='Erro ao ler XML: '+e.message;alert(e.message);}
   };
   reader.readAsText(file);
 }
-function installXmlCompactStyles(){if($('xmlCompactStyles'))return;const s=document.createElement('style');s.id='xmlCompactStyles';s.textContent=`#purchaseInvoiceInfo{padding:8px 10px!important;margin:8px 0!important;font-size:.88rem}#purchaseInvoiceInfo br+*{display:none}.xml-compact-wrap{overflow-x:auto;border:1px solid rgba(255,255,255,.12);border-radius:10px}.xml-compact-table{width:100%;border-collapse:collapse;min-width:850px;font-size:.82rem}.xml-compact-table th,.xml-compact-table td{padding:7px 8px!important;vertical-align:middle;border-bottom:1px solid rgba(255,255,255,.1);white-space:nowrap}.xml-compact-table th{font-size:.72rem;letter-spacing:.03em}.xml-product-desc{white-space:normal!important;min-width:210px;max-width:270px}.xml-product-desc small{display:block;opacity:.72;font-size:.72rem;margin-top:3px}.xml-units-input{width:66px!important;min-width:66px!important;padding:6px!important}.xml-product-select{width:175px!important;min-width:175px!important;padding:6px!important}.xml-register-btn{padding:6px 8px!important;margin-left:4px;font-size:.72rem!important;white-space:nowrap}#purchases>p.muted{display:none}#productFormArea>.hint{display:none}`;document.head.appendChild(s);}
+function xmlTaxMoney(value){return Number(value)>0?money(value):'—';}
+function xmlTaxRate(value){return Number(value)>0?Number(value).toLocaleString('pt-BR',{maximumFractionDigits:4})+'%':'—';}
+function xmlTaxDetailHtml(line){
+  const item=(label,value)=>`<div class="xml-tax-item"><span>${label}</span><b>${xmlTaxMoney(value)}</b></div>`;
+  const tax=(label,base,rate,value,cst='')=>`<div class="xml-tax-item xml-tax-row"><span><b>${label}</b>${cst?` <small>CST ${esc(cst)}</small>`:''}<small>Base: ${xmlTaxMoney(base)} · Alíquota: ${xmlTaxRate(rate)}</small></span><b>${xmlTaxMoney(value)}</b></div>`;
+  return `<div class="xml-tax-detail-grid">
+    <section class="xml-tax-panel"><h4>COMPOSIÇÃO DO CUSTO DE AQUISIÇÃO</h4>
+      ${item('Valor dos produtos',line.product_value)}
+      <div class="xml-tax-item"><span>Desconto</span><b>${Number(line.discount)>0?'-'+money(line.discount):'—'}</b></div>
+      ${item('Frete',line.freight)}
+      ${item('Seguro',line.insurance)}
+      ${item('Outras despesas',line.other_expenses)}
+      ${tax('ICMS-ST',line.icms_st_base,line.icms_st_rate,line.icms_st,line.icms_cst)}
+      ${tax('FCP-ST',line.fcp_st_base,line.fcp_st_rate,line.fcp_st)}
+      ${tax('IPI',line.ipi_base,line.ipi_rate,line.ipi,line.ipi_cst)}
+      ${item('Imposto de importação (II)',line.import_duty)}
+      <div class="xml-tax-total"><span>Custo total de aquisição</span><b>${money(line.line_total)}</b></div>
+    </section>
+    <section class="xml-tax-panel"><h4>IMPOSTOS INFORMADOS NA NOTA</h4>
+      ${tax('ICMS próprio',line.icms_base,line.icms_rate,line.icms,line.icms_cst)}
+      ${tax('PIS',line.pis_base,line.pis_rate,line.pis,line.pis_cst)}
+      ${tax('COFINS',line.cofins_base,line.cofins_rate,line.cofins,line.cofins_cst)}
+      ${item('Total de tributos informado (vTotTrib)',line.total_taxes_info)}
+      ${item('Base de cálculo IBS',line.ibs_base)}\n      ${item('IBS total',line.ibs)}
+      ${tax('IBS estadual',line.ibs_base,line.ibs_uf_rate,line.ibs_uf)}
+      ${tax('IBS municipal',line.ibs_base,line.ibs_mun_rate,line.ibs_mun)}
+      ${tax('CBS',line.ibs_base,line.cbs_rate,line.cbs)}
+      <p class="xml-tax-note">ICMS próprio, PIS, COFINS, vTotTrib, IBS e CBS são exibidos para conferência fiscal. Não são somados novamente ao custo de aquisição nesta tela, evitando duplicidade.</p>
+    </section>
+  </div>`;
+}
+function installXmlCompactStyles(){
+  if($('xmlCompactStyles'))return;
+  const s=document.createElement('style');s.id='xmlCompactStyles';
+  s.textContent=`#purchaseInvoiceInfo{padding:8px 10px!important;margin:8px 0!important;font-size:.88rem}
+  .xml-compact-wrap{overflow-x:auto;border:1px solid rgba(255,255,255,.12);border-radius:10px}
+  .xml-compact-table{width:100%;border-collapse:collapse;min-width:940px;font-size:.82rem}
+  .xml-compact-table th,.xml-compact-table td{padding:7px 8px!important;vertical-align:middle;border-bottom:1px solid rgba(255,255,255,.1);white-space:nowrap}
+  .xml-compact-table th{font-size:.72rem;letter-spacing:.03em}
+  .xml-product-desc{white-space:normal!important;min-width:210px;max-width:270px}
+  .xml-product-desc small{display:block;opacity:.72;font-size:.72rem;margin-top:3px}
+  .xml-units-input{width:66px!important;min-width:66px!important;padding:6px!important}
+  .xml-product-select{width:175px!important;min-width:175px!important;padding:6px!important}
+  .xml-register-btn{padding:6px 8px!important;margin-left:4px;font-size:.72rem!important;white-space:nowrap}
+  .xml-tax-toggle{padding:6px 9px!important;font-size:.72rem!important;white-space:nowrap}
+  .xml-tax-detail-row td{white-space:normal!important;padding:10px!important;background:rgba(0,0,0,.16)}
+  .xml-tax-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(280px,1fr));gap:10px;white-space:normal}
+  .xml-tax-panel{border:1px solid rgba(255,255,255,.16);border-radius:9px;padding:10px;min-width:0}
+  .xml-tax-panel h4{margin:0 0 8px;font-size:.78rem;color:#e5c878}
+  .xml-tax-item{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.08);font-size:.78rem}
+  .xml-tax-item>span{min-width:0}
+  .xml-tax-item small{display:block;opacity:.72;font-size:.7rem;margin-top:2px}
+  .xml-tax-total{display:flex;justify-content:space-between;gap:10px;margin-top:8px;padding-top:8px;border-top:2px solid rgba(229,200,120,.5);font-weight:800}
+  .xml-tax-note{font-size:.72rem;line-height:1.4;opacity:.8;margin:9px 0 0}
+  @media(max-width:760px){.xml-tax-detail-grid{grid-template-columns:1fr}}
+  #purchases>p.muted{display:none}#productFormArea>.hint{display:none}`;
+  document.head.appendChild(s);
+}
 function renderPurchaseLines(){
   installXmlCompactStyles();
   const box=$('purchaseLines');if(!box||!purchaseDraft)return;
   const products=purchaseDraft.lines[0]?.products||[];
-  box.innerHTML='<div class="xml-compact-wrap"><table class="xml-compact-table"><thead><tr><th>Produto da nota</th><th>Qtd. embalagens</th><th>Unid./emb.</th><th>Total un.</th><th>Valor total</th><th>Custo/un.</th><th>Produto cadastrado</th></tr></thead><tbody>'+purchaseDraft.lines.map((l,i)=>{
+  box.innerHTML='<div class="xml-compact-wrap"><table class="xml-compact-table"><thead><tr><th>Produto da nota</th><th>Qtd. embalagens</th><th>Unid./emb.</th><th>Total un.</th><th>Valor total</th><th>Custo/un.</th><th>Impostos</th><th>Produto cadastrado</th></tr></thead><tbody>'+purchaseDraft.lines.map((l,i)=>{
     const packs=Math.max(0,Number(l.purchase_qty)||0),units=Math.max(0.0001,Number(l.units_per_pack)||1),total=Number(l.stock_qty)||packs*units,cost=(Number(l.line_total)||0)/Math.max(0.0001,total);
-    return `<tr><td class="xml-product-desc"><b>${esc(l.product_name)}</b><small>Cód. ${esc(l.code||'-')} · ${esc(l.purchase_unit||'un')} · ${money(l.purchase_unit_price)} por embalagem</small></td><td>${packs}</td><td><input class="xml-units-input" id="xmlUnitsPerPack_${i}" type="number" min="1" step="1" value="${units}" onchange="setXmlUnitsPerPack(${i},this.value)"></td><td><b id="xmlTotalUnits_${i}">${total}</b></td><td>${money(l.line_total)}</td><td><b id="xmlUnitCost_${i}">${cost.toLocaleString('pt-BR',{minimumFractionDigits:4,maximumFractionDigits:4})}</b></td><td><select class="xml-product-select" id="purchaseProduct_${i}" onchange="setPurchaseLine(${i},'product_id',this.value)"><option value="">Selecione...</option>${products.map(p=>`<option value="${p.id}">${esc(p.internal_code||'')} · ${esc(p.name)}</option>`).join('')}</select><button type="button" class="xml-register-btn" onclick="startXmlProductRegistration(${i})">+ Cadastrar</button></td></tr>`;
+    return `<tr><td class="xml-product-desc"><b>${esc(l.product_name)}</b><small>Cód. ${esc(l.code||'-')} · ${esc(l.purchase_unit||'un')} · ${money(l.purchase_unit_price)} por embalagem</small></td><td>${packs}</td><td><input class="xml-units-input" id="xmlUnitsPerPack_${i}" type="number" min="1" step="1" value="${units}" onchange="setXmlUnitsPerPack(${i},this.value)"></td><td><b id="xmlTotalUnits_${i}">${total}</b></td><td>${money(l.line_total)}</td><td><b id="xmlUnitCost_${i}">${cost.toLocaleString('pt-BR',{minimumFractionDigits:4,maximumFractionDigits:4})}</b></td><td><button type="button" class="xml-tax-toggle" id="xmlTaxToggle_${i}" onclick="toggleXmlTaxes(${i})">VER IMPOSTOS</button></td><td><select class="xml-product-select" id="purchaseProduct_${i}" onchange="setPurchaseLine(${i},'product_id',this.value)"><option value="">Selecione...</option>${products.map(p=>`<option value="${p.id}">${esc(p.internal_code||'')} · ${esc(p.name)}</option>`).join('')}</select><button type="button" class="xml-register-btn" onclick="startXmlProductRegistration(${i})">+ Cadastrar</button></td></tr><tr class="xml-tax-detail-row" id="xmlTaxDetail_${i}" hidden><td colspan="8">${xmlTaxDetailHtml(l)}</td></tr>`;
   }).join('')+'</tbody></table></div>';
   purchaseDraft.lines.forEach((l,i)=>{const sel=$('purchaseProduct_'+i);if(sel)sel.value=String(l.product_id||'');updateXmlCostPreview(i);});
+}
+function toggleXmlTaxes(i){
+  const row=$('xmlTaxDetail_'+i);if(!row)return;
+  row.hidden=!row.hidden;
+  const button=$('xmlTaxToggle_'+i);if(button)button.textContent=row.hidden?'VER IMPOSTOS':'OCULTAR IMPOSTOS';
 }
 function setPurchaseLine(i,k,v){if(purchaseDraft&&purchaseDraft.lines[i])purchaseDraft.lines[i][k]=k==='stock_qty'?Number(v):v;}
 function setXmlUnitsPerPack(i,v){
