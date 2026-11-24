@@ -1,4 +1,7 @@
 let commandRowsCache=[];
+let currentCommandId=null;
+let fiadoRowsCache=[];
+let fiadoCustomerOpen='';
 let pass='';let editingId=null;let editingSaleOptions=[];let xmlReturnLine=null;let xmlPackContext=null;let xmlProductHistoryStep=false;let returningToXml=false;
 const money=v=>Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const toNumber=v=>{if(v===undefined||v===null||String(v).trim()==='')return 0;const s=String(v).trim().replace(/\s/g,'').replace(/\.(?=\d{3}(?:\D|$))/g,'').replace(',','.');const n=Number(s);return Number.isFinite(n)?n:NaN};
@@ -152,7 +155,6 @@ function printReportSale(index){const sale=reportSalesCache[index];if(!sale)retu
 async function loadCustomerOptions(selected=''){
  try{const rows=await api('/api/admin/customers');const select=$('cc');if(!select)return;const current=selected||select.value;const active=rows.filter(c=>c.active===true||c.active===1);select.innerHTML='<option value="">Consumidor não identificado (sem cadastro)</option>'+active.map(c=>`<option value="${esc(c.name)}">${esc(c.name)}${(c.fiado_authorized===true||c.fiado_authorized===1)?' — fiado autorizado':' — sem autorização de fiado'}</option>`).join('');if(current&&active.some(c=>c.name===current))select.value=current;}catch(e){if($('cc'))$('cc').innerHTML='<option value="">Não foi possível carregar clientes</option>';console.error(e)}
 }
-let currentCommandId=null;
 function commandElapsed(createdAt){
  if(!createdAt)return 'Tempo não disponível';
  const d=new Date(createdAt);if(Number.isNaN(d.getTime()))return 'Tempo não disponível';
@@ -406,8 +408,6 @@ async function saveCustomer(){
  }catch(e){alert(e.message)}
 }
 
-let fiadoRowsCache=[];
-let fiadoCustomerOpen='';
 function fiadoKey(value){return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim().replace(/\s+/g,' ')}
 function installFiadoGroupedStyles(){
  if(!$('fiadoCustomerModalHost')){const host=document.createElement('div');host.id='fiadoCustomerModalHost';$('fiadoList').insertAdjacentElement('afterend',host);}
@@ -430,9 +430,8 @@ function openFiadoCustomer(encodedKey){
 function closeFiadoCustomer(){fiadoCustomerOpen='';$('fiadoCustomerModalHost').innerHTML='';}
 async function loadFiado(){
  try{
-  const [rows,history]=await Promise.all([api('/api/admin/fiado'),api('/api/admin/fiado/history')]);
-  fiadoRowsCache=rows||[];renderFiadoCustomers(fiadoRowsCache);
-  $('fiadoHistory').innerHTML=history.length?'<div class="table"><table><tr><th>Data</th><th>Cliente</th><th>Comanda</th><th>Valor recebido</th><th>Forma</th></tr>'+history.map(h=>`<tr><td>${esc(h.created_at||'-')}</td><td>${esc(h.customer||'-')}</td><td>${esc(h.command_number||h.command_id)}</td><td>${money(h.amount)}</td><td>${esc(h.payment||'-')}</td></tr>`).join('')+'</table></div>':'<p>Nenhum recebimento de fiado registrado ainda.</p>';
+  const rows=await api('/api/admin/fiado');
+  fiadoRowsCache=Array.isArray(rows)?rows:[];renderFiadoCustomers(fiadoRowsCache);
   installFiadoGroupedStyles();
   if(fiadoCustomerOpen)openFiadoCustomer(encodeURIComponent(fiadoCustomerOpen));
  }catch(e){$('fiadoList').innerHTML='<p>Erro ao carregar fiado: '+esc(e.message)+'</p>'}
