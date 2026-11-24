@@ -342,6 +342,25 @@ function commandCardHtml(c){
   :(paymentLabels[String(c.payment||'').toLowerCase()]||String(c.payment||'Não informado'));
  return `<article class="final-command-row"><span class="final-command-number">Comanda ${esc(c.number)}</span><span class="final-command-customer">${esc(c.customer||'Sem cadastro')}</span><span class="final-command-payment">${esc(paymentText)}</span><span class="final-command-total">${money(c.total)}</span><div class="final-command-actions"><details class="final-command-menu"><summary>OPÇÕES ▾</summary><div class="final-command-menu-items"><button type="button" onclick="printCommand(${c.id},'conferencia');this.closest('details').open=false">Imprimir conferência</button><button type="button" onclick="printCommand(${c.id},'paga');this.closest('details').open=false">Imprimir comprovante</button><button type="button" onclick="openCommandDocument(${c.id},'a4');this.closest('details').open=false">Comanda A4 / PDF</button></div></details></div></article>`;
 }
+
+function archiveCommandRowHtml(c){
+ const paymentLabels={pix:'Pix',dinheiro:'Dinheiro',cash:'Dinheiro',debito:'Cartão de débito',credito:'Cartão de crédito',fiado:'Fiado',pendente:'Pendente'};
+ const details=Array.isArray(c.payment_details)?c.payment_details:[];
+ const paymentText=details.length
+  ?details.map(p=>{
+    const key=String(p.payment||'').toLowerCase().trim();
+    const label=paymentLabels[key]||String(p.payment||'Não informado');
+    const responsible=key==='fiado'&&p.customer?` (${esc(p.customer)})`:'';
+    return `${label}${responsible}: ${money(p.amount)}`;
+   }).join(' + ')
+  :(paymentLabels[String(c.payment||'').toLowerCase()]||String(c.payment||'Não informado'));
+ const pending=String(c.payment||'').toLowerCase()==='pendente';
+ const actions=pending
+  ?`<button type="button" onclick="payClosedCommand(${c.id})">RECEBER</button><button type="button" onclick="openCommandDocument(${c.id},'a4')">COMANDA A4 / PDF</button>`
+  :`<button type="button" onclick="printCommand(${c.id},'paga')">IMPRIMIR COMPROVANTE</button><button type="button" onclick="openCommandDocument(${c.id},'a4')">COMANDA A4 / PDF</button>`;
+ return `<article class="command-card command-row archive-command-row"><span class="command-row-number">Comanda ${esc(c.number)}</span><span class="command-row-customer">${esc(c.customer||'Sem cadastro')}</span><span class="command-row-payment"><b>Pagamento:</b> ${esc(paymentText)}</span><div class="archive-command-actions">${actions}</div></article>`;
+}
+
 function openCommandArchive(){
  ensureCommandArchiveUI();const list=$('commandsClosedList'),heading=document.querySelector('[data-archive-heading="1"]');
  if(list)list.style.display='none';if(heading)heading.style.display='none';$('commandsArchiveTools').style.display='none';$('commandsArchivePanel').style.display='block';
@@ -355,7 +374,7 @@ function filterCommandArchive(){
  const day=$('commandsArchiveDate')?.value||'';if(!day){$('commandsArchiveResults').innerHTML='<div class="command-empty">Selecione uma data para consultar.</div>';return;}
  const term=String($('commandsArchiveSearch')?.value||'').trim().toLocaleLowerCase('pt-BR');
  const rows=commandRowsCache.filter(c=>c.status!=='aberta'&&cashDateKey(c.closed_at||c.created_at)===day&&(!term||String(c.number||'').toLocaleLowerCase('pt-BR').includes(term)||String(c.customer||'').toLocaleLowerCase('pt-BR').includes(term))).sort((a,b)=>Number(b.id)-Number(a.id));
- $('commandsArchiveResults').innerHTML=rows.length?rows.map(commandCardHtml).join(''):'<div class="command-empty">Nenhuma comanda encontrada para esta data.</div>';
+ $('commandsArchiveResults').innerHTML=rows.length?rows.map(archiveCommandRowHtml).join(''):'<div class="command-empty">Nenhuma comanda encontrada para esta data.</div>';
 }
 async function loadCommands(){
  try{
