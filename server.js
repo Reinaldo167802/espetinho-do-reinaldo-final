@@ -1332,7 +1332,7 @@ app.get('/api/admin/reports/performance',auth,async(req,res)=>{
  try{
   const from=String(req.query.from||'').slice(0,10),to=String(req.query.to||'').slice(0,10);
   if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from>to)return res.status(400).json({error:'Informe um período válido.'});
-  const dateKey=v=>{if(!v)return '';const m=String(v).match(/^(\d{4}-\d{2}-\d{2})/);return m?m[1]:''};
+  const dateKey=v=>{if(!v)return '';if(v instanceof Date&&!Number.isNaN(v.getTime()))return new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'}).format(v);const m=String(v).match(/^(\d{4}-\d{2}-\d{2})/);return m?m[1]:''};
   const normalize=v=>{const n=String(v||'outros').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim().replace(/[^a-z0-9]/g,'');if(['debit','cartaodedebito','cartaoemdebito'].includes(n))return 'debito';if(['credit','cartaodecredito','cartaoemcredito'].includes(n))return 'credito';if(['cash','dinheiro'].includes(n))return 'dinheiro';return n||'outros';};
   const inRange=v=>{const k=dateKey(v);return k>=from&&k<=to};
   const commands=await q("SELECT * FROM commands WHERE status='fechada'");
