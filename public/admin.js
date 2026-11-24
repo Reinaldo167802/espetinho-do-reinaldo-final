@@ -54,7 +54,7 @@ async function loadOrders(){
 async function status(id,s){await api('/api/admin/orders/'+id+'/status',{method:'PUT',body:JSON.stringify({status:s})});loadOrders()}
 async function downloadProductDiagnostic(){try{const d=await api('/api/admin/products/diagnostic');const cols=['id','internal_code','name','brand','category','barcode','unit','product_type','cost_price','price','stock','min_stock','active','diagnostic_flags'];const csv=[cols.join(';'),...d.products.map(p=>cols.map(k=>{const v=p[k]??'';return '"'+String(v).replace(/"/g,'""')+'"'}).join(';'))].join('\r\n');const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='diagnostico-produtos-espetinho.csv';a.click();URL.revokeObjectURL(url);alert('Diagnóstico gerado. Produtos: '+d.total+' | Grupos com nome repetido: '+d.duplicate_name_groups+' | Grupos com EAN repetido: '+d.duplicate_ean_groups+' | Sem EAN: '+d.without_ean+' | EAN inválido/fora do padrão: '+d.invalid_ean+'\n\nO arquivo é apenas um relatório; nada foi alterado no cadastro.');}catch(e){alert('Não foi possível gerar o diagnóstico: '+e.message)}}
 async function downloadDatabaseBackup(){if(!confirm('Gerar e baixar uma cópia de segurança do banco de dados? Nenhum dado será alterado.'))return;try{const r=await fetch('/api/admin/database/backup',{headers:{'x-admin-password':pass}});if(!r.ok){let m='Falha ao gerar backup';try{m=(await r.json()).error||m}catch(_){}throw Error(m)}const blob=await r.blob();const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='esp-reinaldo-backup.sqlite';a.click();URL.revokeObjectURL(url);alert('Backup baixado. Guarde esse arquivo em local seguro e não o envie publicamente.');}catch(e){alert('Não foi possível baixar o backup: '+e.message)}}
-let cachedProducts=[];function filterProductList(){const term=String($('productSearch')?.value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();const rows=cachedProducts.filter(p=>[p.name,p.brand,p.internal_code,p.barcode,p.category].some(v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().includes(term)));$('productsListTable').innerHTML=rows.map(p=>`<tr><td>${p.image?`<img class="admin-product-thumb" src="${escAttr(p.image)}" alt="${escAttr(p.name)}" loading="lazy" onerror="this.style.display='none'">`:'<span class="admin-product-no-photo">🍢</span>'}</td><td><b>${esc(p.internal_code||'-')}</b><br><span class="small">EAN: ${esc(p.barcode||'-')}</span></td><td><b>${esc(p.name)}</b><br><span class="small">${esc(p.brand||'')}</span></td><td>${esc(p.category)}</td><td>${money(p.cost_price)}</td><td>${money(p.price)}</td><td class="${Number(p.stock)<=Number(p.min_stock)&&Number(p.min_stock)>0?'low':''}">${p.stock} ${esc(p.unit||'un')}</td><td>${p.active?'Ativo':'Inativo'}</td><td><button onclick="editProduct(${p.id})">Editar</button> ${(/^ER000055$|^ER000056$/.test(String(p.internal_code||'')) && (p.product_type||'venda')!=='insumo')?`<button class="danger" onclick="markProductInternal('${p.internal_code}')">Ocultar da vitrine</button>`:(/^ER000003$|^ER000011$|^ER000012$|^ER000060$/.test(String(p.internal_code||'')))?`<button class="danger" onclick="deleteTestProduct('${p.internal_code}')">Excluir</button>`:(p.active?`<button onclick="del(${p.id})">Inativar</button>`:(/^ER00006[4-9]$|^ER00007[01]$/.test(String(p.internal_code||''))?`<button onclick="deleteTestProduct('${p.internal_code}')">Excluir</button>`:'<span class="muted">Inativo</span>'))}</td></tr>`).join('')||'<tr><td colspan=9>Nenhum produto encontrado.</td></tr>'; }async function loadProducts(){cachedProducts=await api('/api/admin/products?type=all');$('productsList').innerHTML='<div class="table"><table><thead><tr><th>Foto</th><th>Código interno / EAN</th><th>Produto</th><th>Categoria</th><th>Custo</th><th>Venda</th><th>Estoque</th><th>Status</th><th>Ações</th></tr></thead><tbody id="productsListTable"></tbody></table></div>';filterProductList();$('productListScreen').style.display='block';$('productFormArea').style.display='none';}
+let cachedProducts=[];function filterProductList(){const term=String($('productSearch')?.value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();const rows=cachedProducts.filter(p=>[p.name,p.brand,p.internal_code,p.barcode,p.category].some(v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().includes(term)));$('productsListTable').innerHTML=rows.map(p=>`<tr><td>${p.image?`<img class="admin-product-thumb" src="${escAttr(p.image)}" alt="${escAttr(p.name)}" loading="lazy" onerror="this.style.display='none'">`:'<span class="admin-product-no-photo">🍢</span>'}</td><td><b>${esc(p.internal_code||'-')}</b><br><span class="small">EAN: ${esc(p.barcode||'-')}</span></td><td><b>${esc(p.name)}</b><br><span class="small">${esc(p.brand||'')}</span></td><td>${esc(p.category)}</td><td>${money(p.cost_price)}</td><td>${money(p.price)}</td><td class="${Number(p.stock)<=Number(p.min_stock)&&Number(p.min_stock)>0?'low':''}">${p.stock} ${esc(p.unit||'un')}</td><td>${p.active?'Ativo':'Inativo'}</td><td><button onclick="editProduct(${p.id})">Editar</button> ${(/^ER000055$|^ER000056$/.test(String(p.internal_code||'')) && (p.product_type||'venda')!=='insumo')?`<button class="danger" onclick="markProductInternal('${p.internal_code}')">Ocultar da vitrine</button>`:(/^ER000003$|^ER000011$|^ER000012$|^ER000060$/.test(String(p.internal_code||'')))?`<button class="danger" onclick="deleteTestProduct('${p.internal_code}')">Excluir</button>`:(p.active?`<button onclick="del(${p.id})">Inativar</button>`:(/^ER00006[4-9]$|^ER00007[01]$/.test(String(p.internal_code||''))?`<button onclick="deleteTestProduct('${p.internal_code}')">Excluir</button>`:'<span class="muted">Inativo</span>'))}</td></tr>`).join('')||'<tr><td colspan=9>Nenhum produto encontrado.</td></tr>'; }async function loadProducts(){if($('salesProductArea'))$('salesProductArea').style.display='block';if($('insumoArea'))$('insumoArea').style.display='none';cachedProducts=await api('/api/admin/products?type=venda');$('productsList').innerHTML='<div class="table"><table><thead><tr><th>Foto</th><th>Código interno / EAN</th><th>Produto</th><th>Categoria</th><th>Custo</th><th>Venda</th><th>Estoque</th><th>Status</th><th>Ações</th></tr></thead><tbody id="productsListTable"></tbody></table></div>';filterProductList();$('productListScreen').style.display='block';$('productFormArea').style.display='none';}
 function positionProductPhotoPreview(){
  const area=$('productFormArea'),preview=$('photoPreview');
  if(!area||!preview)return;
@@ -796,3 +796,80 @@ async function pickupLoadSales(){const rows=await api('/api/admin/pickup-sales')
 async function pickupCleanTestSales(){const status=$('pickupCleanStatus');if(!confirm('Confirma apagar SOMENTE as vendas de teste 001, 002 e 003? O sistema tentará recompor o estoque usando os registros rastreados.'))return;const phrase=prompt('Digite exatamente: LIMPAR SOMENTE FICHAS 001 002 003');if(phrase!=='LIMPAR SOMENTE FICHAS 001 002 003'){alert('Confirmação não reconhecida. Nada foi alterado.');return;}status.textContent='Executando limpeza seletiva...';try{const r=await api('/api/admin/pickup-sales/clean-test-001-003',{method:'POST',body:JSON.stringify({confirm:phrase})});status.textContent=r.message;alert(r.message);await pickupLoadSales();}catch(e){status.textContent='Limpeza não concluída: '+e.message;alert('A limpeza não foi confirmada: '+e.message);}}
 async function pickupReprint(id){if(!confirm('Enviar segunda via de todas as fichas desta venda para impressão?'))return;try{const r=await api('/api/admin/pickup-sales/'+id+'/reprint',{method:'POST'});alert('Segundas vias enviadas: '+r.printed);}catch(e){alert(e.message);}}
 $('pickupProduct')?.addEventListener('change',pickupUpdateOptions);
+
+// Tela Produtos: menu único de cadastro e alternância entre venda e insumos.
+function toggleProductCreateMenu(){
+ const menu=$('productCreateMenu');if(!menu)return;
+ menu.style.display=menu.style.display==='none'?'block':'none';
+}
+function closeProductCreateMenu(){const menu=$('productCreateMenu');if(menu)menu.style.display='none';}
+function openSaleProductRegistration(){
+ closeProductCreateMenu();
+ $('insumoArea').style.display='none';$('salesProductArea').style.display='block';
+ newProductForm();
+}
+async function openInsumoRegistration(){
+ closeProductCreateMenu();
+ $('salesProductArea').style.display='none';$('insumoArea').style.display='block';
+ clearInsumoForm();
+ await loadInsumos();
+}
+async function loadInsumos(){
+ const box=$('insumosList');if(box)box.innerHTML='<p>Carregando insumos...</p>';
+ try{
+  const rows=await api('/api/admin/products?type=insumo');
+  window.cachedInsumos=rows||[];
+  if(box)box.innerHTML='<div class="table"><table><thead><tr><th>Insumo</th><th>Categoria</th><th>Unidade</th><th>Custo</th><th>Estoque</th><th>Status</th><th>Ações</th></tr></thead><tbody>'+
+   (window.cachedInsumos.map(p=>`<tr><td><b>${esc(p.name)}</b><br><span class="small">${esc(p.internal_code||'')}</span></td><td>${esc(p.category||'')}</td><td>${esc(p.unit||'un')}</td><td>${money(p.cost_price)}</td><td>${esc(p.stock)} ${esc(p.unit||'un')}</td><td>${p.active?'Ativo':'Inativo'}</td><td><button type="button" onclick="editInsumo(${Number(p.id)})">Editar</button> ${p.active?`<button type="button" onclick="deactivateInsumo(${Number(p.id)})">Inativar</button>`:'—'}</td></tr>`).join('')||'<tr><td colspan="7">Nenhum insumo cadastrado.</td></tr>')+
+   '</tbody></table></div>';
+  const supplier=$('insumoSupplier');
+  if(supplier){
+   const keep=supplier.value;
+   const suppliers=await api('/api/admin/suppliers');
+   supplier.innerHTML='<option value="">Fornecedor preferencial (opcional)</option>'+(suppliers||[]).map(s=>`<option value="${Number(s.id)}">${esc(s.name)}</option>`).join('');
+   supplier.value=keep;
+  }
+ }catch(e){if(box)box.innerHTML='<p>Não foi possível carregar os insumos: '+esc(e.message)+'</p>';}
+}
+function clearInsumoForm(){
+ ['insumoEditId','insumoName','insumoBarcode','insumoBrand','insumoCost','insumoStock','insumoMin','insumoSecondaryQty','insumoSecondaryUnit','insumoDescription'].forEach(id=>{if($(id))$(id).value='';});
+ if($('insumoCategory'))$('insumoCategory').selectedIndex=0;
+ if($('insumoSupplier'))$('insumoSupplier').value='';
+ if($('insumoUnit'))$('insumoUnit').value='un';
+ if($('insumoStock'))$('insumoStock').value='0';
+ if($('insumoMin'))$('insumoMin').value='0';
+ if($('insumoMsg'))$('insumoMsg').textContent='';
+ if($('saveInsumoBtn'))$('saveInsumoBtn').textContent='CADASTRAR INSUMO';
+}
+function editInsumo(id){
+ const p=(window.cachedInsumos||[]).find(x=>Number(x.id)===Number(id));if(!p)return;
+ $('insumoEditId').value=p.id;$('insumoName').value=p.name||'';$('insumoCategory').value=p.category||'Outros insumos';
+ $('insumoBarcode').value=p.barcode||'';$('insumoBrand').value=p.brand||'';$('insumoUnit').value=p.unit||'un';
+ $('insumoCost').value=p.cost_price??0;$('insumoStock').value=p.stock??0;$('insumoMin').value=p.min_stock??0;
+ $('insumoSecondaryQty').value=p.stock_secondary??0;$('insumoSecondaryUnit').value=p.stock_secondary_unit||'';
+ $('insumoDescription').value=p.description||'';$('insumoSupplier').value=p.supplier_id||'';
+ $('saveInsumoBtn').textContent='SALVAR ALTERAÇÕES';$('insumoMsg').textContent='Editando '+(p.internal_code||'insumo')+'.';
+}
+async function saveInsumo(){
+ const body={name:$('insumoName').value.trim(),category:$('insumoCategory').value||'Outros insumos',
+ barcode:$('insumoBarcode').value.trim(),brand:$('insumoBrand').value.trim(),unit:$('insumoUnit').value.trim()||'un',
+ cost_price:toNumber($('insumoCost').value),price:0,stock:toNumber($('insumoStock').value),min_stock:toNumber($('insumoMin').value),
+ stock_secondary:toNumber($('insumoSecondaryQty').value),stock_secondary_unit:$('insumoSecondaryUnit').value.trim(),
+ description:$('insumoDescription').value.trim(),supplier_id:$('insumoSupplier').value||null,
+ product_type:'insumo',active:true,print_site:false,print_command:false,sale_options:[]};
+ if(!body.name){$('insumoMsg').textContent='Informe o nome do insumo.';return;}
+ if(![body.cost_price,body.stock,body.min_stock,body.stock_secondary].every(Number.isFinite)||[body.cost_price,body.stock,body.min_stock,body.stock_secondary].some(v=>v<0)){
+  $('insumoMsg').textContent='Confira custo e quantidades: use valores numéricos iguais ou maiores que zero.';return;
+ }
+ try{
+  const id=$('insumoEditId').value;
+  await api(id?'/api/admin/products/'+id:'/api/admin/products',{method:id?'PUT':'POST',body:JSON.stringify(body)});
+  clearInsumoForm();$('insumoMsg').textContent='Insumo salvo com sucesso.';await loadInsumos();
+ }catch(e){$('insumoMsg').textContent='Não foi possível salvar: '+e.message;}
+}
+async function deactivateInsumo(id){
+ if(!confirm('Inativar este insumo? O cadastro e o histórico serão preservados.'))return;
+ try{await api('/api/admin/products/'+id,{method:'DELETE'});await loadInsumos();}
+ catch(e){alert('Não foi possível inativar o insumo: '+e.message);}
+}
+
