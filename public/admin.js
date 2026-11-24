@@ -134,7 +134,45 @@ function applySalePreset(){const preset=$('salePreset');if(!preset)return;const 
 function inferSalePreset(p){const o=(()=>{try{return Array.isArray(p.sale_options)?p.sale_options:JSON.parse(p.sale_options||'[]')}catch(_){return []}})();if(!o.length)return 'simple';if(o.some(x=>/ma[cç]o|20 unidades/i.test(x.label)))return 'cigarette';if(o.some(x=>/fardo|caixa/i.test(x.label)))return 'beer';if(o.some(x=>/200 ml/i.test(x.label))&&o.some(x=>/500 ml/i.test(x.label)))return 'cachaça';if(o.some(x=>/dose/i.test(x.label)))return 'spirit';return 'custom'}
 
 function setProductPhotoUrl(value){const url=String(value||'').trim();$('pi').value=url;const preview=$('photoPreview');if(!preview)return;if(!url){preview.textContent='Nenhuma imagem selecionada';return;}preview.innerHTML=`<img src="${escAttr(url)}" alt="Pré-visualização da foto" onerror="this.style.display='none'"><span>Pré-visualização da imagem</span>`;} function fill(p){editingId=p.id;editingSaleOptions=(()=>{try{return Array.isArray(p.sale_options)?p.sale_options:JSON.parse(p.sale_options||'[]')}catch(_){return []}})();$('pcost').readOnly=false;$('productListScreen').style.display='none';$('productFormArea').style.display='block';positionProductPhotoPreview();$('productFormTitle').textContent='Editar Produto · '+(p.internal_code||'Código será gerado');if($('pInternalCode'))$('pInternalCode').value=p.internal_code||'';$('pfile').value='';$('photoPreview').innerHTML=p.image?`<img src="${escAttr(p.image)}" alt="Pré-visualização da foto"><span>Imagem cadastrada</span>`:'Nenhuma imagem selecionada';$('pb').value=p.barcode||'';$('pn').value=p.name||'';$('pbrand').value=p.brand||'';$('pc').value=p.category||'';$('pu').value=p.unit||'un';$('pcost').value=p.cost_price??0;$('pp').value=p.price??0;$('pstock').value=p.stock??0;$('pmin').value=p.min_stock??0;$('pi').value=p.image||'';if($('piUrl'))$('piUrl').value=(p.image&&!/^data:image\//i.test(String(p.image)))?p.image:'';$('pd').value=p.description||'';$('psite').checked=p.print_site===undefined||p.print_site===null||p.print_site===true||p.print_site===1;$('pcommand').checked=(p.print_command===true||p.print_command===1)||(p.print_command===undefined&&(p.prepare_kitchen===true||p.prepare_kitchen===1));if($('salePreset'))$('salePreset').value=inferSalePreset(p);renderSaleOptionRows(editingSaleOptions);$('saveBtn').textContent='SALVAR ALTERAÇÕES';window.scrollTo({top:0,behavior:'smooth'});}
-async function editProduct(id){const a=await api('/api/admin/products?type=all');const p=a.find(x=>Number(x.id)===Number(id));if(p)fill(p)}
+async function editProduct(id){
+  const productId=Number(id);
+  if(!Number.isInteger(productId)||productId<=0){
+    alert('Não foi possível identificar o produto selecionado. Atualize a lista e tente novamente.');
+    return;
+  }
+  try{
+    // Busca sempre o cadastro completo diretamente no servidor.
+    // O cache da tabela pode conter somente parte dos campos e não deve
+    // ser usado como fonte principal para preencher o formulário de edição.
+    const response=await api('/api/admin/products?type=all');
+    const rows=Array.isArray(response)
+      ? response
+      : (Array.isArray(response?.products) ? response.products : []);
+    const product=rows.find(item=>Number(item.id)===productId);
+
+    if(!product){
+      throw new Error('O produto selecionado não foi encontrado no cadastro. Atualize a lista e tente novamente.');
+    }
+
+    // Atualiza também o cache com o registro completo retornado pelo servidor.
+    if(Array.isArray(cachedProducts)){
+      const index=cachedProducts.findIndex(item=>Number(item.id)===productId);
+      if(index>=0) cachedProducts[index]=product;
+      else cachedProducts.push(product);
+    }
+
+    // fill() preenche os campos do cadastro, incluindo foto, estoque,
+    // impressão/cozinha e opções de venda (unidade, fardo, caixa etc.).
+    fill(product);
+    if($('productFormArea')) $('productFormArea').style.display='block';
+    if($('productListScreen')) $('productListScreen').style.display='none';
+    if($('productFormTitle')) $('productFormTitle').textContent='Editar Produto · '+(product.internal_code||'');
+    window.scrollTo({top:0,behavior:'smooth'});
+  }catch(error){
+    console.error('Falha ao carregar produto completo para edição:',error);
+    alert('Não foi possível carregar os dados completos do produto: '+(error?.message||'Erro inesperado.'));
+  }
+}
 function clearForm(){editingId=null;editingSaleOptions=[];if($('pInternalCode'))$('pInternalCode').value='Gerado automaticamente ao salvar';if($('pcost'))$('pcost').readOnly=false;['pb','pn','pbrand','pc','pcost','pp','pstock','pmin','pi','pd','pfile','piUrl'].forEach(id=>{const el=$(id);if(el)el.value='';});$('photoPreview').textContent='Nenhuma imagem selecionada';if($('psite'))$('psite').checked=true;if($('pcommand'))$('pcommand').checked=false;$('pu').value='un';if($('salePreset'))$('salePreset').value='simple';renderSaleOptionRows([]);$('saveBtn').textContent='CADASTRAR PRODUTO';}
 async function lookupBarcode(){const b=$('pb').value.trim();if(!b)return alert('Passe ou digite o código de barras.');try{const d=await api('/api/admin/products/barcode/'+encodeURIComponent(b)+'/lookup');if(d.found){$('pn').value=d.name||'';$('pbrand').value=d.brand||'';$('pc').value=d.category||'Salgadinhos Chips';$('pu').value=d.unit||'un';$('pd').value=d.description||'';$('pi').value=d.image||'';if($('piUrl'))$('piUrl').value=(d.image&&!/^data:image\//i.test(String(d.image)))?d.image:'';const preview=$('photoPreview');if(preview)preview.innerHTML=d.image?`<img src="${escAttr(d.image)}" alt="Pré-visualização da foto" onerror="this.style.display='none'"><span>Pré-visualização da imagem</span>`:'Nenhuma imagem selecionada';}else alert(d.message||'Produto não encontrado.');}catch(e){alert(e.message)}}
 $('pb').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();lookupBarcode()}});
