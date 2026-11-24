@@ -63,8 +63,7 @@ function filterProductList(){
  <td><b>${esc(p.internal_code||'-')}</b></td><td>${esc(p.name||'')}</td><td>${esc(p.category||'')}</td>
  <td>${money(p.cost_price)}</td><td>${money(p.price)}</td>
  <td class="${Number(p.stock)<=Number(p.min_stock)&&Number(p.min_stock)>0?'low':''}">${esc(p.stock)} ${esc(p.unit||'un')}</td>
- <td>${p.active?'Ativo':'Inativo'}</td><td class="product-actions"><button type="button" onclick="editProduct(${Number(p.id)})">Editar</button></td>
- <td class="product-actions">${p.active?`<button type="button" onclick="del(${Number(p.id)})">Inativar</button>`:'—'}</td>
+ <td>${p.active?'Ativo':'Inativo'}</td><td class="product-actions" colspan="2"><div class="product-action-buttons"><button type="button" onclick="editProduct(${Number(p.id)})">Editar</button>${p.active?`<button type="button" onclick="del(${Number(p.id)})">Inativar</button>`:'<span>—</span>'}</div></td>
  </tr>`).join('')||'<tr><td colspan="10">Nenhum produto encontrado.</td></tr>';
 }
 async function loadProducts(){

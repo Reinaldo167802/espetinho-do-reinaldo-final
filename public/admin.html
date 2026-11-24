@@ -572,7 +572,7 @@ body{background:#f5f3f8;color:#20212a}header{box-shadow:0 2px 14px #211b2910}hea
 #products .product-list-tools input{width:100%;max-width:520px}
 #products #productsList .table{overflow-x:auto}
 #products #productsList table{width:100%;border-collapse:collapse;min-width:850px}
-#products #productsList th,#products #productsList td{padding:8px 9px;vertical-align:middle}
+#products #productsList th,#products #productsList td{padding:4px 6px;vertical-align:middle}
 #products #productsList tbody tr{border-bottom:1px solid rgba(255,255,255,.10)}
 #products .admin-product-thumb{width:42px;height:42px;object-fit:contain;border-radius:7px;background:#fff}
 #products .admin-product-no-photo{display:inline-flex;width:42px;height:42px;align-items:center;justify-content:center;border-radius:7px;background:rgba(255,255,255,.08)}
@@ -583,8 +583,9 @@ body{background:#f5f3f8;color:#20212a}header{box-shadow:0 2px 14px #211b2910}hea
 #products #productsList table{min-width:1120px;table-layout:auto}
 #products #productsList th,#products #productsList td{white-space:nowrap;text-align:left}
 #products #productsList td:nth-child(3){white-space:normal;min-width:180px}
-#products #productsList td.product-actions{display:flex;gap:6px;align-items:center}
-#products #productsList td.product-actions button{margin:0!important;white-space:nowrap}
+#products #productsList td.product-actions{white-space:nowrap}
+#products #productsList .product-action-buttons{display:flex;flex-direction:row;gap:6px;align-items:center;justify-content:flex-start}
+#products #productsList .product-action-buttons button{margin:0!important;padding:5px 8px;white-space:nowrap;line-height:1.1}
 #products .product-list-tools{margin-top:8px}
 #products #bulkProductTools .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 </style></head><body><header class="admin-header"><div class="brand-lockup"><span class="brand-mark" aria-hidden="true">ER</span><div><b>PAINEL ADMINISTRATIVO</b><small>ESPETINHO DO REINALDO · GESTÃO DA CASA</small></div></div><span class="admin-live"><i></i> ÁREA DE GESTÃO</span></header><div class="admin"><div id="login" class="panel"><h2>Entrar</h2><input id="pw" type="password" placeholder="Senha administrativa" style="padding:12px;width:100%"><button class="primary" style="margin-top:10px" onclick="login()">ENTRAR</button></div><div id="app" style="display:none"><div class="nav"><button onclick="tab('orders')">Pedidos</button><button onclick="tab('products')">Produtos</button><button onclick="tab('purchases')">Entrada de Estoque XML</button><button onclick="tab('suppliers')">Fornecedores</button><button onclick="tab('cash')">Caixa</button><button onclick="tab('commands')">Comandas</button><button onclick="tab('customers')">Clientes</button><button onclick="tab('fiado')">Fiado / Receber</button><button onclick="tab('pickupSales')">Central de Fichas</button><button onclick="tab('settings')">Configurações</button></div>
