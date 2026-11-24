@@ -288,3 +288,40 @@ body:has(.admin) .admin .command-detail-items td:nth-child(4) { width: 22% !impo
 .card h3 { color: #FFF4E6 !important; font-weight: 800 !important; }
 #products .card strong,
 .card strong { color: #D6AD61 !important; }
+
+
+/* CORREÇÃO PONTUAL — pré-visualização da foto no formulário de produtos */
+#productFormArea #photoPreview {
+  position: static !important;
+  grid-column: 1 / -1 !important;
+  justify-self: stretch !important;
+  align-self: auto !important;
+  float: none !important;
+  clear: both !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  margin: 8px 0 4px !important;
+  padding: 8px !important;
+  box-sizing: border-box !important;
+  text-align: center !important;
+  transform: none !important;
+  z-index: auto !important;
+}
+
+#productFormArea #photoPreview img {
+  position: static !important;
+  display: block !important;
+  float: none !important;
+  width: auto !important;
+  max-width: 120px !important;
+  max-height: 90px !important;
+  height: auto !important;
+  margin: 0 auto !important;
+  object-fit: contain !important;
+  transform: none !important;
+}
