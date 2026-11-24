@@ -662,6 +662,27 @@ function xmlText(node,tag){
   const el=Array.from(node.getElementsByTagName('*')).find(x=>x.localName===tag);
   return el?String(el.textContent||'').trim():'';
 }
+function xmlNum(node,tag){
+  const raw=xmlText(node,tag);const n=Number(raw);return Number.isFinite(n)?n:0;
+}
+function xmlLineAcquisitionCost(line){
+  // Custo de aquisição por item: produto - desconto + despesas + tributos não recuperáveis destacados.
+  return Math.max(0,
+    Number(line.product_value||0)-Number(line.discount||0)+
+    Number(line.freight||0)+Number(line.insurance||0)+Number(line.other_expenses||0)+
+    Number(line.icms_st||0)+Number(line.fcp_st||0)+Number(line.ipi||0)+Number(line.import_duty||0)
+  );
+}
+function allocateXmlInvoiceRemainder(lines, field, invoiceTotal){
+  const already=lines.reduce((sum,line)=>sum+Number(line[field]||0),0);
+  const remainder=Math.max(0,Number(invoiceTotal||0)-already);
+  if(remainder<=0.000001||!lines.length)return;
+  const base=lines.reduce((sum,line)=>sum+Math.max(0,Number(line.product_value||0)),0);
+  lines.forEach(line=>{
+    const share=base>0?Math.max(0,Number(line.product_value||0))/base:1/lines.length;
+    line[field]=Number(line[field]||0)+remainder*share;
+  });
+}
 function parsePurchaseXml(input){
   const file=input.files&&input.files[0];if(!file)return;
   const reader=new FileReader();
@@ -675,13 +696,48 @@ function parsePurchaseXml(input){
       if(!/^\d{44}$/.test(key))throw Error('Não encontrei a chave de acesso de 44 dígitos. Use o XML autorizado da NF-e.');
       const products=await api('/api/admin/products?type=all');
       const dets=Array.from(doc.getElementsByTagName('det'));
-      purchaseDraft={access_key:key,xml_content:String(reader.result||''),invoice_number:xmlText(ide,'nNF'),series:xmlText(ide,'serie'),supplier_name:xmlText(emit,'xNome'),supplier_cnpj:xmlText(emit,'CNPJ')||xmlText(emit,'CPF'),issue_date:xmlText(ide,'dhEmi')||xmlText(ide,'dEmi'),total:Number(xmlText(total,'vNF'))||0,lines:[]};
+      const invoiceTotals={};
+      ['vProd','vDesc','vFrete','vSeg','vOutro','vBC','vICMS','vBCST','vST','vFCPST','vIPI','vPIS','vCOFINS','vII','vNF','vTotTrib'].forEach(k=>invoiceTotals[k]=xmlNum(total,k));
+      purchaseDraft={access_key:key,xml_content:String(reader.result||''),invoice_number:xmlText(ide,'nNF'),series:xmlText(ide,'serie'),supplier_name:xmlText(emit,'xNome'),supplier_cnpj:xmlText(emit,'CNPJ')||xmlText(emit,'CPF'),issue_date:xmlText(ide,'dhEmi')||xmlText(ide,'dEmi'),total:invoiceTotals.vNF,invoice_totals:invoiceTotals,lines:[]};
       purchaseDraft.lines=dets.map((det,i)=>{
-        const prod=det.getElementsByTagName('prod')[0],qty=Number(xmlText(prod,'qCom'))||0,unit=xmlText(prod,'uCom')||'un',unitPrice=Number(xmlText(prod,'vUnCom'))||0,lineTotal=Number(xmlText(prod,'vProd'))||qty*unitPrice;
-        return {index:i,product_name:xmlText(prod,'xProd'),code:xmlText(prod,'cProd'),barcode:(xmlText(prod,'cEAN')||xmlText(prod,'cEANTrib')||'').replace(/\D/g,''),purchase_qty:qty,purchase_unit:unit,purchase_unit_price:unitPrice,line_total:lineTotal,stock_qty:qty,stock_unit:unit,units_per_pack:detectUnitsPerPack(xmlText(prod,'xProd')+' '+unit),unit_cost:lineTotal/Math.max(1,qty),product_id:'',products};
+        const prod=det.getElementsByTagName('prod')[0],tax=det.getElementsByTagName('imposto')[0];
+        const qty=xmlNum(prod,'qCom'),tradeUnit=xmlText(prod,'uCom')||'un';
+        const taxQty=xmlNum(prod,'qTrib'),taxUnit=xmlText(prod,'uTrib')||tradeUnit;
+        // qTrib é a quantidade total na unidade tributável. Dividir por qCom dá as unidades por embalagem.
+        const unitsPerPack=qty>0&&taxQty>0?taxQty/qty:detectUnitsPerPack(xmlText(prod,'xProd')+' '+tradeUnit);
+        const productValue=xmlNum(prod,'vProd')||(qty*xmlNum(prod,'vUnCom'));
+        const line={
+          index:i,product_name:xmlText(prod,'xProd'),code:xmlText(prod,'cProd'),
+          barcode:(xmlText(prod,'cEAN')||xmlText(prod,'cEANTrib')||'').replace(/\D/g,''),
+          purchase_qty:qty,purchase_unit:tradeUnit,purchase_unit_price:xmlNum(prod,'vUnCom'),
+          taxable_qty:taxQty,taxable_unit:taxUnit,units_per_pack:unitsPerPack>0?unitsPerPack:1,
+          product_value:productValue,discount:xmlNum(prod,'vDesc'),
+          freight:xmlNum(prod,'vFrete'),insurance:xmlNum(prod,'vSeg'),other_expenses:xmlNum(prod,'vOutro'),
+          icms_base:xmlNum(tax,'vBC'),icms:xmlNum(tax,'vICMS'),icms_st:xmlNum(tax,'vICMSST'),
+          icms_st_base:xmlNum(tax,'vBCST'),fcp_st:xmlNum(tax,'vFCPST'),ipi:xmlNum(tax,'vIPI'),
+          import_duty:xmlNum(tax,'vII'),pis:xmlNum(tax,'vPIS'),cofins:xmlNum(tax,'vCOFINS'),
+          total_taxes_info:xmlNum(tax,'vTotTrib'),ibs:xmlNum(tax,'vIBS'),cbs:xmlNum(tax,'vCBS'),
+          product_id:'',products
+        };
+        line.stock_qty=taxQty>0?taxQty:qty*line.units_per_pack;
+        line.stock_unit=taxUnit;
+        line.line_total=xmlLineAcquisitionCost(line);
+        line.unit_cost=line.line_total/Math.max(0.000001,line.stock_qty||qty||1);
+        return line;
       });
+      // Rateia apenas valores presentes no total da NF-e e ainda não discriminados nos itens.
+      for(const [field,totalTag] of [['freight','vFrete'],['insurance','vSeg'],['other_expenses','vOutro'],['icms_st','vST'],['fcp_st','vFCPST'],['ipi','vIPI'],['import_duty','vII']]){
+        allocateXmlInvoiceRemainder(purchaseDraft.lines,field,invoiceTotals[totalTag]);
+      }
+      for(const line of purchaseDraft.lines){
+        line.line_total=xmlLineAcquisitionCost(line);
+        line.stock_qty=line.taxable_qty>0?line.taxable_qty:Number(line.purchase_qty||0)*Number(line.units_per_pack||1);
+        line.stock_unit=line.taxable_unit||line.purchase_unit||'un';
+        line.unit_cost=line.line_total/Math.max(0.000001,line.stock_qty||1);
+      }
       for(const line of purchaseDraft.lines){const match=await api('/api/admin/products/xml-match',{method:'POST',body:JSON.stringify({supplier_cnpj:purchaseDraft.supplier_cnpj,supplier_code:line.code,barcode:line.barcode,name:line.product_name})});if(match.found){line.product_id=String(match.product.id);line.match_reason=match.reason;}}
-      $('purchaseInvoiceInfo').innerHTML=`<b>NF-e ${esc(purchaseDraft.invoice_number)}</b> · ${esc(purchaseDraft.supplier_name)} · Total: ${money(purchaseDraft.total)}<br><small>Produtos reconhecidos automaticamente aparecem pré-selecionados. Confira todos antes de confirmar.</small>`;
+      const t=invoiceTotals,acquisitionSum=purchaseDraft.lines.reduce((sum,line)=>sum+Number(line.line_total||0),0),reconciliation=acquisitionSum-Number(t.vNF||0);
+      $('purchaseInvoiceInfo').innerHTML=`<b>NF-e ${esc(purchaseDraft.invoice_number)}</b> · ${esc(purchaseDraft.supplier_name)} · <b>Total da nota: ${money(purchaseDraft.total)}</b><br><small>Produtos: ${money(t.vProd)} · Descontos: ${money(t.vDesc)} · ICMS-ST: ${money(t.vST)} · FCP-ST: ${money(t.vFCPST)} · IPI: ${money(t.vIPI)} · Outras despesas: ${money(t.vOutro)}<br>Custo de aquisição calculado: ${money(acquisitionSum)} · Diferença para a NF-e: ${money(reconciliation)}<br>Quantidades obtidas de qCom/qTrib e custos com tributos e despesas da nota. Confira os vínculos antes de confirmar.</small>`;
       renderPurchaseLines();$('receivePurchaseBtn').disabled=!purchaseDraft.lines.length;
     }catch(e){purchaseDraft=null;$('receivePurchaseBtn').disabled=true;$('purchaseInvoiceInfo').textContent='Erro ao ler XML: '+e.message;alert(e.message);}
   };
@@ -693,7 +749,7 @@ function renderPurchaseLines(){
   const box=$('purchaseLines');if(!box||!purchaseDraft)return;
   const products=purchaseDraft.lines[0]?.products||[];
   box.innerHTML='<div class="xml-compact-wrap"><table class="xml-compact-table"><thead><tr><th>Produto da nota</th><th>Qtd. embalagens</th><th>Unid./emb.</th><th>Total un.</th><th>Valor total</th><th>Custo/un.</th><th>Produto cadastrado</th></tr></thead><tbody>'+purchaseDraft.lines.map((l,i)=>{
-    const packs=Math.max(1,Number(l.purchase_qty)||1),units=Math.max(1,Number(l.units_per_pack)||1),total=packs*units,cost=(Number(l.line_total)||0)/total;
+    const packs=Math.max(0,Number(l.purchase_qty)||0),units=Math.max(0.0001,Number(l.units_per_pack)||1),total=Number(l.stock_qty)||packs*units,cost=(Number(l.line_total)||0)/Math.max(0.0001,total);
     return `<tr><td class="xml-product-desc"><b>${esc(l.product_name)}</b><small>Cód. ${esc(l.code||'-')} · ${esc(l.purchase_unit||'un')} · ${money(l.purchase_unit_price)} por embalagem</small></td><td>${packs}</td><td><input class="xml-units-input" id="xmlUnitsPerPack_${i}" type="number" min="1" step="1" value="${units}" onchange="setXmlUnitsPerPack(${i},this.value)"></td><td><b id="xmlTotalUnits_${i}">${total}</b></td><td>${money(l.line_total)}</td><td><b id="xmlUnitCost_${i}">${cost.toLocaleString('pt-BR',{minimumFractionDigits:4,maximumFractionDigits:4})}</b></td><td><select class="xml-product-select" id="purchaseProduct_${i}" onchange="setPurchaseLine(${i},'product_id',this.value)"><option value="">Selecione...</option>${products.map(p=>`<option value="${p.id}">${esc(p.internal_code||'')} · ${esc(p.name)}</option>`).join('')}</select><button type="button" class="xml-register-btn" onclick="startXmlProductRegistration(${i})">+ Cadastrar</button></td></tr>`;
   }).join('')+'</tbody></table></div>';
   purchaseDraft.lines.forEach((l,i)=>{const sel=$('purchaseProduct_'+i);if(sel)sel.value=String(l.product_id||'');updateXmlCostPreview(i);});
@@ -701,14 +757,14 @@ function renderPurchaseLines(){
 function setPurchaseLine(i,k,v){if(purchaseDraft&&purchaseDraft.lines[i])purchaseDraft.lines[i][k]=k==='stock_qty'?Number(v):v;}
 function setXmlUnitsPerPack(i,v){
   if(!purchaseDraft||!purchaseDraft.lines[i])return;
-  const totalUnits=Math.max(1,Math.floor(Number(v)||1));
+  const totalUnits=Math.max(0.0001,Number(v)||1);
   purchaseDraft.lines[i].units_per_pack=totalUnits;
   updateXmlCostPreview(i);updateXmlMarkup(i);
 }
 function updateXmlCostPreview(i){
   if(!purchaseDraft||!purchaseDraft.lines[i])return;
-  const l=purchaseDraft.lines[i],totalUnits=Math.max(1,Number(l.purchase_qty)||1)*Math.max(1,Number(l.units_per_pack)||1);
-  l.stock_qty=totalUnits;l.stock_unit='un';l.unit_cost=(Number(l.line_total)||0)/totalUnits;
+  const l=purchaseDraft.lines[i],totalUnits=Math.max(0.0001,Number(l.purchase_qty)||0)*Math.max(0.0001,Number(l.units_per_pack)||1);
+  l.stock_qty=totalUnits;l.stock_unit=l.taxable_unit||l.purchase_unit||'un';l.unit_cost=(Number(l.line_total)||0)/totalUnits;
   const el=$('xmlUnitCost_'+i);
   if(el)el.textContent=Number(l.unit_cost).toLocaleString('pt-BR',{minimumFractionDigits:4,maximumFractionDigits:4});const totalEl=$('xmlTotalUnits_'+i);if(totalEl)totalEl.textContent=totalUnits;
   const cost=$('newXmlCost_'+i);if(cost&&!cost.dataset.touched)cost.value=l.unit_cost.toFixed(4);
@@ -727,7 +783,7 @@ async function receivePurchaseXml(){
   if(!purchaseDraft)return alert('Carregue primeiro o XML da NF-e.');
   if(purchaseDraft.lines.some(l=>!Number(l.product_id)||!(Number(l.stock_qty)>0)||!String(l.stock_unit||'').trim()))return alert('Vincule todos os itens a um produto cadastrado e confira as quantidades.');
   if(!confirm('Confirma a entrada desta NF-e? O estoque dos produtos vinculados será atualizado.'))return;
-  const payload={...purchaseDraft,lines:purchaseDraft.lines.map(({products,index,...l})=>{const product=(products||[]).find(p=>Number(p.id)===Number(l.product_id));const baseUnit=String(product?.unit||l.stock_unit||'un');const received=Math.max(1,Number(l.purchase_qty)||1)*Math.max(1,Number(l.units_per_pack)||1);return {...l,package_qty:Number(l.purchase_qty)||0,package_unit:l.purchase_unit,total_units:received,units_per_pack:Math.max(1,Number(l.units_per_pack)||1),stock_qty:received,stock_unit:baseUnit,unit_cost:(Number(l.line_total)||0)/received}})};
+  const payload={...purchaseDraft,lines:purchaseDraft.lines.map(({products,index,...l})=>{const product=(products||[]).find(p=>Number(p.id)===Number(l.product_id));const baseUnit=String(product?.unit||l.stock_unit||'un');const received=Math.max(0,Number(l.purchase_qty)||0)*Math.max(0.0001,Number(l.units_per_pack)||1);return {...l,package_qty:Number(l.purchase_qty)||0,package_unit:l.purchase_unit,total_units:received,units_per_pack:Math.max(0.0001,Number(l.units_per_pack)||1),stock_qty:received,stock_unit:baseUnit,unit_cost:(Number(l.line_total)||0)/Math.max(0.0001,received),acquisition_total:Number(l.line_total)||0,product_value:Number(l.product_value)||0,discount:Number(l.discount)||0,freight:Number(l.freight)||0,insurance:Number(l.insurance)||0,other_expenses:Number(l.other_expenses)||0,icms:Number(l.icms)||0,icms_st:Number(l.icms_st)||0,fcp_st:Number(l.fcp_st)||0,ipi:Number(l.ipi)||0,import_duty:Number(l.import_duty)||0,pis:Number(l.pis)||0,cofins:Number(l.cofins)||0,total_taxes_info:Number(l.total_taxes_info)||0}})};
   try{const d=await api('/api/admin/purchases/receive',{method:'POST',body:JSON.stringify(payload)});alert(d.message||'Entrada registrada.');purchaseDraft=null;$('purchaseLines').innerHTML='';$('purchaseInvoiceInfo').textContent='Nota recebida com sucesso.';$('receivePurchaseBtn').disabled=true;await loadPurchaseHistory();await loadProducts();}
   catch(e){alert(e.message);}
 }
@@ -881,12 +937,7 @@ function openSaleProductRegistration(){
 }
 async function openInsumoRegistration(){
  closeProductCreateMenu();
- // O formulário de insumos fica DENTRO de salesProductArea.
- // Mantemos o contêiner pai visível e alternamos somente as telas internas.
- $('salesProductArea').style.display='block';
- $('productListScreen').style.display='none';
- $('productFormArea').style.display='none';
- $('insumoArea').style.display='block';
+ $('salesProductArea').style.display='none';$('insumoArea').style.display='block';
  clearInsumoForm();
  await loadInsumos();
 }
