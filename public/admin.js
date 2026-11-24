@@ -133,7 +133,7 @@ function addSaleOptionRow(){const opts=saleOptionRows();opts.push({key:'op'+(opt
 function applySalePreset(){const preset=$('salePreset');if(!preset)return;const p=preset.value;let opts=[];if(p==='cigarette'){ $('pu').value='un';$('pc').value='Cigarros e Tabacaria';opts=[{key:'un',label:'Unidade',factor:1,price:Number($('pp').value)||0},{key:'maco',label:'Maço (20 unidades)',factor:20,price:0}]}else if(p==='beer'){ $('pu').value='un';opts=[{key:'un',label:'Unidade',factor:1,price:Number($('pp').value)||0},{key:'fardo',label:'Fardo (12 unidades)',factor:12,price:0},{key:'caixa',label:'Caixa (24 unidades)',factor:24,price:0}]}else if(p==='spirit'){ $('pu').value='ml';opts=[{key:'dose',label:'Dose (50 ml)',factor:50,price:0},{key:'garrafa',label:'Garrafa (informe o volume em ml)',factor:0,price:0}]}else if(p==='cachaça'){ $('pu').value='ml';opts=[{key:'dose',label:'Dose (50 ml)',factor:50,price:0},{key:'garrafa200',label:'Garrafa 200 ml',factor:200,price:0},{key:'garrafa500',label:'Garrafa 500 ml',factor:500,price:0},{key:'garrafa1000',label:'Garrafa 1 litro',factor:1000,price:0}]}else if(p==='custom'){opts=saleOptionRows()}renderSaleOptionRows(opts)}
 function inferSalePreset(p){const o=(()=>{try{return Array.isArray(p.sale_options)?p.sale_options:JSON.parse(p.sale_options||'[]')}catch(_){return []}})();if(!o.length)return 'simple';if(o.some(x=>/ma[cç]o|20 unidades/i.test(x.label)))return 'cigarette';if(o.some(x=>/fardo|caixa/i.test(x.label)))return 'beer';if(o.some(x=>/200 ml/i.test(x.label))&&o.some(x=>/500 ml/i.test(x.label)))return 'cachaça';if(o.some(x=>/dose/i.test(x.label)))return 'spirit';return 'custom'}
 
-function setProductPhotoUrl(value){const url=String(value||'').trim();$('pi').value=url;const preview=$('photoPreview');if(!preview)return;if(!url){preview.textContent='Nenhuma imagem selecionada';return;}preview.innerHTML=`<img src="${escAttr(url)}" alt="Pré-visualização da foto" onerror="this.style.display='none'"><span>Pré-visualização da imagem</span>`;} function fill(p){editingId=p.id;editingSaleOptions=(()=>{try{return Array.isArray(p.sale_options)?p.sale_options:JSON.parse(p.sale_options||'[]')}catch(_){return []}})();$('pcost').readOnly=false;$('productListScreen').style.display='none';$('productFormArea').style.display='block';$('productFormTitle').textContent='Editar Produto · '+(p.internal_code||'Código será gerado');if($('pInternalCode'))$('pInternalCode').value=p.internal_code||'';$('pfile').value='';$('photoPreview').innerHTML=p.image?`<img src="${escAttr(p.image)}" alt="Pré-visualização da foto"><span>Imagem cadastrada</span>`:'Nenhuma imagem selecionada';$('pb').value=p.barcode||'';$('pn').value=p.name||'';$('pbrand').value=p.brand||'';$('pc').value=p.category||'';$('pu').value=p.unit||'un';$('pcost').value=p.cost_price??0;$('pp').value=p.price??0;$('pstock').value=p.stock??0;$('pmin').value=p.min_stock??0;$('pi').value=p.image||'';if($('piUrl'))$('piUrl').value=(p.image&&!/^data:image\//i.test(String(p.image)))?p.image:'';$('pd').value=p.description||'';$('psite').checked=p.print_site===undefined||p.print_site===null||p.print_site===true||p.print_site===1;$('pcommand').checked=(p.print_command===true||p.print_command===1)||(p.print_command===undefined&&(p.prepare_kitchen===true||p.prepare_kitchen===1));if($('salePreset'))$('salePreset').value=inferSalePreset(p);renderSaleOptionRows(editingSaleOptions);$('saveBtn').textContent='SALVAR ALTERAÇÕES';window.scrollTo({top:0,behavior:'smooth'});}
+function setProductPhotoUrl(value){const url=String(value||'').trim();$('pi').value=url;const preview=$('photoPreview');if(!preview)return;if(!url){preview.textContent='Nenhuma imagem selecionada';return;}preview.innerHTML=`<img src="${escAttr(url)}" alt="Pré-visualização da foto" onerror="this.style.display='none'"><span>Pré-visualização da imagem</span>`;} function fill(p){editingId=p.id;editingSaleOptions=(()=>{try{return Array.isArray(p.sale_options)?p.sale_options:JSON.parse(p.sale_options||'[]')}catch(_){return []}})();$('pcost').readOnly=false;$('productListScreen').style.display='none';$('productFormArea').style.display='block';positionProductPhotoPreview();$('productFormTitle').textContent='Editar Produto · '+(p.internal_code||'Código será gerado');if($('pInternalCode'))$('pInternalCode').value=p.internal_code||'';$('pfile').value='';$('photoPreview').innerHTML=p.image?`<img src="${escAttr(p.image)}" alt="Pré-visualização da foto"><span>Imagem cadastrada</span>`:'Nenhuma imagem selecionada';$('pb').value=p.barcode||'';$('pn').value=p.name||'';$('pbrand').value=p.brand||'';$('pc').value=p.category||'';$('pu').value=p.unit||'un';$('pcost').value=p.cost_price??0;$('pp').value=p.price??0;$('pstock').value=p.stock??0;$('pmin').value=p.min_stock??0;$('pi').value=p.image||'';if($('piUrl'))$('piUrl').value=(p.image&&!/^data:image\//i.test(String(p.image)))?p.image:'';$('pd').value=p.description||'';$('psite').checked=p.print_site===undefined||p.print_site===null||p.print_site===true||p.print_site===1;$('pcommand').checked=(p.print_command===true||p.print_command===1)||(p.print_command===undefined&&(p.prepare_kitchen===true||p.prepare_kitchen===1));if($('salePreset'))$('salePreset').value=inferSalePreset(p);renderSaleOptionRows(editingSaleOptions);$('saveBtn').textContent='SALVAR ALTERAÇÕES';window.scrollTo({top:0,behavior:'smooth'});}
 async function editProduct(id){
   const productId=Number(id);
   if(!Number.isInteger(productId)||productId<=0){
@@ -308,7 +308,7 @@ function ensureCommandArchiveUI(){
  tools.innerHTML='<button type="button" class="secondary" onclick="openCommandArchive()">HISTÓRICO / ARQUIVO DE COMANDAS</button>';
  list.insertAdjacentElement('afterend',tools);
  const panel=document.createElement('section');panel.id='commandsArchivePanel';panel.style.cssText='display:none;margin:14px 0;padding:14px;border:1px solid rgba(212,175,55,.35);border-radius:12px;background:rgba(0,0,0,.12)';
- panel.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Histórico de comandas</h3><button type="button" onclick="closeCommandArchive()">VOLTAR ÀS COMANDAS</button></div><div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0"><label>Data: <input id="commandsArchiveDate" type="date"></label><input id="commandsArchiveSearch" type="search" placeholder="Pesquisar cliente ou nº da comanda" style="min-width:220px;flex:1"><button type="button" onclick="filterCommandArchive()">CONSULTAR</button></div><div id="commandsArchiveResults" class="command-grid"><div class="command-empty">Escolha uma data para consultar o histórico.</div></div>';
+ panel.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Histórico de comandas</h3><button type="button" onclick="closeCommandArchive()">VOLTAR ÀS COMANDAS</button></div><p class="muted">Selecione o dia para consultar as contas arquivadas. O histórico não altera pagamentos, caixa ou estoque.</p><div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0"><label>Data: <input id="commandsArchiveDate" type="date"></label><input id="commandsArchiveSearch" type="search" placeholder="Pesquisar cliente ou nº da comanda" style="min-width:220px;flex:1"><button type="button" onclick="filterCommandArchive()">CONSULTAR</button></div><div id="commandsArchiveResults" class="command-grid"><div class="command-empty">Escolha uma data para consultar o histórico.</div></div>';
  tools.insertAdjacentElement('afterend',panel);
  if(heading)heading.dataset.archiveHeading='1';
 }
@@ -325,33 +325,10 @@ function commandPaymentHtml(c){
  }).join(' + ');
  return `<div class="command-payment" style="margin:5px 0 8px;color:#d8e4f5;font-size:12px;line-height:1.35"><b>Pagamento:</b> ${text}</div>`;
 }
-function commandPaymentText(c){
- const details=Array.isArray(c.payment_details)?c.payment_details:[];
- const rows=details.length?details:(c.payment?[{payment:c.payment,amount:Number(c.total||0),customer:c.customer||''}]:[]);
- if(!rows.length)return 'Não informado';
- const labels={pix:'Pix',dinheiro:'Dinheiro',cash:'Dinheiro',debito:'Cartão de débito',credito:'Cartão de crédito',fiado:'Fiado',pendente:'Pendente'};
- return rows.map(p=>{
-  const key=String(p.payment||'').toLowerCase().trim();
-  const label=labels[key]||String(p.payment||'Não informado');
-  const responsible=key==='fiado'&&p.customer?` (${esc(p.customer)})`:'';
-  return `${label}${responsible}`;
- }).join(' + ');
-}
-function isPaidClosedCommand(c){
- if(!c||c.status==='aberta')return false;
- const payment=String(c.payment||'').toLowerCase().trim();
- if(payment==='pendente'||payment==='fiado')return false;
- const details=Array.isArray(c.payment_details)?c.payment_details:[];
- return !details.some(p=>['pendente','fiado'].includes(String(p.payment||'').toLowerCase().trim()));
-}
 function commandCardHtml(c){
- return `<article class="command-card closed command-row">
-  <div class="command-row-number"><b>Comanda ${esc(c.number)}</b></div>
-  <div class="command-row-customer">${esc(c.customer||'Sem cadastro')}</div>
-  <div class="command-row-payment"><span class="command-row-label">Pagamento:</span> ${commandPaymentText(c)}</div>
-  <button type="button" onclick="printCommand(${c.id},'paga')">IMPRIMIR COMPROVANTE</button>
-  <button type="button" onclick="openCommandDocument(${c.id},'a4')">COMANDA A4 / PDF</button>
- </article>`;
+ const pending=String(c.payment||'').toLowerCase()==='pendente';
+ const date=c.closed_at||c.created_at;
+ return `<article class="command-card closed"><div class="command-meta"><span class="command-status">${String(c.payment||'').toLowerCase()==='fiado'?'FIADO / A RECEBER':pending?'AGUARDANDO PAGAMENTO':'FINALIZADA'}</span><h3>Comanda ${esc(c.number)} · ${esc(c.customer||'Sem cadastro')}</h3></div><div class="command-total">${money(c.total)}</div>${commandPaymentHtml(c)}<span class="command-time">${esc(cashDateKey(date)||'Data não disponível')}</span>${pending?`<button onclick="payClosedCommand(${c.id})">RECEBER</button> <button onclick="openCommandDocument(${c.id},'a4')">COMANDA A4 / PDF</button>`:`<button onclick="printCommand(${c.id},'conferencia')">IMPRIMIR CONFERÊNCIA</button> <button onclick="printCommand(${c.id},'paga')">IMPRIMIR COMPROVANTE</button> <button onclick="openCommandDocument(${c.id},'a4')">COMANDA A4 / PDF</button>`}</article>`;
 }
 function openCommandArchive(){
  ensureCommandArchiveUI();const list=$('commandsClosedList'),heading=document.querySelector('[data-archive-heading="1"]');
@@ -365,7 +342,7 @@ function closeCommandArchive(){
 function filterCommandArchive(){
  const day=$('commandsArchiveDate')?.value||'';if(!day){$('commandsArchiveResults').innerHTML='<div class="command-empty">Selecione uma data para consultar.</div>';return;}
  const term=String($('commandsArchiveSearch')?.value||'').trim().toLocaleLowerCase('pt-BR');
- const rows=commandRowsCache.filter(c=>isPaidClosedCommand(c)&&cashDateKey(c.closed_at||c.created_at)===day&&(!term||String(c.number||'').toLocaleLowerCase('pt-BR').includes(term)||String(c.customer||'').toLocaleLowerCase('pt-BR').includes(term))).sort((a,b)=>Number(b.id)-Number(a.id));
+ const rows=commandRowsCache.filter(c=>c.status!=='aberta'&&cashDateKey(c.closed_at||c.created_at)===day&&(!term||String(c.number||'').toLocaleLowerCase('pt-BR').includes(term)||String(c.customer||'').toLocaleLowerCase('pt-BR').includes(term))).sort((a,b)=>Number(b.id)-Number(a.id));
  $('commandsArchiveResults').innerHTML=rows.length?rows.map(commandCardHtml).join(''):'<div class="command-empty">Nenhuma comanda encontrada para esta data.</div>';
 }
 async function loadCommands(){
@@ -375,10 +352,10 @@ async function loadCommands(){
   const activeProducts=products.filter(p=>p.active===true||p.active===1);
   const opened=commandRowsCache.filter(c=>c.status==='aberta').sort((a,b)=>Number(a.number)-Number(b.number));
   const today=cashDateKey(new Date().toISOString());
-  const closedToday=commandRowsCache.filter(c=>isPaidClosedCommand(c)&&cashDateKey(c.closed_at||c.created_at)===today).sort((a,b)=>Number(b.id)-Number(a.id));
+  const closedToday=commandRowsCache.filter(c=>c.status!=='aberta'&&cashDateKey(c.closed_at||c.created_at)===today).sort((a,b)=>Number(b.id)-Number(a.id));
   const card=c=>{const emptyOpen=c.status==='aberta'&&(!Array.isArray(c.items)||c.items.length===0)&&Number(c.total||0)<=0.001;return `<article class="command-card ${c.status==='aberta'?'open':'closed'}"><div class="command-meta"><span class="command-status">${c.status==='aberta'?'EM ATENDIMENTO':(String(c.payment||'').toLowerCase()==='fiado'?'FIADO / A RECEBER':String(c.payment||'').toLowerCase()==='pendente'?'AGUARDANDO PAGAMENTO':'FINALIZADA')}</span><h3>Comanda ${esc(c.number)} · ${esc(c.customer||'Sem cadastro')}</h3></div><div class="command-total">${money(c.total)}</div>${c.status!=='aberta'?commandPaymentHtml(c):''}${c.status==='aberta'?`<span class="command-time">${esc(commandElapsed(c.created_at))}</span><button class="command-open-btn" onclick="openCommandDetails(${c.id})">ABRIR</button>${emptyOpen?`<button type="button" class="danger" style="display:block;margin-top:7px;background:#b42318!important;color:#fff!important;border:0!important;padding:8px 10px!important;border-radius:7px!important;font-weight:800!important" onclick="deleteEmptyCommand(${c.id})">EXCLUIR COMANDA VAZIA</button>`:''}`:`<span class="command-time">${esc(cashDateKey(c.closed_at||c.created_at)||'Data não disponível')}</span>${String(c.payment||'').toLowerCase()==='pendente'?`<button onclick="payClosedCommand(${c.id})">RECEBER</button> <button onclick="openCommandDocument(${c.id},'a4')">COMANDA A4 / PDF</button>`:`<button onclick="printCommand(${c.id},'conferencia')">IMPRIMIR CONFERÊNCIA</button> <button onclick="printCommand(${c.id},'paga')">IMPRIMIR COMPROVANTE</button> <button onclick="openCommandDocument(${c.id},'a4')">COMANDA A4 / PDF</button>`}`}</article>`};
   $('commandsOpenList').innerHTML=`<button type="button" class="command-card command-new" onclick="openNewCommandDialog()"><strong>＋ NOVA COMANDA</strong><span>Escolher cliente</span></button>`+opened.map(card).join('');
-  $('commandsClosedList').innerHTML=closedToday.length?closedToday.map(commandCardHtml).join(''):'<div class="command-empty">Nenhuma conta finalizada hoje.</div>';
+  $('commandsClosedList').innerHTML=closedToday.length?closedToday.map(card).join(''):'<div class="command-empty">Nenhuma conta finalizada hoje.</div>';
   if($('commandsArchivePanel')?.style.display==='block'&&$('commandsArchiveDate')?.value)filterCommandArchive();
   if(currentCommandId){const stillOpen=opened.some(c=>Number(c.id)===Number(currentCommandId));if(stillOpen)renderCommandDetails(commandRowsCache.find(c=>Number(c.id)===Number(currentCommandId)),activeProducts);else closeCommandDetails();}
  }catch(e){$('commandsOpenList').innerHTML='<p>Erro ao carregar comandas: '+esc(e.message)+'</p>';$('commandsClosedList').innerHTML='';}
@@ -904,7 +881,12 @@ function openSaleProductRegistration(){
 }
 async function openInsumoRegistration(){
  closeProductCreateMenu();
- $('salesProductArea').style.display='none';$('insumoArea').style.display='block';
+ // O formulário de insumos fica DENTRO de salesProductArea.
+ // Mantemos o contêiner pai visível e alternamos somente as telas internas.
+ $('salesProductArea').style.display='block';
+ $('productListScreen').style.display='none';
+ $('productFormArea').style.display='none';
+ $('insumoArea').style.display='block';
  clearInsumoForm();
  await loadInsumos();
 }
