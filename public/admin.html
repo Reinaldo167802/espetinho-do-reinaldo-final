@@ -161,6 +161,28 @@ body{background:#f5f3f8;color:#20212a}header{box-shadow:0 2px 14px #211b2910}hea
  .command-row-payment{grid-column:1/-1}
  .command-card.command-row button{width:100%}
 }
+
+/* Relatórios: estilos isolados, sem interferir nas demais abas */
+.report-datebar{display:flex;flex-direction:column;gap:10px;padding:12px;background:#f7f5f9;border:1px solid #e8e1ee;border-radius:12px;margin:12px 0}
+.report-quick-filters,.report-date-fields{display:flex;gap:8px;align-items:end;flex-wrap:wrap}
+.report-quick-filters button,.report-date-fields button,.report-folder-head button{padding:9px 12px;border:1px solid #d8cce2;border-radius:8px;background:#fff;font-weight:700;cursor:pointer}
+.report-date-fields label{display:flex;flex-direction:column;gap:4px;font-size:.82rem;font-weight:700}
+.report-date-fields input{padding:9px;border:1px solid #d8cce2;border-radius:8px}
+.report-folder-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:14px}
+.report-folder-card{display:flex;flex-direction:column;gap:8px;text-align:left;padding:18px;border:1px solid #e3d9eb;border-radius:12px;background:#fff;cursor:pointer;min-height:105px}
+.report-folder-card strong{color:#392348;font-size:1rem}
+.report-folder-card span{color:#62606a;font-size:.88rem;line-height:1.4}
+.report-folder-card:hover{border-color:#9a70bb;background:#fbf8fd}
+.report-folder-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0;border-bottom:1px solid #e8e1ee;padding-bottom:10px}
+.report-folder-head h3{margin:0}
+.report-weekdays{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.report-weekdays>div{padding:12px;border:1px solid #e8e1ee;border-radius:10px;background:#fff}
+.report-sale-detail{padding:14px;border:1px solid #e5ddeb;border-radius:12px;margin-top:14px;background:#fff}
+.report-sale-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.report-sale-head h3{margin:0}
+.report-sale-head button,.report-view-btn{padding:7px 10px;border:1px solid #d8cce2;border-radius:7px;background:#fff;cursor:pointer}
+@media(max-width:700px){.report-folder-grid{grid-template-columns:1fr}.report-weekdays{grid-template-columns:repeat(2,minmax(0,1fr))}.report-date-fields label{flex:1;min-width:130px}}
+
 </style><link rel="stylesheet" href="/premium.css?v=brasa-premium-20261026"><style>
 /* V8: densidade visual do painel e do cadastro de produtos */
 @media(min-width:901px){
@@ -628,6 +650,65 @@ body{background:#f5f3f8;color:#20212a}header{box-shadow:0 2px 14px #211b2910}hea
 @media(max-width:760px){#productFormArea .product-stock-row{grid-template-columns:repeat(2,minmax(0,1fr))!important}#productFormArea .product-print-row{justify-content:flex-start!important;gap:12px!important}}
 @media(max-width:480px){#productFormArea .product-stock-row{grid-template-columns:1fr!important}#productFormArea .product-file-label{white-space:normal!important}}
 </style>
+
+<style id="reports-visual-compact-v2">
+/* Ajustes exclusivos da aba Relatórios — preserva as demais telas */
+#reports{padding:12px!important}
+#reports>h2{font-size:1.18rem!important;line-height:1.15!important;margin:2px 0 5px!important}
+#reports>p.muted{font-size:.86rem!important;line-height:1.3!important;margin:4px 0 9px!important}
+
+/* Filtros: menos altura e melhor aproveitamento horizontal */
+#reports .report-datebar{gap:7px!important;padding:8px 10px!important;margin:8px 0 10px!important;border-radius:10px!important}
+#reports .report-quick-filters,#reports .report-date-fields{gap:6px!important}
+#reports .report-quick-filters button{padding:6px 10px!important;min-height:31px!important;font-size:.78rem!important;line-height:1.1!important;border-radius:7px!important}
+#reports .report-date-fields{align-items:end!important}
+#reports .report-date-fields label{gap:2px!important;font-size:.72rem!important;line-height:1.1!important}
+#reports .report-date-fields input{padding:6px 8px!important;min-height:31px!important;font-size:.8rem!important;border-radius:7px!important}
+#reports .report-date-fields button.primary{padding:7px 10px!important;min-height:32px!important;font-size:.78rem!important;line-height:1.1!important;border-radius:7px!important}
+
+/* Quatro cartões: contraste reforçado e menor altura */
+#reports .report-folder-grid{gap:8px!important;margin-top:9px!important}
+#reports .report-folder-card{
+  min-height:76px!important;padding:11px 13px!important;gap:4px!important;
+  background:#263b59!important;border:1px solid #526b8c!important;
+  border-radius:9px!important;box-shadow:0 2px 7px rgba(0,0,0,.16)!important;
+}
+#reports .report-folder-card strong{color:#ffe09a!important;font-size:.88rem!important;line-height:1.15!important;letter-spacing:.025em!important}
+#reports .report-folder-card span{color:#f4f6fb!important;font-size:.78rem!important;line-height:1.25!important}
+#reports .report-folder-card:hover,#reports .report-folder-card:focus-visible{
+  background:#304d70!important;border-color:#e0bd69!important;outline:none!important
+}
+
+/* Cabeçalho interno dos relatórios mais compacto */
+#reports .report-folder-head{gap:8px!important;margin:8px 0!important;padding-bottom:7px!important}
+#reports .report-folder-head button{padding:6px 9px!important;font-size:.76rem!important;line-height:1.1!important}
+#reports .report-folder-head h3{font-size:1rem!important;line-height:1.15!important}
+
+/* Listagens completas e rankings: linhas mais baixas, sem cortar informações */
+#reports .table table{font-size:.8rem!important;line-height:1.2!important}
+#reports .table td,#reports .table th{padding:6px 8px!important;vertical-align:middle!important}
+#reports .table th{font-size:.72rem!important;letter-spacing:.02em!important}
+#reports .report-view-btn{padding:5px 7px!important;font-size:.72rem!important}
+#reports #reportsQuantity table,#reports #reportsRevenue table{font-size:.78rem!important}
+#reports #reportsQuantity td,#reports #reportsRevenue td,
+#reports #reportsQuantity th,#reports #reportsRevenue th{padding:5px 8px!important}
+
+/* Resumo financeiro e blocos auxiliares com menor espaçamento */
+#reports #reportsSummary .cash-kpis{gap:8px!important;margin:8px 0!important}
+#reports #reportsSummary .cash-card{padding:10px!important;border-radius:9px!important}
+#reports #reportsSummary .cash-card span{font-size:.72rem!important;margin-bottom:4px!important}
+#reports #reportsSummary .cash-card strong{font-size:1.1rem!important}
+#reports .report-weekdays{gap:6px!important}
+#reports .report-weekdays>div{padding:8px!important;border-radius:8px!important}
+
+@media(max-width:700px){
+  #reports .report-date-fields label{min-width:115px!important}
+  #reports .report-folder-grid{grid-template-columns:1fr!important}
+  #reports .report-folder-card{min-height:66px!important}
+  #reports .report-weekdays{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+}
+</style>
+
 <style id="approved-commands-closed-row-v1">\n/* Comandas: fila compacta de contas finalizadas */
 #commandsClosedList.command-grid{display:flex!important;flex-direction:column!important;gap:6px!important;margin-top:10px}
 #commandsClosedList .final-command-row{display:grid;grid-template-columns:105px minmax(160px,1.5fr) minmax(150px,1fr) minmax(110px,.7fr) auto;align-items:center;gap:12px;padding:10px 12px;border:1px solid #e5dfeb;border-radius:9px;background:#fff;color:#292331;box-shadow:0 1px 4px #24172d08}
@@ -641,7 +722,8 @@ body{background:#f5f3f8;color:#20212a}header{box-shadow:0 2px 14px #211b2910}hea
 #commandsClosedList .final-command-menu-items{position:absolute;right:0;top:calc(100% + 5px);z-index:30;min-width:190px;padding:5px;background:#fff;border:1px solid #e2d9e9;border-radius:9px;box-shadow:0 8px 24px #21132924}
 #commandsClosedList .final-command-menu-items button{display:block;width:100%;padding:9px 10px;border:0;border-radius:6px;background:#fff;color:#30243a;text-align:left;font-size:.8rem;cursor:pointer}
 #commandsClosedList .final-command-menu-items button:hover{background:#f4eff8}
-@media(max-width:650px){#commandsClosedList .final-command-row{grid-template-columns:1fr auto;gap:5px 10px;padding:9px}#commandsClosedList .final-command-number,#commandsClosedList .final-command-customer,#commandsClosedList .final-command-payment,#commandsClosedList .final-command-total{grid-column:1}#commandsClosedList .final-command-actions{grid-column:2;grid-row:1/5;align-self:center}}\n</style>\n<style id="approved-command-history-layout-v2">
+@media(max-width:650px){#commandsClosedList .final-command-row{grid-template-columns:1fr auto;gap:5px 10px;padding:9px}#commandsClosedList .final-command-number,#commandsClosedList .final-command-customer,#commandsClosedList .final-command-payment,#commandsClosedList .final-command-total{grid-column:1}#commandsClosedList .final-command-actions{grid-column:2;grid-row:1/5;align-self:center}}\n</style>
+<style id="approved-command-history-layout-v2">
 /* Histórico de comandas: modelo aprovado em linhas escuras com ações visíveis */
 #commandsArchiveResults.command-grid{
  display:flex!important;
@@ -703,7 +785,39 @@ body{background:#f5f3f8;color:#20212a}header{box-shadow:0 2px 14px #211b2910}hea
  #commandsArchiveResults .archive-command-actions button{flex:1 1 145px;white-space:normal!important}
 }
 </style>
-</head><body><header class="admin-header"><div class="brand-lockup"><span class="brand-mark" aria-hidden="true">ER</span><div><b>PAINEL ADMINISTRATIVO</b><small>ESPETINHO DO REINALDO · GESTÃO DA CASA</small></div></div><span class="admin-live"><i></i> ÁREA DE GESTÃO</span></header><div class="admin"><div id="login" class="panel"><h2>Entrar</h2><input id="pw" type="password" placeholder="Senha administrativa" style="padding:12px;width:100%"><button class="primary" style="margin-top:10px" onclick="login()">ENTRAR</button></div><div id="app" style="display:none"><div class="nav"><button onclick="tab('orders')">Pedidos</button><button onclick="tab('products')">Produtos</button><button onclick="tab('purchases')">Entrada de Estoque XML</button><button onclick="tab('suppliers')">Fornecedores</button><button onclick="tab('cash')">Caixa</button><button onclick="tab('commands')">Comandas</button><button onclick="tab('customers')">Clientes</button><button onclick="tab('fiado')">Fiado / Receber</button><button onclick="tab('pickupSales')">Central de Fichas</button><button onclick="tab('settings')">Configurações</button></div>
+<style id="commands-closed-rows-compact-v2">
+/* Ajuste pontual: reduzir altura das linhas em Contas finalizadas */
+#commandsClosedList .final-command-row{
+  grid-template-columns:90px minmax(130px,1.2fr) minmax(130px,1fr) 100px auto!important;
+  gap:8px!important;
+  min-height:46px!important;
+  padding:5px 9px!important;
+  border-radius:8px!important;
+}
+#commandsClosedList .final-command-number,
+#commandsClosedList .final-command-customer,
+#commandsClosedList .final-command-payment,
+#commandsClosedList .final-command-total{
+  font-size:.82rem!important;
+  line-height:1.15!important;
+}
+#commandsClosedList .final-command-menu summary{
+  padding:6px 10px!important;
+  font-size:.72rem!important;
+}
+#commandsClosedList .final-command-menu-items button{
+  padding:7px 9px!important;
+  font-size:.76rem!important;
+}
+@media(max-width:650px){
+  #commandsClosedList .final-command-row{
+    grid-template-columns:1fr auto!important;
+    gap:4px 8px!important;
+    padding:6px 8px!important;
+  }
+}
+</style>
+</head><body><header class="admin-header"><div class="brand-lockup"><span class="brand-mark" aria-hidden="true">ER</span><div><b>PAINEL ADMINISTRATIVO</b><small>ESPETINHO DO REINALDO · GESTÃO DA CASA</small></div></div><span class="admin-live"><i></i> ÁREA DE GESTÃO</span></header><div class="admin"><div id="login" class="panel"><h2>Entrar</h2><input id="pw" type="password" placeholder="Senha administrativa" style="padding:12px;width:100%"><button class="primary" style="margin-top:10px" onclick="login()">ENTRAR</button></div><div id="app" style="display:none"><div class="nav"><button onclick="tab('orders')">Pedidos</button><button onclick="tab('products')">Produtos</button><button onclick="tab('purchases')">Entrada de Estoque XML</button><button onclick="tab('suppliers')">Fornecedores</button><button onclick="tab('cash')">Caixa</button><button onclick="tab('reports')">Relatórios</button><button onclick="tab('commands')">Comandas</button><button onclick="tab('customers')">Clientes</button><button onclick="tab('fiado')">Fiado / Receber</button><button onclick="tab('pickupSales')">Central de Fichas</button><button onclick="tab('settings')">Configurações</button></div>
 <section id="orders" class="panel"><h2>Pedidos</h2><div id="ordersList"></div></section>
 <section id="products" class="panel" style="display:none"><h2>Produtos</h2>
 <div class="toolbar product-create-toolbar">
@@ -731,6 +845,53 @@ body{background:#f5f3f8;color:#20212a}header{box-shadow:0 2px 14px #211b2910}hea
 <section id="purchases" class="panel" style="display:none"><h2>Entrada de estoque por XML</h2><div class="row"><label>Arquivo XML da NF-e<input id="purchaseXml" type="file" accept=".xml,text/xml,application/xml" onchange="parsePurchaseXml(this)"></label><button type="button" onclick="loadPurchaseHistory()">ATUALIZAR HISTÓRICO</button></div><div id="purchaseInvoiceInfo" class="hint" style="margin-top:12px">Nenhuma nota carregada.</div><div id="purchaseLines" style="overflow:auto;margin-top:12px"></div><div class="toolbar"><button id="receivePurchaseBtn" class="primary" onclick="receivePurchaseXml()" disabled>CONFIRMAR ENTRADA NO ESTOQUE</button></div><h3>Notas recebidas</h3><div id="purchaseHistory"></div></section>
 <section id="suppliers" class="panel" style="display:none"><h2>Cadastro de Fornecedores</h2><p class="muted">Consulte os fornecedores importados pelas notas fiscais, pesquise por razão social ou CNPJ e atualize seus dados.</p><div class="row"><input id="supplierSearch" placeholder="Pesquisar por nome ou CNPJ" oninput="filterSuppliers()"><button type="button" onclick="loadSuppliers()">ATUALIZAR LISTA</button></div><input id="supplierEditId" type="hidden"><div class="row3" style="margin-top:10px"><input id="supplierName" placeholder="Razão social / nome do fornecedor"><input id="supplierCnpj" placeholder="CNPJ (14 dígitos)" inputmode="numeric" maxlength="18"><button class="primary" type="button" onclick="saveSupplierFromPanel()">SALVAR FORNECEDOR</button><button type="button" onclick="clearSupplierForm()">LIMPAR</button></div><p id="supplierMsg" class="muted" role="status"></p><div id="suppliersList"></div></section>
 <section id="cash" class="panel cash-screen" style="display:none"><div id="cashDailyView"><h2>Caixa</h2><p class="muted">Confira o dinheiro que entrou e saiu. As contas pendentes ficam separadas.</p><div class="cash-tabs"><button type="button" class="primary" onclick="cashToday()">CAIXA DE HOJE</button><button type="button" onclick="toggleCashHistory()">HISTÓRICO DO CAIXA</button></div><div class="cash-datebar"><label>Data do caixa <input id="cashDate" type="date" onchange="loadCash()"></label><span id="cashViewLabel">Movimento diário</span></div><div id="cashSummary" class="cash-summary"></div><div class="cash-debt" id="cashDebtSummary"></div><details class="cash-manual"><summary>Registrar entrada ou saída manual</summary><div class="row cash-manual-fields"><select id="ct"><option value="entrada">Entrada</option><option value="saida">Saída</option></select><input id="cd" placeholder="Descrição"><input id="cv" type="number" step="0.01" placeholder="Valor"><select id="cp"><option value="pix">Pix</option><option value="dinheiro">Dinheiro</option><option value="debito">Cartão de Débito</option><option value="credito">Cartão de Crédito</option><option value="outros">Outros</option></select></div><button class="primary" style="margin-top:8px" onclick="addCash()">LANÇAR NO CAIXA</button></details><h3 class="cash-list-title">Movimentações do dia</h3><div id="cashList" class="cash-list"></div></div><div id="cashHistoryScreen" style="display:none"><div class="cash-history-head"><button type="button" onclick="cashToday()">← VOLTAR AO CAIXA</button><h2>Histórico do Caixa</h2></div><p class="muted">Consulte as movimentações de qualquer período.</p><div class="cash-datebar"><label>De <input id="cashFrom" type="date"></label><label>Até <input id="cashTo" type="date"></label><button type="button" class="primary" onclick="loadCashHistory()">CONSULTAR PERÍODO</button></div><div id="cashHistorySummary" class="cash-summary"></div><h3 class="cash-list-title">Movimentações do período</h3><div id="cashHistoryList" class="cash-list"></div></div></section>
+
+<section id="reports" class="panel" style="display:none">
+ <h2>Relatórios de Vendas</h2>
+ <p class="muted">Acompanhe faturamento, recebimentos, fiado e desempenho dos produtos usando os lançamentos já registrados no sistema.</p>
+ <div class="report-datebar">
+  <div class="report-quick-filters">
+   <button type="button" onclick="setReportPeriod('today')">Hoje</button>
+   <button type="button" onclick="setReportPeriod('yesterday')">Ontem</button>
+   <button type="button" onclick="setReportPeriod('last7')">Últimos 7 dias</button>
+   <button type="button" onclick="setReportPeriod('last30')">Últimos 30 dias</button>
+   <button type="button" onclick="setReportPeriod('month')">Este mês</button>
+  </div>
+  <div class="report-date-fields">
+   <label>Data inicial <input id="reportFrom" type="date"></label>
+   <label>Data final <input id="reportTo" type="date"></label>
+   <button type="button" class="primary" onclick="loadReports()">APLICAR PERÍODO</button>
+  </div>
+ </div>
+ <div id="reportFolderIndex" class="report-folder-grid">
+  <button type="button" class="report-folder-card" onclick="openReportFolder('billing')"><strong>FATURAMENTO</strong><span>Resumo financeiro, recebimentos, fiado e movimento por dia da semana.</span></button>
+  <button type="button" class="report-folder-card" onclick="openReportFolder('period')"><strong>VENDAS POR PERÍODO</strong><span>Consulte cada venda, veja os produtos e imprima os detalhes.</span></button>
+  <button type="button" class="report-folder-card" onclick="openReportFolder('quantity')"><strong>PRODUTOS MAIS VENDIDOS</strong><span>Ranking dos produtos por quantidade vendida.</span></button>
+  <button type="button" class="report-folder-card" onclick="openReportFolder('revenue')"><strong>PRODUTOS POR FATURAMENTO</strong><span>Ranking dos produtos que mais geraram faturamento.</span></button>
+ </div>
+ <div id="reportFolderScreen" hidden>
+  <div class="report-folder-head"><button type="button" onclick="closeReportFolder()">← VOLTAR AOS RELATÓRIOS</button><h3 id="reportFolderTitle"></h3></div>
+  <div id="reportContentBilling" hidden>
+   <div id="reportsSummary"></div>
+   <h3>Recebimentos por forma de pagamento</h3><div id="reportsPayments" class="cash-methods"></div>
+   <h3>Faturamento por dia da semana</h3><div id="reportsWeekdays" class="report-weekdays"></div>
+   <p id="reportsProfitNote" class="muted"></p>
+  </div>
+  <div id="reportContentPeriod" hidden>
+   <h3>Vendas encontradas no período</h3>
+   <div id="reportsSales" class="table"></div>
+   <div id="reportSaleDetail" class="report-sale-detail" hidden></div>
+  </div>
+  <div id="reportContentQuantity" hidden>
+   <p class="muted">Os produtos são ordenados pela quantidade vendida no período selecionado.</p>
+   <div id="reportsQuantity"></div>
+  </div>
+  <div id="reportContentRevenue" hidden>
+   <p class="muted">Os produtos são ordenados pelo faturamento gerado no período selecionado.</p>
+   <div id="reportsRevenue"></div>
+  </div>
+ </div>
+</section>
 <section id="commands" class="panel" style="display:none"><div id="commandsBoardView" class="command-board-view"><h2>Comandas</h2><h3 class="command-section-title">Comandas em atendimento</h3><div id="commandsOpenList" class="command-grid"></div><h3 class="command-section-title">Contas finalizadas</h3><div id="commandsClosedList" class="command-grid"></div></div><div id="commandDetailView" class="command-detail-view"></div><div id="newCommandModal" class="new-command-modal" role="dialog" aria-modal="true" aria-labelledby="newCommandTitle"><div class="new-command-dialog"><h3 id="newCommandTitle">Abrir nova comanda</h3><p>Abra a comanda com um cliente cadastrado ou digite um nome avulso. O número será gerado automaticamente.</p><label for="ccName"><b>Nome do cliente sem cadastro</b></label><input id="ccName" type="text" maxlength="120" placeholder="Digite o nome do cliente aqui" autocomplete="off" style="width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:8px;margin:8px 0"><label for="cc"><b>Ou escolha um cliente cadastrado</b></label><select id="cc"><option value="">Consumidor não identificado (sem cadastro)</option></select><p>Se preencher o nome acima, ele terá prioridade sobre a lista de clientes e ficará salvo somente nesta comanda. Para vendas no fiado, use um cliente cadastrado e autorizado.</p><div class="new-command-actions"><button type="button" onclick="cancelNewCommand()">Cancelar</button><button type="button" class="primary" onclick="addCommand()">Abrir comanda</button></div></div></div></section>
 <section id="customers" class="panel" style="display:none">
 <h2>Clientes</h2>
@@ -767,4 +928,4 @@ body{background:#f5f3f8;color:#20212a}header{box-shadow:0 2px 14px #211b2910}hea
 <p id="sandwichCapacitySummary" class="muted" role="status">Carregando situação atual...</p>
 <hr style="margin:22px 0;border:0;border-top:1px solid #ddd">
 <div class="hint">Defina aqui o valor que será cobrado automaticamente quando o cliente escolher <b>Entrega</b>.</div><div class="row"><label>Taxa de entrega (R$)<input id="deliverySetting" type="number" step="0.01" min="0" placeholder="0,00"></label></div><button class="primary" style="margin-top:8px" onclick="saveSettings()">SALVAR TAXA DE ENTREGA</button><p id="settingsMsg" class="muted"></p></section>
-</div></div><script src="/admin.js?v=20261124-historico-comandas-modelo-aprovado-v2"></script></body></html>
+</div></div><script src="/admin.js?v=20261124-historico-aprovado-v3"></script></body></html>

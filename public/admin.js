@@ -254,7 +254,7 @@ function closeReportFolder(){
  const detail=$('reportSaleDetail');if(detail){detail.hidden=true;detail.innerHTML='';}
  if(index)index.scrollIntoView({behavior:'smooth',block:'start'});
 }
-function setReportPeriod(period){const now=new Date(),end=localDateKey(now);let start=end;if(period==='week'){const day=(now.getDay()+6)%7;const monday=new Date(now.getFullYear(),now.getMonth(),now.getDate()-day);start=localDateKey(monday);}else if(period==='month'){start=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;}if($('reportFrom'))$('reportFrom').value=start;if($('reportTo'))$('reportTo').value=end;loadReports();}
+function setReportPeriod(period){const now=new Date(),end=localDateKey(now);let start=end;if(period==='yesterday'){const d=new Date(now.getFullYear(),now.getMonth(),now.getDate()-1);start=localDateKey(d);}else if(period==='last7'){const d=new Date(now.getFullYear(),now.getMonth(),now.getDate()-6);start=localDateKey(d);}else if(period==='last30'){const d=new Date(now.getFullYear(),now.getMonth(),now.getDate()-29);start=localDateKey(d);}else if(period==='week'){const day=(now.getDay()+6)%7;const monday=new Date(now.getFullYear(),now.getMonth(),now.getDate()-day);start=localDateKey(monday);}else if(period==='month'){start=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;}if($('reportFrom'))$('reportFrom').value=start;if($('reportTo'))$('reportTo').value=period==='yesterday'?start:end;loadReports();}
 async function loadReports(){
  const fromEl=$('reportFrom'),toEl=$('reportTo');if(!fromEl||!toEl)return;
  const today=localDateKey();if(!fromEl.value)fromEl.value=today;if(!toEl.value)toEl.value=today;
@@ -340,7 +340,7 @@ function commandCardHtml(c){
     return `${label}${responsible}: ${money(p.amount)}`;
    }).join(' + ')
   :(paymentLabels[String(c.payment||'').toLowerCase()]||String(c.payment||'Não informado'));
- return `<article class="final-command-row"><span class="final-command-number">Comanda ${esc(c.number)}</span><span class="final-command-customer">${esc(c.customer||'Sem cadastro')}</span><span class="final-command-payment">${esc(paymentText)}</span><span class="final-command-total">${money(c.total)}</span><div class="final-command-actions"><details class="final-command-menu"><summary>OPÇÕES ▾</summary><div class="final-command-menu-items"><button type="button" onclick="printCommand(${c.id},'conferencia');this.closest('details').open=false">Imprimir conferência</button><button type="button" onclick="printCommand(${c.id},'paga');this.closest('details').open=false">Imprimir comprovante</button><button type="button" onclick="openCommandDocument(${c.id},'a4');this.closest('details').open=false">Comanda A4 / PDF</button></div></details></div></article>`;
+ return `<article class="final-command-row"><span class="final-command-number">Comanda ${esc(c.number)}</span><span class="final-command-customer">${esc(c.customer||'Sem cadastro')}</span><span class="final-command-payment">${esc(paymentText)}</span><span class="final-command-total">${money(c.total)}</span><div class="final-command-actions"><details class="final-command-menu"><summary>OPÇÕES ▾</summary><div class="final-command-menu-items"><button type="button" onclick="printCommand(${c.id},'paga');this.closest('details').open=false">Imprimir comprovante</button><button type="button" onclick="openCommandDocument(${c.id},'a4');this.closest('details').open=false">Comanda A4 / PDF</button></div></details></div></article>`;
 }
 
 function archiveCommandRowHtml(c){
