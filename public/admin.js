@@ -1,3 +1,4 @@
+let commandRowsCache=[];
 let pass='';let editingId=null;let editingSaleOptions=[];let xmlReturnLine=null;let xmlPackContext=null;let xmlProductHistoryStep=false;let returningToXml=false;
 const money=v=>Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const toNumber=v=>{if(v===undefined||v===null||String(v).trim()==='')return 0;const s=String(v).trim().replace(/\s/g,'').replace(/\.(?=\d{3}(?:\D|$))/g,'').replace(',','.');const n=Number(s);return Number.isFinite(n)?n:NaN};
@@ -161,7 +162,6 @@ function commandElapsed(createdAt){
  if(hours<24)return `Aberta há ${hours}h${rest?` ${rest}min`:''}`;
  const days=Math.floor(hours/24);return `Aberta há ${days}d ${hours%24}h`;
 }
-let commandRowsCache=[];
 function ensureCommandArchiveUI(){
  const list=$('commandsClosedList');if(!list||$('commandsArchivePanel'))return;
  const heading=list.previousElementSibling;
