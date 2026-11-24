@@ -817,6 +817,92 @@ body{background:#f5f3f8;color:#20212a}header{box-shadow:0 2px 14px #211b2910}hea
   }
 }
 </style>
+
+<style id="commands-closed-cards-ultra-compact-v1">
+/* Reduz a altura das contas finalizadas mesmo quando o navegador ainda renderiza o cartão antigo */
+#commandsClosedList.command-grid{
+  display:flex!important;
+  flex-direction:column!important;
+  gap:5px!important;
+}
+#commandsClosedList .command-card.closed{
+  display:grid!important;
+  grid-template-columns:minmax(180px,1.1fr) minmax(170px,1fr) auto!important;
+  align-items:center!important;
+  gap:7px 12px!important;
+  min-height:0!important;
+  padding:7px 10px!important;
+  margin:0!important;
+  border-radius:8px!important;
+  box-sizing:border-box!important;
+}
+#commandsClosedList .command-card.closed .command-meta{
+  min-width:0!important;
+  margin:0!important;
+}
+#commandsClosedList .command-card.closed .command-status{
+  display:block!important;
+  margin:0 0 2px!important;
+  font-size:.62rem!important;
+  line-height:1.05!important;
+}
+#commandsClosedList .command-card.closed .command-meta h3{
+  margin:0!important;
+  font-size:.86rem!important;
+  line-height:1.15!important;
+}
+#commandsClosedList .command-card.closed .command-total{
+  display:none!important;
+}
+#commandsClosedList .command-card.closed .command-payment{
+  margin:0!important;
+  font-size:.78rem!important;
+  line-height:1.2!important;
+  overflow-wrap:anywhere!important;
+}
+#commandsClosedList .command-card.closed .command-time{
+  display:none!important;
+}
+#commandsClosedList .command-card.closed > button{
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  min-height:29px!important;
+  margin:0 0 0 4px!important;
+  padding:5px 8px!important;
+  font-size:.68rem!important;
+  line-height:1.05!important;
+  white-space:nowrap!important;
+  border-radius:6px!important;
+}
+@media(max-width:850px){
+  #commandsClosedList .command-card.closed{
+    grid-template-columns:minmax(0,1fr) auto!important;
+    gap:5px 8px!important;
+  }
+  #commandsClosedList .command-card.closed .command-meta{
+    grid-column:1!important;
+  }
+  #commandsClosedList .command-card.closed .command-payment{
+    grid-column:1!important;
+  }
+  #commandsClosedList .command-card.closed > button{
+    grid-column:2!important;
+    grid-row:auto!important;
+  }
+}
+@media(max-width:560px){
+  #commandsClosedList .command-card.closed{
+    grid-template-columns:1fr!important;
+    gap:5px!important;
+  }
+  #commandsClosedList .command-card.closed > button{
+    grid-column:1!important;
+    margin:2px 4px 0 0!important;
+  }
+}
+</style>
+
 </head><body><header class="admin-header"><div class="brand-lockup"><span class="brand-mark" aria-hidden="true">ER</span><div><b>PAINEL ADMINISTRATIVO</b><small>ESPETINHO DO REINALDO · GESTÃO DA CASA</small></div></div><span class="admin-live"><i></i> ÁREA DE GESTÃO</span></header><div class="admin"><div id="login" class="panel"><h2>Entrar</h2><input id="pw" type="password" placeholder="Senha administrativa" style="padding:12px;width:100%"><button class="primary" style="margin-top:10px" onclick="login()">ENTRAR</button></div><div id="app" style="display:none"><div class="nav"><button onclick="tab('orders')">Pedidos</button><button onclick="tab('products')">Produtos</button><button onclick="tab('purchases')">Entrada de Estoque XML</button><button onclick="tab('suppliers')">Fornecedores</button><button onclick="tab('cash')">Caixa</button><button onclick="tab('reports')">Relatórios</button><button onclick="tab('commands')">Comandas</button><button onclick="tab('customers')">Clientes</button><button onclick="tab('fiado')">Fiado / Receber</button><button onclick="tab('pickupSales')">Central de Fichas</button><button onclick="tab('settings')">Configurações</button></div>
 <section id="orders" class="panel"><h2>Pedidos</h2><div id="ordersList"></div></section>
 <section id="products" class="panel" style="display:none"><h2>Produtos</h2>
@@ -928,4 +1014,4 @@ body{background:#f5f3f8;color:#20212a}header{box-shadow:0 2px 14px #211b2910}hea
 <p id="sandwichCapacitySummary" class="muted" role="status">Carregando situação atual...</p>
 <hr style="margin:22px 0;border:0;border-top:1px solid #ddd">
 <div class="hint">Defina aqui o valor que será cobrado automaticamente quando o cliente escolher <b>Entrega</b>.</div><div class="row"><label>Taxa de entrega (R$)<input id="deliverySetting" type="number" step="0.01" min="0" placeholder="0,00"></label></div><button class="primary" style="margin-top:8px" onclick="saveSettings()">SALVAR TAXA DE ENTREGA</button><p id="settingsMsg" class="muted"></p></section>
-</div></div><script src="/admin.js?v=20261124-historico-aprovado-v3"></script></body></html>
+</div></div><script src="/admin.js?v=20261124-comandas-linhas-menores-v1"></script></body></html>
