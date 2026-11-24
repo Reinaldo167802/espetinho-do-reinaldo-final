@@ -54,17 +54,24 @@ async function loadOrders(){
 async function status(id,s){await api('/api/admin/orders/'+id+'/status',{method:'PUT',body:JSON.stringify({status:s})});loadOrders()}
 async function downloadProductDiagnostic(){try{const d=await api('/api/admin/products/diagnostic');const cols=['id','internal_code','name','brand','category','barcode','unit','product_type','cost_price','price','stock','min_stock','active','diagnostic_flags'];const csv=[cols.join(';'),...d.products.map(p=>cols.map(k=>{const v=p[k]??'';return '"'+String(v).replace(/"/g,'""')+'"'}).join(';'))].join('\r\n');const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='diagnostico-produtos-espetinho.csv';a.click();URL.revokeObjectURL(url);alert('Diagnóstico gerado. Produtos: '+d.total+' | Grupos com nome repetido: '+d.duplicate_name_groups+' | Grupos com EAN repetido: '+d.duplicate_ean_groups+' | Sem EAN: '+d.without_ean+' | EAN inválido/fora do padrão: '+d.invalid_ean+'\n\nO arquivo é apenas um relatório; nada foi alterado no cadastro.');}catch(e){alert('Não foi possível gerar o diagnóstico: '+e.message)}}
 async function downloadDatabaseBackup(){if(!confirm('Gerar e baixar uma cópia de segurança do banco de dados? Nenhum dado será alterado.'))return;try{const r=await fetch('/api/admin/database/backup',{headers:{'x-admin-password':pass}});if(!r.ok){let m='Falha ao gerar backup';try{m=(await r.json()).error||m}catch(_){}throw Error(m)}const blob=await r.blob();const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='esp-reinaldo-backup.sqlite';a.click();URL.revokeObjectURL(url);alert('Backup baixado. Guarde esse arquivo em local seguro e não o envie publicamente.');}catch(e){alert('Não foi possível baixar o backup: '+e.message)}}
-let cachedProducts=[];function filterProductList(){const term=String($('productSearch')?.value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();const rows=cachedProducts.filter(p=>[p.name,p.brand,p.internal_code,p.barcode,p.category].some(v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().includes(term)));$('productsListTable').innerHTML=rows.map(p=>`<tr><td>${p.image?`<img class="admin-product-thumb" src="${escAttr(p.image)}" alt="${escAttr(p.name)}" loading="lazy" onerror="this.style.display='none'">`:'<span class="admin-product-no-photo">🍢</span>'}</td><td><b>${esc(p.internal_code||'-')}</b><br><span class="small">EAN: ${esc(p.barcode||'-')}</span></td><td><b>${esc(p.name)}</b><br><span class="small">${esc(p.brand||'')}</span></td><td>${esc(p.category)}</td><td>${money(p.cost_price)}</td><td>${money(p.price)}</td><td class="${Number(p.stock)<=Number(p.min_stock)&&Number(p.min_stock)>0?'low':''}">${p.stock} ${esc(p.unit||'un')}</td><td>${p.active?'Ativo':'Inativo'}</td><td><button onclick="editProduct(${p.id})">Editar</button> ${(/^ER000055$|^ER000056$/.test(String(p.internal_code||'')) && (p.product_type||'venda')!=='insumo')?`<button class="danger" onclick="markProductInternal('${p.internal_code}')">Ocultar da vitrine</button>`:(/^ER000003$|^ER000011$|^ER000012$|^ER000060$/.test(String(p.internal_code||'')))?`<button class="danger" onclick="deleteTestProduct('${p.internal_code}')">Excluir</button>`:(p.active?`<button onclick="del(${p.id})">Inativar</button>`:(/^ER00006[4-9]$|^ER00007[01]$/.test(String(p.internal_code||''))?`<button onclick="deleteTestProduct('${p.internal_code}')">Excluir</button>`:'<span class="muted">Inativo</span>'))}</td></tr>`).join('')||'<tr><td colspan=9>Nenhum produto encontrado.</td></tr>'; }async function loadProducts(){if($('salesProductArea'))$('salesProductArea').style.display='block';if($('insumoArea'))$('insumoArea').style.display='none';cachedProducts=await api('/api/admin/products?type=venda');$('productsList').innerHTML='<div class="table"><table><thead><tr><th>Foto</th><th>Código interno / EAN</th><th>Produto</th><th>Categoria</th><th>Custo</th><th>Venda</th><th>Estoque</th><th>Status</th><th>Ações</th></tr></thead><tbody id="productsListTable"></tbody></table></div>';filterProductList();$('productListScreen').style.display='block';$('productFormArea').style.display='none';}
-function positionProductPhotoPreview(){
- const area=$('productFormArea'),preview=$('photoPreview');
- if(!area||!preview)return;
- const fields=[...area.querySelectorAll('.row3')].find(row=>row.contains($('pn')));
- if(fields&&preview.parentElement!==area)fields.insertAdjacentElement('afterend',preview);
- if(!document.getElementById('product-photo-preview-layout')){
-  const style=document.createElement('style');style.id='product-photo-preview-layout';
-  style.textContent='#productFormArea #photoPreview{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;width:100%;min-height:44px;margin:12px 0 14px!important;padding:10px!important;box-sizing:border-box;text-align:center;border:1px solid rgba(212,175,55,.22);border-radius:10px;background:rgba(0,0,0,.12)}#productFormArea #photoPreview img{display:block;width:auto!important;height:auto!important;max-width:min(100%,240px)!important;max-height:180px!important;object-fit:contain!important;margin:0 auto!important}';
-  document.head.appendChild(style);
- }
+let cachedProducts=[];
+function filterProductList(){
+ const term=String($('productSearch')?.value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+ const rows=cachedProducts.filter(p=>[p.name,p.internal_code,p.barcode,p.category].some(v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().includes(term)));
+ $('productsListTable').innerHTML=rows.map(p=>`<tr>
+ <td>${p.image?`<img class="admin-product-thumb" src="${escAttr(p.image)}" alt="${escAttr(p.name)}" loading="lazy" onerror="this.style.display='none'">`:'<span class="admin-product-no-photo">—</span>'}</td>
+ <td><b>${esc(p.internal_code||'-')}</b></td><td>${esc(p.name||'')}</td><td>${esc(p.category||'')}</td>
+ <td>${money(p.cost_price)}</td><td>${money(p.price)}</td>
+ <td class="${Number(p.stock)<=Number(p.min_stock)&&Number(p.min_stock)>0?'low':''}">${esc(p.stock)} ${esc(p.unit||'un')}</td>
+ <td>${p.active?'Ativo':'Inativo'}</td><td class="product-actions"><button type="button" onclick="editProduct(${Number(p.id)})">Editar</button></td>
+ <td class="product-actions">${p.active?`<button type="button" onclick="del(${Number(p.id)})">Inativar</button>`:'—'}</td>
+ </tr>`).join('')||'<tr><td colspan="10">Nenhum produto encontrado.</td></tr>';
+}
+async function loadProducts(){
+ if($('salesProductArea'))$('salesProductArea').style.display='block';if($('insumoArea'))$('insumoArea').style.display='none';
+ cachedProducts=await api('/api/admin/products?type=venda');
+ $('productsList').innerHTML='<div class="table"><table><thead><tr><th>Foto</th><th>Código</th><th>Nome</th><th>Categoria</th><th>Custo</th><th>Venda</th><th>Estoque</th><th>Status</th><th>Editar</th><th>Inativar</th></tr></thead><tbody id="productsListTable"></tbody></table></div>';
+ filterProductList();$('productListScreen').style.display='block';$('productFormArea').style.display='none';
 }
 function newProductForm(){editingId=null;xmlPackContext=null;clearForm();if($('pInternalCode'))$('pInternalCode').value='Gerado automaticamente ao salvar';$('pcost').readOnly=false;$('xmlProductPackBox').style.display='none';$('productListScreen').style.display='none';$('productFormArea').style.display='block';positionProductPhotoPreview();$('productFormTitle').textContent='Cadastrar Produto Novo';}
 function cancelProductForm(){
@@ -140,7 +147,36 @@ async function deleteTestProduct(code){if(!confirm('Excluir definitivamente o ca
 async function markProductInternal(code){if(!confirm('Marcar '+code+' como insumo e ocultá-lo do site de pedidos? O cadastro e o estoque serão mantidos.'))return;try{await api('/api/admin/products/mark-internal/'+encodeURIComponent(code),{method:'POST',body:JSON.stringify({})});await loadProducts();alert(code+' agora é insumo e não aparece na vitrine.');}catch(e){alert(e.message)}}
 function csvRows(text){const lines=text.replace(/^\uFEFF/,'').split(/\r?\n/).filter(x=>x.trim());if(!lines.length)return[];const parse=l=>{let a=[],cur='',q=false;for(let i=0;i<l.length;i++){const c=l[i];if(c==='"'){if(q&&l[i+1]==='"'){cur+='"';i++;}else q=!q;}else if(c===','&&!q){a.push(cur);cur='';}else cur+=c;}a.push(cur);return a.map(x=>x.trim())};const h=parse(lines[0]).map(x=>x.toLowerCase());return lines.slice(1).map(l=>{const v=parse(l);const o={};h.forEach((k,i)=>o[k]=v[i]||'');return o;});}
 $('pcost')?.addEventListener('input',updateProductProfitPreview);$('pp')?.addEventListener('input',updateProductProfitPreview);
-async function importCsv(){const f=$('csvFile').files[0];if(!f)return alert('Escolha um arquivo CSV.');const rows=csvRows(await f.text());if(!rows.length)return alert('CSV vazio.');let ok=0,fail=[];for(const r of rows){try{await api('/api/admin/products',{method:'POST',body:JSON.stringify({barcode:r.codigo_barras||r.barcode||'',name:r.nome||r.name||'',brand:r.marca||r.brand||'',category:r.categoria||r.category||'Salgadinhos Chips',unit:r.unidade||r.unit||'un',cost_price:r.custo||r.cost_price||0,price:r.venda||r.price||0,stock:r.estoque||r.stock||0,min_stock:r.estoque_minimo||r.min_stock||0,description:r.descricao||r.description||'',image:r.url_foto||r.image||'',print_site:/^(0|nao|não|false)$/i.test(r.imprimir_site||r.print_site||'')?false:true,print_command:/^(1|sim|true|cozinha)$/i.test(r.imprimir_comanda||r.print_command||r.preparar_na_cozinha||r.prepare_kitchen||''),prepare_kitchen:/^(1|sim|true|cozinha)$/i.test(r.imprimir_comanda||r.print_command||r.preparar_na_cozinha||r.prepare_kitchen||''),active:true})});ok++;}catch(e){fail.push((r.codigo_barras||r.nome||'linha')+': '+e.message)}}loadProducts();alert(`Importação concluída. ${ok} produto(s) importado(s).${fail.length?'\nFalhas: '+fail.length+'\n'+fail.slice(0,5).join('\n'):''}`)}
+
+function exportProductsExcel(){
+ if(!window.XLSX){alert('A biblioteca do Excel não carregou. Atualize a página e tente novamente.');return;}
+ const rows=cachedProducts.map(p=>({codigo_ER:p.internal_code||'',codigo_barras:p.barcode||'',nome:p.name||'',marca:p.brand||'',categoria:p.category||'',unidade:p.unit||'un',custo:Number(p.cost_price||0),venda:Number(p.price||0),estoque_atual:Number(p.stock||0),estoque_minimo:Number(p.min_stock||0),descricao:p.description||''}));
+ const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Produtos');
+ XLSX.writeFile(wb,'Produtos_Espetinho_do_Reinaldo.xlsx');
+}
+async function importProductsExcel(){
+ const file=$('xlsxProductsFile')?.files?.[0],status=$('bulkImportStatus');
+ if(!file){alert('Selecione a planilha Excel que foi exportada.');return;}
+ if(!window.XLSX){alert('A biblioteca do Excel não carregou. Atualize a página e tente novamente.');return;}
+ try{
+  status.textContent='Lendo planilha...';const data=await file.arrayBuffer();const wb=XLSX.read(data,{type:'array'});const sheet=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(sheet,{defval:''});
+  if(!rows.length){status.textContent='A planilha não contém produtos.';return;}
+  const norm=s=>String(s??'').trim().toLowerCase();let updated=0,notFound=0,failed=[];
+  const current=await api('/api/admin/products?type=all');
+  for(let i=0;i<rows.length;i++){
+   const r=rows[i],code=String(r.codigo_ER||r.codigo_er||r.internal_code||'').trim().toUpperCase(),barcode=String(r.codigo_barras||r.barcode||'').trim();
+   let p=current.find(x=>code&&String(x.internal_code||'').toUpperCase()===code);
+   if(!p&&barcode)p=current.find(x=>String(x.barcode||'').trim()===barcode);
+   if(!p){notFound++;continue;}
+   const val=(...keys)=>{for(const k of keys)if(Object.prototype.hasOwnProperty.call(r,k)&&r[k]!==''&&r[k]!==null&&r[k]!==undefined)return r[k];return undefined;};
+   const body={name:String(val('nome','name')??p.name).trim(),barcode:p.barcode,brand:val('marca','brand')??p.brand,category:val('categoria','category')??p.category,unit:val('unidade','unit')??p.unit,cost_price:val('custo','cost_price')??p.cost_price,price:val('venda','price')??p.price,stock:p.stock,min_stock:val('estoque_minimo','min_stock')??p.min_stock,description:val('descricao','description')??p.description,image:p.image,active:p.active,product_type:p.product_type||'venda',supplier_id:p.supplier_id||null,stock_secondary:p.stock_secondary||0,stock_secondary_unit:p.stock_secondary_unit||'',print_site:p.print_site!==false&&p.print_site!==0,print_command:p.print_command===true||p.print_command===1,prepare_kitchen:p.prepare_kitchen===true||p.prepare_kitchen===1,sale_options:(()=>{try{return JSON.parse(p.sale_options||'[]')}catch(_){return[]}})()};
+   try{await api('/api/admin/products/'+p.id,{method:'PUT',body:JSON.stringify(body)});updated++;}catch(e){failed.push(code+': '+e.message);}
+  }
+  await loadProducts();status.textContent=`Atualização concluída: ${updated} atualizado(s), ${notFound} não localizado(s), ${failed.length} com falha.`;
+  alert(`Importação concluída.\nAtualizados: ${updated}\nNão localizados: ${notFound}\nFalhas: ${failed.length}${failed.length?'\n'+failed.slice(0,5).join('\n'):''}`);
+ }catch(e){status.textContent='Erro ao ler/importar planilha: '+e.message;alert(status.textContent);}
+}
+
 function cashDateKey(v){if(!v)return '';const raw=String(v).trim();const dateOnly=raw.match(/^(\d{4}-\d{2}-\d{2})$/);if(dateOnly)return dateOnly[1];let normalized=raw;if(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/.test(normalized))normalized=normalized.replace(' ','T')+'Z';else if(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(normalized)&&!/(Z|[+-]\d{2}:?\d{2})$/i.test(normalized))normalized+='Z';const d=new Date(normalized);if(Number.isNaN(d.getTime()))return '';return new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'}).format(d)}
 function localDateKey(d=new Date()){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 function cashToday(){if($('cashDailyView'))$('cashDailyView').style.display='block';if($('cashHistoryScreen'))$('cashHistoryScreen').style.display='none';if($('cashDate'))$('cashDate').value=localDateKey();loadCash()}
