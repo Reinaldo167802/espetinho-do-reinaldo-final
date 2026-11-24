@@ -254,7 +254,7 @@ function closeReportFolder(){
  const detail=$('reportSaleDetail');if(detail){detail.hidden=true;detail.innerHTML='';}
  if(index)index.scrollIntoView({behavior:'smooth',block:'start'});
 }
-function setReportPeriod(period){const now=new Date(),end=localDateKey(now);let start=end;if(period==='yesterday'){const d=new Date(now.getFullYear(),now.getMonth(),now.getDate()-1);start=localDateKey(d);}else if(period==='last7'){const d=new Date(now.getFullYear(),now.getMonth(),now.getDate()-6);start=localDateKey(d);}else if(period==='last30'){const d=new Date(now.getFullYear(),now.getMonth(),now.getDate()-29);start=localDateKey(d);}else if(period==='week'){const day=(now.getDay()+6)%7;const monday=new Date(now.getFullYear(),now.getMonth(),now.getDate()-day);start=localDateKey(monday);}else if(period==='month'){start=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;}if($('reportFrom'))$('reportFrom').value=start;if($('reportTo'))$('reportTo').value=period==='yesterday'?start:end;loadReports();}
+function setReportPeriod(period){const now=new Date(),end=localDateKey(now);let start=end;if(period==='week'){const day=(now.getDay()+6)%7;const monday=new Date(now.getFullYear(),now.getMonth(),now.getDate()-day);start=localDateKey(monday);}else if(period==='month'){start=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;}if($('reportFrom'))$('reportFrom').value=start;if($('reportTo'))$('reportTo').value=end;loadReports();}
 async function loadReports(){
  const fromEl=$('reportFrom'),toEl=$('reportTo');if(!fromEl||!toEl)return;
  const today=localDateKey();if(!fromEl.value)fromEl.value=today;if(!toEl.value)toEl.value=today;
@@ -327,8 +327,20 @@ function commandPaymentHtml(c){
 }
 function commandCardHtml(c){
  const pending=String(c.payment||'').toLowerCase()==='pendente';
- const date=c.closed_at||c.created_at;
- return `<article class="command-card closed"><div class="command-meta"><span class="command-status">${String(c.payment||'').toLowerCase()==='fiado'?'FIADO / A RECEBER':pending?'AGUARDANDO PAGAMENTO':'FINALIZADA'}</span><h3>Comanda ${esc(c.number)} · ${esc(c.customer||'Sem cadastro')}</h3></div><div class="command-total">${money(c.total)}</div>${commandPaymentHtml(c)}<span class="command-time">${esc(cashDateKey(date)||'Data não disponível')}</span>${pending?`<button onclick="payClosedCommand(${c.id})">RECEBER</button> <button onclick="openCommandDocument(${c.id},'a4')">COMANDA A4 / PDF</button>`:`<button onclick="printCommand(${c.id},'conferencia')">IMPRIMIR CONFERÊNCIA</button> <button onclick="printCommand(${c.id},'paga')">IMPRIMIR COMPROVANTE</button> <button onclick="openCommandDocument(${c.id},'a4')">COMANDA A4 / PDF</button>`}</article>`;
+ if(pending){
+  return `<article class="command-card closed"><div class="command-meta"><span class="command-status">AGUARDANDO PAGAMENTO</span><h3>Comanda ${esc(c.number)} · ${esc(c.customer||'Sem cadastro')}</h3></div><div class="command-total">${money(c.total)}</div>${commandPaymentHtml(c)}<button type="button" onclick="payClosedCommand(${c.id})">RECEBER</button><button type="button" onclick="openCommandDocument(${c.id},'a4')">COMANDA A4 / PDF</button></article>`;
+ }
+ const paymentLabels={pix:'Pix',dinheiro:'Dinheiro',cash:'Dinheiro',debito:'Cartão de débito',credito:'Cartão de crédito',fiado:'Fiado',pendente:'Pendente'};
+ const details=Array.isArray(c.payment_details)?c.payment_details:[];
+ const paymentText=details.length
+  ?details.map(p=>{
+    const key=String(p.payment||'').toLowerCase();
+    const label=paymentLabels[key]||String(p.payment||'Não informado');
+    const responsible=key==='fiado'&&p.customer?` (${esc(p.customer)})`:'';
+    return `${label}${responsible}: ${money(p.amount)}`;
+   }).join(' + ')
+  :(paymentLabels[String(c.payment||'').toLowerCase()]||String(c.payment||'Não informado'));
+ return `<article class="final-command-row"><span class="final-command-number">Comanda ${esc(c.number)}</span><span class="final-command-customer">${esc(c.customer||'Sem cadastro')}</span><span class="final-command-payment">${esc(paymentText)}</span><span class="final-command-total">${money(c.total)}</span><div class="final-command-actions"><details class="final-command-menu"><summary>OPÇÕES ▾</summary><div class="final-command-menu-items"><button type="button" onclick="printCommand(${c.id},'conferencia');this.closest('details').open=false">Imprimir conferência</button><button type="button" onclick="printCommand(${c.id},'paga');this.closest('details').open=false">Imprimir comprovante</button><button type="button" onclick="openCommandDocument(${c.id},'a4');this.closest('details').open=false">Comanda A4 / PDF</button></div></details></div></article>`;
 }
 function openCommandArchive(){
  ensureCommandArchiveUI();const list=$('commandsClosedList'),heading=document.querySelector('[data-archive-heading="1"]');
@@ -355,7 +367,7 @@ async function loadCommands(){
   const closedToday=commandRowsCache.filter(c=>c.status!=='aberta'&&cashDateKey(c.closed_at||c.created_at)===today).sort((a,b)=>Number(b.id)-Number(a.id));
   const card=c=>{const emptyOpen=c.status==='aberta'&&(!Array.isArray(c.items)||c.items.length===0)&&Number(c.total||0)<=0.001;return `<article class="command-card ${c.status==='aberta'?'open':'closed'}"><div class="command-meta"><span class="command-status">${c.status==='aberta'?'EM ATENDIMENTO':(String(c.payment||'').toLowerCase()==='fiado'?'FIADO / A RECEBER':String(c.payment||'').toLowerCase()==='pendente'?'AGUARDANDO PAGAMENTO':'FINALIZADA')}</span><h3>Comanda ${esc(c.number)} · ${esc(c.customer||'Sem cadastro')}</h3></div><div class="command-total">${money(c.total)}</div>${c.status!=='aberta'?commandPaymentHtml(c):''}${c.status==='aberta'?`<span class="command-time">${esc(commandElapsed(c.created_at))}</span><button class="command-open-btn" onclick="openCommandDetails(${c.id})">ABRIR</button>${emptyOpen?`<button type="button" class="danger" style="display:block;margin-top:7px;background:#b42318!important;color:#fff!important;border:0!important;padding:8px 10px!important;border-radius:7px!important;font-weight:800!important" onclick="deleteEmptyCommand(${c.id})">EXCLUIR COMANDA VAZIA</button>`:''}`:`<span class="command-time">${esc(cashDateKey(c.closed_at||c.created_at)||'Data não disponível')}</span>${String(c.payment||'').toLowerCase()==='pendente'?`<button onclick="payClosedCommand(${c.id})">RECEBER</button> <button onclick="openCommandDocument(${c.id},'a4')">COMANDA A4 / PDF</button>`:`<button onclick="printCommand(${c.id},'conferencia')">IMPRIMIR CONFERÊNCIA</button> <button onclick="printCommand(${c.id},'paga')">IMPRIMIR COMPROVANTE</button> <button onclick="openCommandDocument(${c.id},'a4')">COMANDA A4 / PDF</button>`}`}</article>`};
   $('commandsOpenList').innerHTML=`<button type="button" class="command-card command-new" onclick="openNewCommandDialog()"><strong>＋ NOVA COMANDA</strong><span>Escolher cliente</span></button>`+opened.map(card).join('');
-  $('commandsClosedList').innerHTML=closedToday.length?closedToday.map(card).join(''):'<div class="command-empty">Nenhuma conta finalizada hoje.</div>';
+  $('commandsClosedList').innerHTML=closedToday.length?closedToday.map(commandCardHtml).join(''):'<div class="command-empty">Nenhuma conta finalizada hoje.</div>';
   if($('commandsArchivePanel')?.style.display==='block'&&$('commandsArchiveDate')?.value)filterCommandArchive();
   if(currentCommandId){const stillOpen=opened.some(c=>Number(c.id)===Number(currentCommandId));if(stillOpen)renderCommandDetails(commandRowsCache.find(c=>Number(c.id)===Number(currentCommandId)),activeProducts);else closeCommandDetails();}
  }catch(e){$('commandsOpenList').innerHTML='<p>Erro ao carregar comandas: '+esc(e.message)+'</p>';$('commandsClosedList').innerHTML='';}
