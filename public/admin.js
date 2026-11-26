@@ -670,44 +670,101 @@ function escAttr(s){return esc(s).replace(/`/g,'&#96;')}
 // ===== Fornecedores e entrada de estoque por XML =====
 let suppliersCache=[];
 let purchaseDraft=null;
+let activeSupplierHistoryId=null;
+const supplierFieldIds=['supplierName','supplierFantasy','supplierCnpj','supplierIe','supplierIest','supplierCrt','supplierPhone','supplierEmail','supplierStreet','supplierNumber','supplierComplement','supplierDistrict','supplierCity','supplierCityCode','supplierState','supplierZip','supplierCountry','supplierCountryCode'];
+const supplierApiFields=['name','fantasy_name','cnpj','state_registration','state_registration_subst','tax_regime','phone','email','street','number','complement','district','city','city_code','state','zip_code','country','country_code'];
+function supplierFormValues(){
+ const out={};
+ supplierApiFields.forEach((key,i)=>out[key]=String($(supplierFieldIds[i])?.value||'').trim());
+ out.cnpj=out.cnpj.replace(/\D/g,'');
+ return out;
+}
+function setSupplierFormValues(x={}){
+ supplierApiFields.forEach((key,i)=>{const el=$(supplierFieldIds[i]);if(el)el.value=x[key]||'';});
+}
 async function loadSuppliers(){
-  const box=$('suppliersList'); if(box) box.innerHTML='<p>Carregando fornecedores...</p>';
-  try{
-    suppliersCache=await api('/api/admin/suppliers');
-    renderSuppliers(suppliersCache);
-  }catch(e){if(box)box.innerHTML='<p>Erro ao carregar fornecedores: '+esc(e.message)+'</p>';}
+ const box=$('suppliersList');if(box)box.innerHTML='<p>Carregando fornecedores...</p>';
+ try{suppliersCache=await api('/api/admin/suppliers');renderSuppliers(suppliersCache);}
+ catch(e){if(box)box.innerHTML='<p>Erro ao carregar fornecedores: '+esc(e.message)+'</p>';}
 }
 function renderSuppliers(rows){
-  const box=$('suppliersList'); if(!box)return;
-  box.innerHTML='<div class="table"><table><tr><th>Fornecedor</th><th>CNPJ</th><th>Ações</th></tr>'+
-    (rows||[]).map(x=>`<tr><td>${esc(x.name||'')}</td><td>${esc(x.cnpj||'')}</td><td><button type="button" onclick="editSupplier(${Number(x.id)})">Editar</button></td></tr>`).join('')+
-    '</table></div>'||'<p>Nenhum fornecedor cadastrado.</p>';
-  if(!rows||!rows.length)box.innerHTML='<p>Nenhum fornecedor cadastrado.</p>';
+ const box=$('suppliersList');if(!box)return;
+ box.innerHTML='<div class="table"><table class="supplier-table"><thead><tr><th>Fornecedor</th><th>CNPJ</th><th>Ações</th></tr></thead><tbody>'+
+ (rows||[]).map(x=>`<tr><td><b>${esc(x.name||'')}</b>${x.fantasy_name?`<br><span class="small muted">${esc(x.fantasy_name)}</span>`:''}</td><td>${esc(x.cnpj||'')}</td><td><div class="supplier-actions"><button type="button" onclick="editSupplier(${Number(x.id)})">Editar</button><button type="button" onclick="openSupplierHistory(${Number(x.id)})">Histórico</button></div></td></tr>`).join('')+
+ '</tbody></table></div>';
+ if(!rows||!rows.length)box.innerHTML='<p>Nenhum fornecedor cadastrado.</p>';
 }
 function filterSuppliers(){
-  const q=String($('supplierSearch')?.value||'').toLowerCase().replace(/\D/g,'') ;
-  const term=String($('supplierSearch')?.value||'').toLowerCase().trim();
-  renderSuppliers(suppliersCache.filter(x=>String(x.name||'').toLowerCase().includes(term)||String(x.cnpj||'').replace(/\D/g,'').includes(q)));
+ const raw=String($('supplierSearch')?.value||'').trim().toLowerCase();
+ const digits=raw.replace(/\D/g,'');
+ renderSuppliers(suppliersCache.filter(x=>String(x.name||'').toLowerCase().includes(raw)||String(x.fantasy_name||'').toLowerCase().includes(raw)||String(x.cnpj||'').replace(/\D/g,'').includes(digits)));
 }
+function showSupplierScreen(screen){
+ $('supplierListScreen').style.display=screen==='list'?'block':'none';
+ $('supplierFormScreen').style.display=screen==='form'?'block':'none';
+ $('supplierHistoryScreen').style.display=screen==='history'?'block':'none';
+}
+function openSupplierForm(){
+ clearSupplierForm();$('supplierFormTitle').textContent='Cadastro de Fornecedor';
+ showSupplierScreen('form');window.scrollTo({top:0,behavior:'smooth'});
+}
+function closeSupplierForm(){showSupplierScreen('list');}
 function editSupplier(id){
-  const x=suppliersCache.find(v=>Number(v.id)===Number(id));if(!x)return;
-  $('supplierEditId').value=x.id;$('supplierName').value=x.name||'';$('supplierCnpj').value=x.cnpj||'';
-  $('supplierMsg').textContent='Editando fornecedor. Altere os dados e salve.';
+ const x=suppliersCache.find(v=>Number(v.id)===Number(id));if(!x)return;
+ $('supplierEditId').value=x.id;setSupplierFormValues(x);
+ $('supplierFormTitle').textContent='Editar Fornecedor';
+ $('supplierMsg').textContent='Altere os dados necessários e salve.';
+ showSupplierScreen('form');window.scrollTo({top:0,behavior:'smooth'});
 }
 function clearSupplierForm(){
-  ['supplierEditId','supplierName','supplierCnpj'].forEach(id=>{if($(id))$(id).value='';});
-  if($('supplierMsg'))$('supplierMsg').textContent='';
+ if($('supplierEditId'))$('supplierEditId').value='';
+ setSupplierFormValues({});
+ if($('supplierXmlFile'))$('supplierXmlFile').value='';
+ if($('supplierMsg'))$('supplierMsg').textContent='';
 }
 async function saveSupplierFromPanel(){
-  const id=$('supplierEditId').value;
-  const body={name:$('supplierName').value.trim(),cnpj:$('supplierCnpj').value.replace(/\D/g,'')};
-  if(!body.name||body.cnpj.length!==14){$('supplierMsg').textContent='Informe a razão social e um CNPJ válido com 14 dígitos.';return;}
-  try{
-    const d=await api(id?'/api/admin/suppliers/'+id:'/api/admin/suppliers',{method:id?'PUT':'POST',body:JSON.stringify(body)});
-    $('supplierMsg').textContent=d.message||'Fornecedor salvo.';
-    clearSupplierForm();await loadSuppliers();
-  }catch(e){$('supplierMsg').textContent=e.message;}
+ const id=$('supplierEditId').value,body=supplierFormValues();
+ if(!body.name||body.cnpj.length!==14){$('supplierMsg').textContent='Informe a razão social e um CNPJ válido com 14 dígitos.';return;}
+ try{
+  const d=await api(id?'/api/admin/suppliers/'+id:'/api/admin/suppliers',{method:id?'PUT':'POST',body:JSON.stringify(body)});
+  $('supplierMsg').textContent=d.message||'Fornecedor salvo.';
+  await loadSuppliers();showSupplierScreen('list');
+ }catch(e){$('supplierMsg').textContent=e.message;}
 }
+function parseSupplierXml(input){
+ const file=input.files&&input.files[0];if(!file)return;
+ const reader=new FileReader();
+ reader.onload=()=>{
+  try{
+   const doc=new DOMParser().parseFromString(reader.result,'text/xml');
+   if(doc.querySelector('parsererror'))throw Error('O arquivo não é um XML válido.');
+   const emit=doc.getElementsByTagName('emit')[0];if(!emit)throw Error('Não encontrei os dados do emitente neste XML.');
+   const addr=Array.from(emit.getElementsByTagName('*')).find(x=>x.localName==='enderEmit');
+   const get=(node,tag)=>{const el=Array.from(node?.getElementsByTagName?.('*')||[]).find(x=>x.localName===tag);return el?String(el.textContent||'').trim():'';};
+   const data={name:get(emit,'xNome'),fantasy_name:get(emit,'xFant'),cnpj:get(emit,'CNPJ')||get(emit,'CPF'),state_registration:get(emit,'IE'),phone:get(addr,'fone')||get(emit,'fone'),email:get(emit,'email'),street:get(addr,'xLgr'),number:get(addr,'nro'),complement:get(addr,'xCpl'),district:get(addr,'xBairro'),city:get(addr,'xMun'),city_code:get(addr,'cMun'),state:get(addr,'UF'),zip_code:get(addr,'CEP'),country:get(addr,'xPais')};
+   setSupplierFormValues(data);
+   $('supplierMsg').textContent='Dados do emitente importados do XML. Confira e salve o cadastro.';
+  }catch(e){$('supplierMsg').textContent=e.message;alert(e.message);}
+ };
+ reader.readAsText(file);
+}
+async function openSupplierHistory(id){
+ activeSupplierHistoryId=Number(id);
+ const supplier=suppliersCache.find(x=>Number(x.id)===Number(id));if(!supplier)return;
+ $('supplierHistoryTitle').textContent='Histórico — '+(supplier.name||'Fornecedor');
+ const box=$('supplierHistoryContent');box.innerHTML='<p>Carregando notas fiscais...</p>';
+ showSupplierScreen('history');
+ try{
+  const rows=await api('/api/admin/suppliers/'+id+'/invoices');
+  box.innerHTML=rows.length?rows.map(inv=>`<div class="supplier-history-row"><span><b>NF-e ${esc(inv.invoice_number||'—')}</b><br><small>${esc(inv.series||'Série não informada')}</small></span><span>${esc(inv.issue_date||'Data não informada')}</span><b>${money(inv.total)}</b><button type="button" onclick="openSupplierInvoice(${Number(inv.id)})">VER NOTA</button></div>`).join(''):'<p>Nenhuma nota fiscal encontrada para este fornecedor.</p>';
+ }catch(e){box.innerHTML='<p>Não foi possível carregar o histórico: '+esc(e.message)+'</p>';}
+}
+async function openSupplierInvoice(id){
+ const box=$('supplierHistoryContent');box.innerHTML='<p>Carregando detalhes da nota...</p>';
+ try{const data=await api('/api/admin/purchases/'+encodeURIComponent(id));box.innerHTML=`<div class="supplier-form-head"><button type="button" onclick="openSupplierHistory(${Number(activeSupplierHistoryId)})">← VOLTAR AO HISTÓRICO</button><button type="button" onclick="window.print()">IMPRIMIR / SALVAR PDF</button></div>${renderDanfeHtml(data.invoice||{},data.lines||[])}`;}
+ catch(e){box.innerHTML=`<button type="button" onclick="openSupplierHistory(${Number(activeSupplierHistoryId)})">← VOLTAR AO HISTÓRICO</button><p>Não foi possível abrir a nota: ${esc(e.message)}</p>`;}
+}
+function closeSupplierHistory(){activeSupplierHistoryId=null;showSupplierScreen('list');}
 function xmlText(node,tag){
   const el=Array.from(node?.getElementsByTagName?.('*')||[]).find(x=>x.localName===tag);
   return el?String(el.textContent||'').trim():'';
@@ -755,7 +812,7 @@ function parsePurchaseXml(input){
       const dets=Array.from(doc.getElementsByTagName('det'));
       const invoiceTotals={};
       ['vProd','vDesc','vFrete','vSeg','vOutro','vBC','vICMS','vBCST','vST','vFCPST','vIPI','vPIS','vCOFINS','vII','vNF','vTotTrib'].forEach(k=>invoiceTotals[k]=xmlNum(total,k));
-      purchaseDraft={access_key:key,xml_content:String(reader.result||''),invoice_number:xmlText(ide,'nNF'),series:xmlText(ide,'serie'),supplier_name:xmlText(emit,'xNome'),supplier_cnpj:xmlText(emit,'CNPJ')||xmlText(emit,'CPF'),issue_date:xmlText(ide,'dhEmi')||xmlText(ide,'dEmi'),total:invoiceTotals.vNF,invoice_totals:invoiceTotals,lines:[]};
+      const emitAddr=Array.from(emit.getElementsByTagName('*')).find(x=>x.localName==='enderEmit');const supplier_data={name:xmlText(emit,'xNome'),fantasy_name:xmlText(emit,'xFant'),cnpj:xmlText(emit,'CNPJ')||xmlText(emit,'CPF'),state_registration:xmlText(emit,'IE'),state_registration_subst:xmlText(emit,'IEST'),tax_regime:xmlText(emit,'CRT'),phone:xmlText(emitAddr,'fone')||xmlText(emit,'fone'),email:xmlText(emit,'email'),street:xmlText(emitAddr,'xLgr'),number:xmlText(emitAddr,'nro'),complement:xmlText(emitAddr,'xCpl'),district:xmlText(emitAddr,'xBairro'),city:xmlText(emitAddr,'xMun'),city_code:xmlText(emitAddr,'cMun'),state:xmlText(emitAddr,'UF'),zip_code:xmlText(emitAddr,'CEP'),country:xmlText(emitAddr,'xPais'),country_code:xmlText(emitAddr,'cPais')};purchaseDraft={access_key:key,xml_content:String(reader.result||''),invoice_number:xmlText(ide,'nNF'),series:xmlText(ide,'serie'),supplier_name:xmlText(emit,'xNome'),supplier_cnpj:xmlText(emit,'CNPJ')||xmlText(emit,'CPF'),supplier_data,issue_date:xmlText(ide,'dhEmi')||xmlText(ide,'dEmi'),total:invoiceTotals.vNF,invoice_totals:invoiceTotals,lines:[]};
       purchaseDraft.lines=dets.map((det,i)=>{
         const prod=det.getElementsByTagName('prod')[0],tax=det.getElementsByTagName('imposto')[0];
         const qty=xmlNum(prod,'qCom'),tradeUnit=xmlText(prod,'uCom')||'un';
